@@ -96,6 +96,7 @@
     "virtiofs",
     "apikey",
     "unstartable",
-    "startswith"
+    "startswith",
+    "unrecognised"
   ]
 }

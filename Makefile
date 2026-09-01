@@ -11,8 +11,8 @@ CSPELL ?= cspell
 # drafts). Assert each kits/<name>/ declares name: <name>, that the files every
 # kit duplicates stay byte-identical across kits, that the Cursor kit's
 # user-scope MCP config matches the repo's project-scope one (the sandbox mounts
-# the project, so the two sit side by side), and that kits/sbxclaude/spec.yaml
-# version matches CHANGELOG's latest release.
+# the project, so the two sit side by side), and that every kits/*/spec.yaml
+# version matches CHANGELOG's latest release (and therefore each other).
 lint:
 	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' | xargs -0 $(MARKDOWNLINT)
 	git ls-files -z -- '*.json' | xargs -0 -n1 jq empty
@@ -42,19 +42,22 @@ lint:
 		echo "lint: kits/sbxcursor/files/home/.cursor/mcp.json differs from .cursor/mcp.json" >&2; \
 		exit 1; \
 	}
-	spec_version="$$(grep -m1 '^version:' kits/sbxclaude/spec.yaml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
 	changelog_version="$$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
-	if [ -z "$$spec_version" ]; then \
-		echo "lint: could not find version: in kits/sbxclaude/spec.yaml" >&2; exit 1; \
-	elif [ -z "$$changelog_version" ]; then \
+	if [ -z "$$changelog_version" ]; then \
 		echo "lint: could not find a ## [X.Y.Z] release heading in CHANGELOG.md" >&2; exit 1; \
-	elif [ "$$spec_version" != "$$changelog_version" ]; then \
-		echo "lint: kits/sbxclaude/spec.yaml is version $$spec_version but CHANGELOG.md's latest release is $$changelog_version" >&2; \
-		exit 1; \
-	fi
+	fi; \
+	for spec in kits/*/spec.yaml; do \
+		spec_version="$$(grep -m1 '^version:' "$$spec" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
+		if [ -z "$$spec_version" ]; then \
+			echo "lint: could not find version: in $$spec" >&2; exit 1; \
+		elif [ "$$spec_version" != "$$changelog_version" ]; then \
+			echo "lint: $$spec is version $$spec_version but CHANGELOG.md's latest release is $$changelog_version" >&2; \
+			exit 1; \
+		fi; \
+	done
 	@echo "All lint checks passed."
 
-# Validate the sandbox kit spec against the current Sandbox Kit schema.
+# Validate every sandbox kit spec against the current Sandbox Kit schema.
 validate:
 	./scripts/sbxclaude kit validate
 	./scripts/sbxcodex kit validate

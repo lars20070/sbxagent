@@ -2,16 +2,23 @@
 
 > **Scope:** these are instructions for **development agents** working *on* this
 > repository (e.g. Claude Code) — how to build, lint, and validate it. They are
-> not instructions for the coding agent running inside the `sbxclaude` sandbox.
+> not instructions for the coding agent running inside a sandbox.
 
 ## Repository Map
 
-- `sbxclaude/spec.yaml` — the Docker Sandbox Kit spec: agent, resources,
-  network policy, and setup commands baked into the sandbox.
-- `sbxclaude/files/` — files copied into the sandbox at kit-build time.
-- `scripts/sbxclaude` — wrapper CLI around `sbx` that creates, rebuilds, and
-  re-attaches the per-project sandbox. Run `./scripts/sbxclaude -h` for the
-  current command list rather than relying on this doc, which won't track it.
+- `kits/<command>/spec.yaml` — one Docker Sandbox Kit spec per wrapper command:
+  agent, resources, network policy, and setup commands baked into that sandbox.
+  There are three — `kits/sbxclaude/`, `kits/sbxcodex/`, `kits/sbxcursor/` —
+  and the directory name is the single source of identity: it equals `name:` in
+  the spec, the `sbx` positional operand, the sandbox-name prefix, and the
+  command you type.
+- `kits/<command>/files/` — files copied into that sandbox at kit-build time.
+- `scripts/sbxagent` — wrapper CLI around `sbx` that creates, rebuilds, and
+  re-attaches the per-project sandbox. It dispatches on `basename "$0"`, so it
+  is invoked through the `scripts/sbxclaude`, `scripts/sbxcodex` and
+  `scripts/sbxcursor` symlinks, never under its own name. Run
+  `./scripts/sbxclaude -h` for the current command list rather than relying on
+  this doc, which won't track it.
 
 ## Commands
 
@@ -29,11 +36,11 @@ Unknown-but-correct words go in `.cspell.json`.
 
 ## Critical Requirement
 
-Before finishing any task that touches `sbxclaude/spec.yaml` or
-`sbxclaude/files/`, run `make validate` — it's a static schema check with
-no Docker, no `sbx login`, and no network, so there's no reason to skip it.
-Before finishing any task that touches `scripts/sbxclaude` or any other shell
-script, run `make lint` — it runs `shellcheck` and `bash -n` over every
+Before finishing any task that touches any `kits/*/spec.yaml` or `kits/*/files/`,
+run `make validate` — it validates all three kits, and it's a static schema
+check with no Docker, no `sbx login`, and no network, so there's no reason to
+skip it. Before finishing any task that touches `scripts/sbxagent` or any other
+shell script, run `make lint` — it runs `shellcheck` and `bash -n` over every
 tracked script.
 
 ## Portability
@@ -41,7 +48,7 @@ tracked script.
 The wrapper has to run unchanged on macOS and Linux hosts.
 
 - Probe for capabilities, never for the OS name. The `shasum` → `sha256sum`
-  fallback in `scripts/sbxclaude` is the pattern to copy; there is no `uname`
+  fallback in `scripts/sbxagent` is the pattern to copy; there is no `uname`
   branch anywhere and there should not be one.
 - Say `macOS` and `Linux` in code, comments, and docs. No distro or subsystem
   names. Identifiers are exempt: CI runner labels, `apt-get`, the `docker-sbx`
@@ -66,9 +73,9 @@ The wrapper has to run unchanged on macOS and Linux hosts.
 - Skip entries for tests, formatting, internal refactors, and documentation
   changes that do not affect users.
 - For a release, move the relevant entries to `## [X.Y.Z] - YYYY-MM-DD`.
-- Bump `version:` in `sbxclaude/spec.yaml` to match `X.Y.Z` in the same
-  commit that cuts the `## [X.Y.Z] - YYYY-MM-DD` heading — `make lint` fails
-  if the two disagree.
+- Bump `version:` in **every** `kits/*/spec.yaml` to match `X.Y.Z` in the same
+  commit that cuts the `## [X.Y.Z] - YYYY-MM-DD` heading — `make lint` fails if
+  any of them disagrees with the changelog, or with the others.
 - Restore an empty `## [Unreleased]` heading above the new release heading.
 - Tag that commit `vX.Y.Z` once `spec.yaml` and `CHANGELOG.md` agree.
   Pushing the tag and publishing the kit itself are separate steps this

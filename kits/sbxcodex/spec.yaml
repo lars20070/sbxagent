@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxcodex
-version: "0.1.0"
+version: "0.2.0"
 displayName: Codex with custom toolchain
 description: Codex with custom toolchain
 

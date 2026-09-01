@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 #
-# CodeRabbit configuration for sbxclaude.
+# CodeRabbit configuration for sbxagent.
 # Anything not listed here uses CodeRabbit's own default.
 language: en-US
 tone_instructions: "Be concise and focus on critical issues only. Do not comment on trivial matters, nitpicks, or stylistic preferences. Only flag issues that could cause bugs, security vulnerabilities, or significant maintainability problems."

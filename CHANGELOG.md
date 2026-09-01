@@ -8,8 +8,47 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-01
+
+### Added
+
+- `sbxcodex` and `sbxcursor`, running Codex and Cursor on the same toolchain,
+  network allowlist and agent instructions as `sbxclaude`. Each gets its own
+  sandbox and its own credentials, so all three can run against one project at
+  the same time.
+- One script, `scripts/sbxagent`, serving all three commands. It dispatches on
+  the name it was invoked as, so `sbxclaude`, `sbxcodex` and `sbxcursor` are
+  symlinks to it. Run directly, or copied to an unrecognised name, it refuses
+  and prints the `ln -s` recipe rather than guessing an agent.
+- MCP servers for the two new agents, in each one's native form: `sbxcodex`
+  appends `[mcp_servers.*]` to `~/.codex/config.toml` from `setup:`, because its
+  parent kit rewrites that file on every create; `sbxcursor` ships
+  `files/home/.cursor/mcp.json`, and pre-approves both servers so Cursor does
+  not prompt for them.
+
 ### Changed
 
+- **Breaking — the install path moved.** `scripts/sbxclaude` is now a symlink to
+  `scripts/sbxagent`. Re-link the wrapper, once per agent you want:
+
+  ```bash
+  ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxclaude
+  ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcodex
+  ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcursor
+  ```
+
+- **Breaking — delete existing sandboxes before the first rebuild.** The
+  `sbxclaude` sandbox name is unchanged and the wrapper's attach path never
+  consults the kit, so a leftover sandbox is silently re-attached with the old
+  kit baked in. Remove them on the host first (`sbx ls`, then `sbx rm <name>`).
+  Not `sbx reset` — that also wipes network policies and the `github` secret.
+- The kit moved from `sbxclaude/` to `kits/sbxclaude/`, alongside
+  `kits/sbxcodex/` and `kits/sbxcursor/`. The guard filter it installs moved
+  from `/usr/local/lib/sbxclaude/` to `/usr/local/lib/sbxagent/`.
+- The network-block escalation hook remains **`sbxclaude` only**. It is built on
+  Claude Code's managed-settings hook JSON, and neither Codex nor Cursor exposes
+  a verified equivalent. In those two sandboxes the agent is asked to report a
+  blocked host, but nothing enforces it.
 - The baked-in `github` MCP server now runs `github-mcp-server` `1.11.0`
   locally over stdio instead of calling GitHub's hosted server at
   `api.githubcopilot.com`. The hosted endpoint is a Copilot endpoint and needs
@@ -19,16 +58,17 @@ and this project adheres to
   ([docker/sbx-releases#231](https://github.com/docker/sbx-releases/issues/231)).
   The local server talks to `api.github.com`, which the credential proxy
   already authenticates, so `sbx secret set github` is now the only credential
-  the GitHub MCP tools need.
+  the GitHub MCP tools need. The host now needs `brew install github-mcp-server`.
 - Network allowlist: `api.githubcopilot.com:443` replaced by
   `api.github.com:443`.
-- `.mcp.json`, `.cursor/mcp.json`, and `.vscode/mcp.json` define `github` as
-  the same local stdio server, so the repo's project scope and the kit's user
-  scope no longer disagree about the endpoint. All four configs read
-  `GITHUB_PERSONAL_ACCESS_TOKEN` from `${GITHUB_TOKEN}`; the sandbox entrypoint
-  points that at the proxy-managed `github` sentinel so one definition works
-  both on the host and in the sandbox. The host now needs
-  `brew install github-mcp-server`.
+- Project-scope MCP configs (`.mcp.json`, `.cursor/mcp.json`,
+  `.vscode/mcp.json`) now match their kit counterparts so the mounted project
+  and user scope do not disagree about the endpoint.
+
+### Removed
+
+- `scripts/sbxclaude` as a real file. It is a symlink to `scripts/sbxagent`
+  now, and `scripts/sbxagent` refuses to run under its own name.
 
 ## [0.1.0] - 2026-08-22
 

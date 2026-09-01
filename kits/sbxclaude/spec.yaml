@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxclaude
-version: "0.1.0"
+version: "0.2.0"
 displayName: Claude Code with custom toolchain
 description: Claude Code with custom toolchain
 
