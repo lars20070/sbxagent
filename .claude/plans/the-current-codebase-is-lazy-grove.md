@@ -53,9 +53,101 @@ Other differences that the plan has to handle:
 - Three standalone `spec.yaml` files, no generator. Simple to read; the cost is
   that a pin bump touches three files.
 - Separate sandbox per agent: `sbxclaude-<slug>-<hash>`, `sbxcodex-<slug>-<hash>`,
-  `sbxcursor-<slug>-<hash>`. Existing `sbxclaude-*` sandboxes keep their names,
-  so nothing already on disk is orphaned.
+  `sbxcursor-<slug>-<hash>`. The prefix is the command you type, which is the
+  only property worth optimising for here.
 - Codex and Cursor ship without the network-block escalation hook in v1.
+- **No backwards compatibility.** No migration shims, no dual paths, no "old
+  location still works" fallbacks. Every sandbox is deleted and rebuilt.
+  Note that the Claude sandbox name is unchanged, and the wrapper's attach path
+  never consults the kit — so a leftover sandbox would be re-attached silently
+  with the old kit baked in. Delete them on the host (`sbx rm --all -f`, or
+  `sbx ls` then `sbx rm <name>`) before the first rebuild. Not `sbx reset` —
+  that also wipes network policies and the `github` secret.
+
+### Target directory structure
+
+```text
+.
+├── AGENTS.md  CLAUDE.md  CHANGELOG.md  LICENSE  Makefile  README.md
+├── .coderabbit.yaml  .cspell.json  .editorconfig  .gitignore
+├── .markdownlint-cli2.jsonc  .shellcheckrc  .yamllint.yaml
+├── .github/workflows/ci.yml
+│
+│   # Configs for agents working ON this repo (unchanged, not part of any kit)
+├── .mcp.json                         # Claude Code, project scope
+├── .claude/{settings.json, plans/, skills/}
+├── .cursor/{mcp.json, settings.json, plans/, skills/}
+├── .vscode/{mcp.json, settings.json}
+│
+│   # NEW: one directory per wrapper command. Directory name == kit `name:`
+│   #      == the sbx positional operand == the command you type.
+├── kits/
+│   ├── sbxclaude/                    # MOVED from ./sbxclaude/
+│   │   ├── spec.yaml                 #   extends: claude
+│   │   └── files/
+│   │       ├── home/
+│   │       │   ├── .claude.json                     # MCP, user scope
+│   │       │   ├── .claude/output-styles/eli5.md    # Claude-only
+│   │       │   └── .gitconfig                       # shared copy
+│   │       └── workspace/.editorconfig              # shared copy
+│   ├── sbxcodex/                     # NEW
+│   │   ├── spec.yaml                 #   extends: codex
+│   │   └── files/
+│   │       ├── home/.gitconfig                      # shared copy
+│   │       └── workspace/.editorconfig              # shared copy
+│   └── sbxcursor/                    # NEW
+│       ├── spec.yaml                 #   extends: cursor
+│       └── files/
+│           ├── home/
+│           │   ├── .cursor/mcp.json                 # MCP, user scope
+│           │   └── .gitconfig                       # shared copy
+│           └── workspace/.editorconfig              # shared copy
+│
+├── scripts/
+│   ├── sbxagent                      # RENAMED from scripts/sbxclaude
+│   ├── sbxclaude -> sbxagent         # NEW symlink
+│   ├── sbxcodex  -> sbxagent         # NEW symlink
+│   └── sbxcursor -> sbxagent         # NEW symlink
+│
+└── tests/
+    ├── sbxagent_test.sh              # RENAMED from tests/sbxclaude_test.sh
+    └── toolchain_test.sh             # branches on /etc/sbxagent-kit
+```
+
+Why it is shaped this way:
+
+- **`kits/` groups three things of one kind.** Three sibling top-level
+  directories that are all sandbox kits would read as three unrelated projects.
+  `sbx kit validate` takes any directory path, so the nesting costs nothing.
+- **Directory name is the single source of identity.** `kits/sbxcodex/` implies
+  `name: sbxcodex` in its `spec.yaml`, the `sbxcodex` positional passed to
+  `sbx run`, the `sbxcodex-<slug>-<hash>` sandbox name, and the `sbxcodex`
+  command. One string, derived once from `basename "$0"`. `make lint` should
+  assert dir name == `name:` for each kit.
+- **`files/home/` and `files/workspace/`** keep the existing convention. No new
+  top level inside a kit.
+- **`sbxcodex` ships no MCP file.** Its parent rewrites `~/.codex/config.toml`
+  on every create, so the MCP servers are appended by a `setup:` step instead.
+  An empty-looking `files/` there is deliberate, and the `spec.yaml` says so.
+- **The network-block guard stays inline** in `kits/sbxclaude/spec.yaml` as a
+  heredoc, written by `setup:` as root to `/usr/local/lib/sbxagent/`. It is not
+  moved into `files/`: being root-owned and outside `$HOME` is the whole point,
+  and `files/home/` would not give that.
+- **`.gitconfig` and `.editorconfig` are byte-identical triplicates.** That is
+  the accepted cost of three standalone kits. Cheap guard: two `cmp` calls in
+  `make lint` so they cannot drift silently.
+- **`.claude/`, `.cursor/`, `.vscode/` and `.mcp.json` are untouched.** They
+  configure agents editing this repo; they are not shipped into any sandbox.
+  Optionally add a `.codex/config.toml` if you want to develop this repo with
+  Codex too — `AGENTS.md` already covers the instruction half.
+
+New constraint this layout creates: the sandbox mounts the project, so a
+project-scope MCP config sits alongside the kit's user-scope one. `.mcp.json` vs
+`kits/sbxclaude/files/home/.claude.json` must already agree (documented in the
+README). **`.cursor/mcp.json` vs `kits/sbxcursor/files/home/.cursor/mcp.json`
+now has the same requirement** — note the repo's file uses `${env:GITHUB_TOKEN}`
+where `.mcp.json` uses `${GITHUB_TOKEN}`, so the kit copy must match the Cursor
+form, not the Claude one. Codex has no project MCP scope, so it is unaffected.
 
 ### Main risk
 
@@ -75,15 +167,19 @@ does today, but the machinery is agent-parametrised.
 
 ### Layout
 
-```
-scripts/sbxagent            # the real script (git mv from scripts/sbxclaude)
-scripts/sbxclaude -> sbxagent   # in-repo symlink, so tests and `make` exercise dispatch
-kits/sbxclaude/spec.yaml    # git mv from sbxclaude/spec.yaml
-kits/sbxclaude/files/...    # git mv from sbxclaude/files/
-tests/sbxagent_test.sh      # git mv from tests/sbxclaude_test.sh
+Build the `sbxclaude` third of the target structure above. Use `git mv` so the
+renames show up as renames in history:
+
+```bash
+git mv scripts/sbxclaude scripts/sbxagent
+git mv tests/sbxclaude_test.sh tests/sbxagent_test.sh
+mkdir kits && git mv sbxclaude kits/sbxclaude
+ln -s sbxagent scripts/sbxclaude && git add scripts/sbxclaude
 ```
 
-Use `git mv` so the rename is visible in history.
+The in-repo `scripts/sbxclaude` symlink is what makes `make` and the tests go
+through basename dispatch on every run, rather than only at install time.
+`kits/sbxcodex/` and `kits/sbxcursor/` arrive in Stages 3 and 4.
 
 ### `scripts/sbxagent`
 
@@ -148,9 +244,12 @@ Keep bash 3.2 compatible: no `declare -A`, no `${var,,}`.
 
 ### `Makefile`
 
-- `lint`: glob `kits/*/spec.yaml` instead of `sbxclaude/spec.yaml`; add
-  `':!scripts/sbxclaude'` to the shellcheck/`bash -n` file lists so the symlink
-  is not linted as a second copy of the same script.
+- `lint`: glob `kits/*/spec.yaml` instead of `sbxclaude/spec.yaml`. Change the
+  shellcheck / `bash -n` file list from `'scripts/*'` to `'scripts/sbxagent'` —
+  naming the one real script beats excluding symlinks, which would otherwise
+  need extending again in Stages 3 and 4. Add one structural check: each
+  `kits/<dir>/spec.yaml` has `name: <dir>`. The `cmp` checks for the duplicated
+  `files/` wait for Stage 3 — with one kit there is nothing to compare.
 - The version-lockstep check reads `kits/sbxclaude/spec.yaml`; in Stage 5 it
   loops over all three and asserts they agree with each other and with
   `CHANGELOG.md`.
@@ -179,7 +278,8 @@ Existing coverage stays. Changes:
 Only path-shaped edits: `/usr/local/lib/sbxclaude/network-block.jq` →
 `/usr/local/lib/sbxagent/network-block.jq`. Keep `name: sbxclaude`, keep the
 entrypoint workaround, keep the guard. Update the matching paths in
-`tests/toolchain_test.sh` (`GUARD_FILTER`).
+`tests/toolchain_test.sh` (`GUARD_FILTER`), and make its `REBUILD_HINT` string
+agent-aware — it currently hardcodes `'sbxclaude rm' then 'sbxclaude'`.
 
 ### CI
 
@@ -210,16 +310,22 @@ No production code. Prove the parent kit still functions when a child defines
 2. `ln -s sbxagent scripts/sbxcodex`, then `sbxcodex` — confirm Codex starts and
    is authenticated (`~/.codex/auth.json` and `~/.codex/config.toml` exist and
    are owned by the sandbox user).
-3. Add a trivial `setup: install:` step (e.g. `apt-get install -y jq`) and
-   `sbxcodex rm && sbxcodex`. Re-check the two files.
+3. Add a trivial `setup: install:` step (e.g. `apt-get install -y jq`), then
+   `sbxcodex rm && sbxcodex`. Re-check the two files. The `rm` matters:
+   `setup:` runs only on create, so an attach would prove nothing.
 
 **If step 3 loses auth**, the workaround mirrors the existing Claude one: do the
 work from `entrypoint:` instead of `setup:`, or replicate the parent's
 config/auth seeding in our own `setup:`. Record which applies before Stage 3.
 
-Also confirm in this stage which host the Codex CLI actually talks to
-(`api.openai.com`, `chatgpt.com/backend-api/codex`) via `sbxcodex policy log`,
-so the Stage 3 allowlist is derived from observation, not guesswork.
+While in there, capture two things Stage 3 needs from observation rather than
+guesswork:
+
+- Which hosts the Codex CLI actually talks to (`api.openai.com`,
+  `chatgpt.com/backend-api/codex`), via `sbxcodex policy log`.
+- The exact `[mcp_servers.*]` shape the parent wrote into `~/.codex/config.toml`
+  for its own gateway. Copy its key names verbatim in Stage 3 — a wrong TOML key
+  fails silently, with the server simply absent.
 
 ---
 
@@ -275,6 +381,10 @@ managed-settings and `~/.claude.json` blocks run only for `sbxclaude`; a
 (tool versions, Chromium launch, mmdc render, CA bundle, git `insteadOf`) is
 shared.
 
+Now that a second kit exists, add the `cmp` checks to `make lint`:
+`files/home/.gitconfig` and `files/workspace/.editorconfig` must be
+byte-identical across kits.
+
 Verify with `make test-toolchain AGENT=codex`.
 
 ---
@@ -288,10 +398,12 @@ Same shape as Stage 3. Differences:
   `api3.cursor.sh`, `repo42.cursor.sh`, `cursor.com` — confirmed against
   `sbxcursor policy log` in a spike first, as in Stage 2.
 - MCP servers **can** ship as `files/home/.cursor/mcp.json`, since the parent
-  only writes `~/.cursor/cli-config.json` (`onlyIfMissing: true`). Match the
-  repo's own `.cursor/mcp.json` format — note it uses `${env:GITHUB_TOKEN}`,
-  not `${GITHUB_TOKEN}`; keep whichever the Cursor CLI actually resolves and
-  say so in a comment.
+  only writes `~/.cursor/cli-config.json` (`onlyIfMissing: true`). It must stay
+  byte-identical to the repo's own `.cursor/mcp.json`, for the same reason
+  `.mcp.json` and `~/.claude.json` must agree today: the sandbox mounts the
+  project, so project scope and user scope sit side by side. Note the Cursor
+  form uses `${env:GITHUB_TOKEN}`, not `${GITHUB_TOKEN}`. Add a `cmp` of the
+  two to `make lint`, as the README already demands for the Claude pair.
 - Do not chown `~/.cursor` blindly — Cursor's credential store is in memory and
   the parent's `cli-config.json` is `onlyIfMissing`. Only add a chown if the
   spike shows root-owned files.
@@ -305,7 +417,8 @@ Verify with `make test-toolchain AGENT=cursor`.
 ## Stage 5 — Docs, lint, CI, release
 
 - **`README.md`**: retitle to `sbxagent`. Replace the single install snippet
-  with the three-symlink block from the request. Turn the commands table into
+  with the three-symlink block from the request, replacing the old
+  `ln -s .../scripts/sbxclaude` line outright. Turn the commands table into
   one table using `sbx<agent>` with a note that all three take the same
   signatures. Add a "Supported agents" table (parent kit, entrypoint,
   instruction file, MCP config, guard hook yes/no). Update every pinned-versions
@@ -319,12 +432,16 @@ Verify with `make test-toolchain AGENT=cursor`.
 - **`.cspell.json`**: add `sbxagent`, `sbxcodex`, `sbxcursor`, `codex`,
   `openai`, and any TOML key that trips it.
 - **`.github/workflows/ci.yml`**: no structural change needed once `make
-  validate` loops internally; update the job comment.
+  validate` loops internally; update the job comment (line 71).
+- **`.coderabbit.yaml`**: one comment line (line 3) names the project
+  `sbxclaude`.
 - **`CHANGELOG.md`**: under `## [Unreleased]`, `### Added` for the two new
   agents and the `sbxagent` dispatch; `### Changed` for the kit move to `kits/`
-  and the script rename. Then cut `## [0.2.0] - YYYY-MM-DD` and bump `version:`
-  in all three specs to `0.2.0` in the same commit (`make lint` enforces this).
-  Do not push a tag without confirming.
+  and the script rename; `### Removed` for the old `scripts/sbxclaude` install
+  path. Say plainly that this is breaking: re-link the wrapper, and delete
+  existing sandboxes first. Then cut `## [0.2.0] - YYYY-MM-DD` and bump
+  `version:` in all three specs to `0.2.0` in the same commit (`make lint`
+  enforces this). Do not push a tag without confirming.
 
 ---
 
@@ -336,10 +453,16 @@ Verify with `make test-toolchain AGENT=cursor`.
   generating them from fragments or by trying `sbx`'s `mixins:` field (present
   in the v2 schema, undocumented in the CLI's embedded reference).
 - Renaming the GitHub repository itself.
+- Lifting the ~60-line jq guard filter out of the `spec.yaml` heredoc into its
+  own linted file. Nice for readability, but it would change how the filter gets
+  its root ownership, so it does not belong in the same change as the rename.
 
 ---
 
 ## Verification
+
+Everything below runs on the **host** — `sbx run`, `rm`, `ls` and `policy` all
+need the host CLI and `sandboxd`, and are unavailable from inside a sandbox.
 
 Run at the end of each stage, not only at the end:
 
@@ -349,7 +472,8 @@ make validate
 make test-unit
 make test-unit BASH=/bin/bash          # macOS host only — bash 3.2 floor
 
-# Per agent, after the corresponding stage:
+# Per agent, after the corresponding stage. `rm` first: setup: runs only on
+# create, so re-attaching an existing sandbox tests the previous kit.
 sbxclaude rm && sbxclaude create && make test-toolchain AGENT=claude
 sbxcodex  rm && sbxcodex  create && make test-toolchain AGENT=codex
 sbxcursor rm && sbxcursor create && make test-toolchain AGENT=cursor
