@@ -89,6 +89,10 @@
     "heredocs",
     "prss",
     "seccomp",
-    "mmdc"
+    "mmdc",
+    "sbxagent",
+    "sbxcodex",
+    "sbxcursor",
+    "virtiofs"
   ]
 }
