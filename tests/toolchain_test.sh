@@ -121,17 +121,26 @@ printf '%s\n' "${INSTEAD_OF}" | grep -Fxq 'ssh://git@github.com/' ||
 	fail "missing insteadOf rewrite for ssh://git@github.com/"
 pass "GitHub SSH remotes rewrite to HTTPS"
 
+# Kit-specific files below are written by `setup:`, which only re-runs on a
+# rebuild. A sandbox created before a kit change has none of them, and a bare
+# "file missing" would read as a broken test rather than a stale sandbox.
+REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
+
+# ---------------------------------------------------------------------------
+# sbxclaude only. The network-block guard is Claude Code specific (it installs
+# Claude Code hook JSON in /etc/claude-code/managed-settings.json) and
+# ~/.claude.json is Claude Code's MCP config. Neither exists in the sbxcodex
+# kit, which registers its MCP servers in ~/.codex/config.toml instead and
+# ships no guard — see kits/sbxcodex/spec.yaml.
+# ---------------------------------------------------------------------------
+if [[ "${KIT_NAME}" == "sbxclaude" ]]; then
+
 # Network-block escalation hook. A blocked request must end the turn and tell
 # the user which host to allow, rather than leaving the agent free to work
 # around it. Keep these in sync with the `Network-block escalation hook` setup
 # command in kits/sbxclaude/spec.yaml.
 GUARD_FILTER="/usr/local/lib/sbxagent/network-block.jq"
 MANAGED_SETTINGS="/etc/claude-code/managed-settings.json"
-
-# Both files are written by `setup:`, which only re-runs on a rebuild. A
-# sandbox created before that change has neither, and the bare "file missing"
-# would read as a broken test rather than a stale sandbox.
-REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
 [[ -s "${GUARD_FILTER}" ]] ||
 	fail "guard filter is missing: ${GUARD_FILTER} (${REBUILD_HINT})"
@@ -253,5 +262,48 @@ jq -e '.mcpServers.github.command == "github-mcp-server"
 	"${CLAUDE_JSON}" >/dev/null ||
 	fail "github MCP server missing or misconfigured in ${CLAUDE_JSON}"
 pass "github MCP server is configured for local stdio"
+
+fi # end sbxclaude-only
+
+# ---------------------------------------------------------------------------
+# sbxcodex only. MCP servers live in ~/.codex/config.toml (TOML, appended by
+# `setup:`) rather than in a JSON file shipped under files/home/, because the
+# codex parent kit rewrites that file on every create.
+# ---------------------------------------------------------------------------
+if [[ "${KIT_NAME}" == "sbxcodex" ]]; then
+
+CODEX_TOML="${HOME}/.codex/config.toml"
+
+[[ -s "${CODEX_TOML}" ]] || fail "${CODEX_TOML} is missing (${REBUILD_HINT})"
+pass "${CODEX_TOML} exists"
+
+# Guards against the same root-ownership defect the entrypoint chown works
+# around for ~/.codex (see kits/sbxcodex/spec.yaml, issue #415).
+[[ -O "${CODEX_TOML}" ]] || fail "${CODEX_TOML} is not owned by the sandbox user"
+pass "${CODEX_TOML} is owned by the sandbox user"
+
+# The replicated parent seeding step must have run — without it Codex has no
+# yolo-mode config at all, which is the exact failure #415 causes.
+grep -Fqx 'approval_policy = "never"' "${CODEX_TOML}" ||
+	fail "${CODEX_TOML} lacks the parent's yolo-mode keys (${REBUILD_HINT})"
+pass "replicated parent seeding step ran"
+
+grep -Fqx '[mcp_servers.context7]' "${CODEX_TOML}" ||
+	fail "context7 MCP server missing from ${CODEX_TOML}"
+grep -Fq "@upstash/context7-mcp@${EXPECTED_CONTEXT7_MCP_VERSION}" "${CODEX_TOML}" ||
+	fail "context7 MCP server is not pinned to ${EXPECTED_CONTEXT7_MCP_VERSION} in ${CODEX_TOML}"
+pass "context7 MCP server is pinned to ${EXPECTED_CONTEXT7_MCP_VERSION}"
+
+# Codex's `env` table is static — it does not expand ${VAR} — so the token is
+# inherited by name via env_vars and exported by the entrypoint instead.
+grep -Fqx '[mcp_servers.github]' "${CODEX_TOML}" ||
+	fail "github MCP server missing from ${CODEX_TOML}"
+grep -Fqx 'command = "github-mcp-server"' "${CODEX_TOML}" ||
+	fail "github MCP server has no github-mcp-server command in ${CODEX_TOML}"
+grep -Fqx 'env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]' "${CODEX_TOML}" ||
+	fail "github MCP server does not inherit GITHUB_PERSONAL_ACCESS_TOKEN in ${CODEX_TOML}"
+pass "github MCP server is configured for local stdio"
+
+fi # end sbxcodex-only
 
 echo "All ${TESTS} toolchain tests passed."

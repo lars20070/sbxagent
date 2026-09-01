@@ -6,7 +6,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Invoke through the symlink, not scripts/sbxagent, so every assertion below
 # goes through basename dispatch the same way an installed wrapper does.
-SCRIPT="${ROOT}/scripts/sbxclaude"
+CLAUDE_SCRIPT="${ROOT}/scripts/sbxclaude"
+CODEX_SCRIPT="${ROOT}/scripts/sbxcodex"
+# The real script, which must refuse to run under its own name.
 AGENT_SCRIPT="${ROOT}/scripts/sbxagent"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sbxagent-test.XXXXXX")"
 FAKE_BIN="${TEST_ROOT}/bin"
@@ -71,10 +73,10 @@ assert_no_log() {
 	[[ ! -s "${SBX_LOG}" ]] || fail "${context}: sbx was called"
 }
 
-run_cli() {
+run_claude() {
 	local directory="$1"
 	shift
-	(cd "${directory}" && "${SCRIPT}" "$@")
+	(cd "${directory}" && "${CLAUDE_SCRIPT}" "$@")
 }
 
 # Only the slug is reproduced here. Recomputing the digest would duplicate the
@@ -99,7 +101,7 @@ reject_without_call() {
 	local status
 	clear_log
 	set +e
-	output="$(run_cli "${directory}" "$@" 2>&1)"
+	output="$(run_claude "${directory}" "$@" 2>&1)"
 	status=$?
 	set -e
 	if [[ "${status}" -eq 0 ]]; then
@@ -166,15 +168,15 @@ ln -s "${WORK_A}" "${LINK}"
 # Sandbox naming: derived from the canonical directory path, so it must be
 # unique per path, stable across runs, symlink-transparent, and never empty.
 clear_log
-NAME_A="$(run_cli "${WORK_A}" name)"
+NAME_A="$(run_claude "${WORK_A}" name)"
 assert_match "^sbxclaude-$(expected_slug "${WORK_A}")-[0-9a-f]{6}$" "${NAME_A}" "derived name"
-STABLE_NAME="$(run_cli "${WORK_A}" name)"
+STABLE_NAME="$(run_claude "${WORK_A}" name)"
 assert_eq "${NAME_A}" "${STABLE_NAME}" "stable name"
-NAME_B="$(run_cli "${WORK_B}" name)"
+NAME_B="$(run_claude "${WORK_B}" name)"
 [[ "${NAME_A}" != "${NAME_B}" ]] || fail "same basenames produced the same name"
-LINK_NAME="$(run_cli "${LINK}" name)"
+LINK_NAME="$(run_claude "${LINK}" name)"
 assert_eq "${NAME_A}" "${LINK_NAME}" "symlink name"
-EMPTY_NAME="$(run_cli "${EMPTY_SLUG}" name)"
+EMPTY_NAME="$(run_claude "${EMPTY_SLUG}" name)"
 [[ "${EMPTY_NAME}" =~ ^sbxclaude-[0-9a-f]{6}$ ]] ||
 	fail "empty sanitized basename produced invalid name '${EMPTY_NAME}'"
 assert_no_log "name"
@@ -182,25 +184,25 @@ pass "name derivation is unique, stable, and canonical"
 
 # version: reads spec.yaml directly, needs no sbx call.
 clear_log
-VERSION_OUT="$(run_cli "${WORK_A}" version)"
-assert_match "^sbxclaude [0-9]+\.[0-9]+\.[0-9]+$" "${VERSION_OUT}" "version output"
+CLAUDE_VERSION_OUT="$(run_claude "${WORK_A}" version)"
+assert_match "^sbxclaude [0-9]+\.[0-9]+\.[0-9]+$" "${CLAUDE_VERSION_OUT}" "version output"
 assert_no_log "version"
 pass "version prints the kit name and version without calling sbx"
 
 SANDBOX="${NAME_A}"
-KIT="${ROOT}/kits/sbxclaude"
+CLAUDE_KIT="${ROOT}/kits/sbxclaude"
 
 # Attach: creates (validate + kit) only when the sandbox is missing, and
 # re-attaches directly when it already exists. Neither call passes `--`,
 # since the wrapper never forwards agent arguments.
 clear_log
-SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_cli "${WORK_A}" >/dev/null
+SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_A}" >/dev/null
 assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t--kit\t%s\tsbxclaude' \
-	"${KIT}" "${SANDBOX}" "${KIT}")" "new sandbox attach"
+	"${CLAUDE_KIT}" "${SANDBOX}" "${CLAUDE_KIT}")" "new sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "new attach passed --"
 
 clear_log
-SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=0 run_cli "${WORK_A}" >/dev/null
+SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=0 run_claude "${WORK_A}" >/dev/null
 assert_log "$(printf 'run\t--name\t%s' "${SANDBOX}")" "existing sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "existing attach passed --"
 pass "attach creates only when missing"
@@ -208,7 +210,7 @@ pass "attach creates only when missing"
 # rm is the one destructive command: it must never pass --force, so sbx's own
 # confirmation prompt still stands.
 clear_log
-run_cli "${WORK_A}" rm >/dev/null
+run_claude "${WORK_A}" rm >/dev/null
 assert_log "$(printf 'rm\t%s' "${SANDBOX}")" "rm"
 [[ "$(<"${SBX_LOG}")" != *"--force"* ]] || fail "rm passed --force"
 pass "rm is a single confirmed removal"
@@ -227,35 +229,35 @@ reject_without_call "${WORK_A}" exec
 pass "invalid arities make no sbx calls"
 
 clear_log
-run_cli "${WORK_A}" inspect >/dev/null
+run_claude "${WORK_A}" inspect >/dev/null
 assert_log "$(printf 'inspect\t%s' "${SANDBOX}")" "inspect"
 
 clear_log
-run_cli "${WORK_A}" create >/dev/null
+run_claude "${WORK_A}" create >/dev/null
 assert_log "$(printf 'create\t--name\t%s\t--kit\t%s\tsbxclaude\t.' \
-	"${SANDBOX}" "${KIT}")" "create"
+	"${SANDBOX}" "${CLAUDE_KIT}")" "create"
 
 clear_log
-run_cli "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s' "${KIT}")" "kit validate"
+run_claude "${WORK_A}" kit validate >/dev/null
+assert_log "$(printf 'kit\tvalidate\t%s' "${CLAUDE_KIT}")" "kit validate"
 
 clear_log
-run_cli "${WORK_A}" policy log >/dev/null
+run_claude "${WORK_A}" policy log >/dev/null
 assert_log "$(printf 'policy\tlog\t%s' "${SANDBOX}")" "policy log"
 pass "single-call commands fill in sandbox and kit operands"
 
 clear_log
-HELP_OUTPUT="$(run_cli "${WORK_A}" help)"
+CLAUDE_HELP="$(run_claude "${WORK_A}" help)"
 assert_no_log "help"
-[[ "${HELP_OUTPUT}" == *"Usage:"* ]] || fail "help omitted usage"
-[[ "${HELP_OUTPUT}" == *"destructive"* ]] || fail "help omitted rm warning"
-[[ "${HELP_OUTPUT}" == *"Use sbx or claude directly"* ]] ||
+[[ "${CLAUDE_HELP}" == *"Usage:"* ]] || fail "help omitted usage"
+[[ "${CLAUDE_HELP}" == *"destructive"* ]] || fail "help omitted rm warning"
+[[ "${CLAUDE_HELP}" == *"Use sbx or claude directly"* ]] ||
 	fail "help omitted direct-command guidance"
 # Usage is interpolated with the invoked name, so the real script name must not
 # appear anywhere in it.
-[[ "${HELP_OUTPUT}" == *"sbxclaude name"* ]] ||
+[[ "${CLAUDE_HELP}" == *"sbxclaude name"* ]] ||
 	fail "help did not use the invoked name"
-[[ "${HELP_OUTPUT}" != *"sbxagent"* ]] ||
+[[ "${CLAUDE_HELP}" != *"sbxagent"* ]] ||
 	fail "help leaked the real script name instead of the invoked name"
 pass "help documents the complete wrapper surface, under the invoked name"
 
@@ -263,7 +265,7 @@ reject_without_call "${WORK_A}" foo
 pass "unknown commands make no sbx calls"
 
 clear_log
-printf '' | run_cli "${WORK_A}" exec echo hello >/dev/null
+printf '' | run_claude "${WORK_A}" exec echo hello >/dev/null
 assert_log "$(printf 'exec\t-i\t%s\t--\techo\thello' "${SANDBOX}")" "piped exec"
 
 clear_log
@@ -271,17 +273,62 @@ clear_log
 # so the -it branch of the tty gate is actually exercised.
 python3 -c \
 	'import os, pty, sys; os.chdir(sys.argv[2]); raise SystemExit(os.waitstatus_to_exitcode(pty.spawn([sys.argv[1], "exec", "bash"])))' \
-	"${SCRIPT}" "${WORK_A}" >/dev/null
+	"${CLAUDE_SCRIPT}" "${WORK_A}" >/dev/null
 assert_log "$(printf 'exec\t-it\t%s\t--\tbash' "${SANDBOX}")" "interactive exec"
 
 reject_without_call "${WORK_A}" exec -w /src ls
 pass "exec allocates tty only when interactive and rejects sbx options"
 
 clear_log
-run_cli "${WORK_A}" policy check github.com >/dev/null
+run_claude "${WORK_A}" policy check github.com >/dev/null
 assert_log "$(printf 'policy\tcheck\tnetwork\t--sandbox\t%s\tgithub.com' \
 	"${SANDBOX}")" "policy check"
 pass "policy check is scoped to the sandbox"
+
+# Basename dispatch is the whole point of one script under three names: each
+# must select its own kit directory and its own sandbox, so two agents can run
+# against the same project at once without colliding.
+run_codex() {
+	local directory="$1"
+	shift
+	(cd "${directory}" && "${CODEX_SCRIPT}" "$@")
+}
+
+clear_log
+CODEX_NAME="$(run_codex "${WORK_A}" name)"
+assert_match "^sbxcodex-$(expected_slug "${WORK_A}")-[0-9a-f]{6}$" "${CODEX_NAME}" "codex derived name"
+# Same directory, different command: the slug and hash match and only the kit
+# prefix differs, which is what keeps the two sandboxes separate.
+assert_eq "sbxcodex-${NAME_A#sbxclaude-}" "${CODEX_NAME}" "codex name differs only by prefix"
+[[ "${CODEX_NAME}" != "${NAME_A}" ]] ||
+	fail "sbxclaude and sbxcodex produced the same sandbox name"
+assert_no_log "codex name"
+
+CODEX_VERSION_OUT="$(run_codex "${WORK_A}" version)"
+assert_match "^sbxcodex [0-9]+\.[0-9]+\.[0-9]+$" "${CODEX_VERSION_OUT}" "codex version output"
+
+CODEX_KIT="${ROOT}/kits/sbxcodex"
+clear_log
+run_codex "${WORK_A}" kit validate >/dev/null
+assert_log "$(printf 'kit\tvalidate\t%s' "${CODEX_KIT}")" "codex kit path"
+
+clear_log
+run_codex "${WORK_A}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t--kit\t%s\tsbxcodex\t.' \
+	"${CODEX_NAME}" "${CODEX_KIT}")" "codex create"
+pass "sbxcodex dispatches to its own kit, sandbox name and kit operand"
+
+# The "use X directly" line names the agent's own CLI, not Claude's.
+clear_log
+CODEX_HELP="$(run_codex "${WORK_A}" help)"
+assert_no_log "codex help"
+[[ "${CODEX_HELP}" == *"Use sbx or codex directly"* ]] ||
+	fail "codex help did not name the codex CLI: ${CODEX_HELP}"
+[[ "${CODEX_HELP}" == *"sbxcodex name"* ]] ||
+	fail "codex help did not use the invoked name"
+[[ "${CODEX_HELP}" != *"sbxagent"* ]] ||
+	fail "codex help leaked the real script name"
+pass "help names the invoked command and its underlying CLI"
 
 # The README installs the wrapper as a symlink, so it has to resolve its own
 # path through the chain to locate the kit. Two extra hops, the second one
@@ -292,10 +339,10 @@ clear_log
 LINK_BIN="${TEST_ROOT}/bin-link"
 LINK_BIN2="${TEST_ROOT}/bin-link2"
 mkdir -p "${LINK_BIN}" "${LINK_BIN2}"
-ln -s "${SCRIPT}" "${LINK_BIN}/sbxclaude"
+ln -s "${CLAUDE_SCRIPT}" "${LINK_BIN}/sbxclaude"
 (cd "${LINK_BIN2}" && ln -s ../bin-link/sbxclaude sbxclaude)
 (cd "${WORK_B}" && "${LINK_BIN2}/sbxclaude" kit validate >/dev/null)
-assert_log "$(printf 'kit\tvalidate\t%s' "${KIT}")" "kit path via symlinked wrapper"
+assert_log "$(printf 'kit\tvalidate\t%s' "${CLAUDE_KIT}")" "kit path via symlinked wrapper"
 pass "a symlinked wrapper still resolves the repo kit"
 
 # `help` is deliberately not exempt: in this state the refusal message is the
@@ -330,14 +377,14 @@ for tool in bash env cat readlink dirname basename cut shasum sha256sum; do
 done
 
 clear_log
-NO_SBX_NAME="$( (cd "${WORK_A}" && PATH="${MIN_BIN}" "${SCRIPT}" name) )" ||
+NO_SBX_NAME="$( (cd "${WORK_A}" && PATH="${MIN_BIN}" "${CLAUDE_SCRIPT}" name) )" ||
 	fail "'name' failed without sbx on PATH"
 assert_eq "${NAME_A}" "${NO_SBX_NAME}" "name without sbx"
-(cd "${WORK_A}" && PATH="${MIN_BIN}" "${SCRIPT}" help >/dev/null) ||
+(cd "${WORK_A}" && PATH="${MIN_BIN}" "${CLAUDE_SCRIPT}" help >/dev/null) ||
 	fail "'help' failed without sbx on PATH"
 
 set +e
-NO_SBX_OUTPUT="$( (cd "${WORK_A}" && PATH="${MIN_BIN}" "${SCRIPT}" inspect) 2>&1 )"
+NO_SBX_OUTPUT="$( (cd "${WORK_A}" && PATH="${MIN_BIN}" "${CLAUDE_SCRIPT}" inspect) 2>&1 )"
 NO_SBX_STATUS=$?
 set -e
 [[ "${NO_SBX_STATUS}" -ne 0 ]] || fail "'inspect' succeeded without sbx on PATH"

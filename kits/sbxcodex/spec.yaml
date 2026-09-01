@@ -1,0 +1,322 @@
+schemaVersion: "2"
+kind: sandbox
+name: sbxcodex
+version: "0.1.0"
+displayName: Codex with custom toolchain
+description: Codex with custom toolchain
+
+extends: codex
+
+sandbox:
+  # OLD CODE:
+  # entrypoint: [codex] # Runs with --dangerously-bypass-approvals-and-sandbox !!
+  #
+  # TEMPORARY: works around sbx dropping the parent codex kit's setup when
+  # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
+  # Revert to `entrypoint: [codex]` once sbx merges parent and child setup instead of replacing.
+  entrypoint:
+    - sh
+    - -c
+    - |
+      set -eu
+      owner="$(id -u):$(id -g)"
+      if [ -e "$HOME/.codex" ] || [ -L "$HOME/.codex" ]; then
+        sudo chown -hR -P "$owner" -- "$HOME/.codex"
+      fi
+      # The `github` MCP server reads GITHUB_PERSONAL_ACCESS_TOKEN. Codex's
+      # config.toml `env` table is static — it does not expand ${VAR} — so the
+      # value cannot be written there the way ~/.claude.json does it. Instead
+      # config.toml declares `env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]`,
+      # which inherits the variable by name from this process, and the export
+      # below supplies it. GH_TOKEN here is the proxy-managed `github` service
+      # sentinel, which the credential proxy swaps for the real token on
+      # requests to api.github.com. GITHUB_TOKEN is exported too, for the
+      # `gh` CLI and anything else that expects the conventional name.
+      # This only covers the agent session this entrypoint starts; a `codex`
+      # launched by hand from `sbxcodex exec bash` does not inherit it.
+      if [ -n "${GH_TOKEN:-}" ]; then
+        export GITHUB_TOKEN="$GH_TOKEN"
+        export GITHUB_PERSONAL_ACCESS_TOKEN="$GH_TOKEN"
+      fi
+      exec codex "$@"
+    - sbxcodex-entrypoint
+# resources:
+#   cpu: 8
+#   memory: 24g
+
+agentInstructions:
+  content: |
+    ## Sandbox environment
+    You are in a Docker Sandbox microVM. The user's project is mounted as your
+    workspace, so file edits modify the host working tree. `sudo` is
+    passwordless, and a sandbox-local Docker daemon is available.
+
+    Network egress is allowlisted. If a network request fails because its host
+    is blocked, stop and ask the user to run this on the host:
+    `sbx policy allow network "<host>"`. Do not run `sbx policy` inside the
+    sandbox, and do not work around a block by mirroring, vendoring, retrying
+    against a different host, or dropping the step. Nothing enforces this for
+    you here, so it is on you: end the turn and report the blocked host.
+
+    The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
+    `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
+    including `run`, `create`, `rm`, `exec`, `inspect`, and `policy`, require
+    the host CLI and `sandboxd`; ask the user to run them on the host.
+
+    ## Preinstalled tools
+    Follow the project's own instructions and use its declared dependencies
+    first. For general development tasks, these tools are already on `PATH`:
+
+    - Search and data: `rg` (ripgrep), `jq`
+    - Shell: `shellcheck`; use `bash -n` for syntax checks
+    - Python: `python3`, `ruff` for lint and format, `uv` for packages
+    - YAML: `yamllint`
+    - Markdown and prose: `markdownlint-cli2`, `cspell`
+    - Browser: `playwright`, with headless Chromium — load pages, screenshot
+      them, and read console output to verify UI changes before reporting done
+    - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
+      `mmdc -i diagram.mmd -o diagram.png`
+    - General: `git`, `docker`, `curl`, `node`, `npm`
+    - Sandbox kits: `sbx`, with the restrictions above
+    - MCP servers: `context7` (up-to-date library/framework docs) and `github`
+      (GitHub API) are configured and ready to use
+
+    Prefer `rg` over recursive `grep`, `ruff` over installing another Python
+    linter or formatter, and `uv` over `pip`. Install project dependencies when
+    needed, but do not install global replacements for tools already provided.
+
+permissions:
+  network:
+    allow:
+      - "registry.npmjs.org:443"
+      # Playwright downloads the Chromium browser binary from these CDN mirrors.
+      - "cdn.playwright.dev:443"
+      - "playwright.download.prss.microsoft.com:443"
+      # The Context7 MCP server (registered in ~/.codex/config.toml by the
+      # `Register the context7 and github MCP servers` setup step) calls its
+      # documentation API here.
+      - "context7.com:443"
+      # The GitHub MCP server (registered by that same setup step) runs
+      # locally and calls the REST API here.
+      - "api.github.com:443"
+      - "github.com:443"
+      # Gist
+      - "gist.github.com:443"
+      - "gist.githubusercontent.com:443"
+      # GitHub release assets redirect here; needed to download the sbx binary.
+      - "release-assets.githubusercontent.com:443"
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # Pi agent development
+      - "pi.dev"
+      # No OpenAI hosts here on purpose: api.openai.com, auth.openai.com and
+      # chatgpt.com are already allowed by the base preset (**.openai.com:443
+      # and **.chatgpt.com:443). Verified with `sbxcodex policy check`.
+
+setup:
+  install:
+    - command: |
+        set -eu
+        apt-get update
+        apt-get install -y \
+          ca-certificates \
+          curl \
+          jq \
+          python3 \
+          ripgrep \
+          shellcheck
+      description: CLI tools
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v0.39.0 release assets.
+        case "$arch" in
+          amd64)
+            expected_sha256="2ec45bc7938c20c2f406fe8cc72294ad5a954bdc047601484b89bf1a108311d4"
+            ;;
+          arm64)
+            expected_sha256="39c470a5f5e0991b1c2358952e2ab32a7b0309bfa57ac62b6bbc64b466d02c17"
+            ;;
+          *)
+            echo "unsupported architecture for sbx: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/docker/sbx-releases/releases/download/v0.39.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          -o "$tmp/sbx.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "sbx tarball checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/sbx.tar.gz" -C "$tmp" docker-sbx/sbx
+        install -m 0755 "$tmp/docker-sbx/sbx" /usr/local/bin/sbx
+        sbx version
+      description: sbx CLI for offline kit commands
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v1.11.0 release assets.
+        case "$arch" in
+          amd64)
+            asset="Linux_x86_64"
+            expected_sha256="3b73bb7be0c8b043f861e90410df8ebdfc71b83128c54ced75fb32c4ff697fc5"
+            ;;
+          arm64)
+            asset="Linux_arm64"
+            expected_sha256="3f7615254f6b619469c471c5d275029299ff7431c93d6075496ea4b2eec020cb"
+            ;;
+          *)
+            echo "unsupported architecture for github-mcp-server: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/github/github-mcp-server/releases/download/v1.11.0/github-mcp-server_${asset}.tar.gz" \
+          -o "$tmp/gms.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "github-mcp-server checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/gms.tar.gz" -C "$tmp" github-mcp-server
+        install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
+        github-mcp-server --version
+      description: GitHub MCP server, run locally over stdio
+    # No `Network-block escalation hook` step here. That guard is Claude Code
+    # specific — it installs /etc/claude-code/managed-settings.json with Claude
+    # Code hook JSON, and Codex exposes no verified equivalent. See the
+    # agentInstructions above, which ask for the same behaviour unenforced.
+    - command: "uv tool install ruff@0.16.2"
+      user: "1000"
+      description: Ruff
+    - command: "uv tool install yamllint@1.38.0"
+      user: "1000"
+      description: yamllint
+    - command: "npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1"
+      user: "1000"
+      description: Markdown and spelling linters
+    - command: |
+        set -eu
+        npm install --global playwright@1.62.1
+        playwright install --with-deps chromium
+      user: "1000"
+      description: Playwright with headless Chromium
+    - command: |
+        set -eu
+        # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
+        # reuses the one Playwright just installed, below.
+        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.16.0
+        chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
+          'console.log(require("playwright").chromium.executablePath())')"
+        mmdc_bin="$(command -v mmdc)"
+        config="$(dirname "$mmdc_bin")/mermaid-puppeteer-config.json"
+        printf '{"executablePath": "%s"}\n' "$chromium_path" > "$config"
+        # mmdc only takes its Puppeteer config via an explicit flag, so wrap
+        # the real binary to always pass it — keeps `mmdc -i a.mmd -o a.png`
+        # working with no extra flags for the agent.
+        mv "$mmdc_bin" "${mmdc_bin}.real"
+        cat > "$mmdc_bin" <<WRAPPER
+        #!/bin/sh
+        exec "${mmdc_bin}.real" --puppeteerConfigFile "${config}" "\$@"
+        WRAPPER
+        chmod +x "$mmdc_bin"
+      user: "1000"
+      description: mermaid-cli, reusing the Playwright Chromium
+    # Replicated verbatim from the embedded `codex` parent kit. sbx drops the
+    # parent's install and startup steps once this kit declares its own (issue
+    # https://github.com/docker/sbx-releases/issues/415), and this is the step
+    # that seeds ~/.codex/config.toml and ~/.codex/auth.json. Without it Codex
+    # has neither. Verified in the Stage 2 spike: replicating it reproduces the
+    # parent's config.toml byte for byte. Keep it in sync with the parent when
+    # bumping the pinned sbx version, and drop it once #415 is fixed.
+    # It rewrites config.toml from scratch, so every step that appends to that
+    # file must come after this one.
+    - command: |
+        set -e
+        mkdir -p /home/agent/.codex /home/agent/.agents
+        MODE="${SBX_CRED_OPENAI_MODE:-none}"
+        cat > /home/agent/.codex/config.toml << 'EOF'
+        # Codex configuration for Docker sandbox
+        # This configuration enables "yolo mode" - no approvals, full access
+        approval_policy = "never"
+        sandbox_mode = "danger-full-access"
+        mcp_oauth_credentials_store = "file"
+        EOF
+        case "$MODE" in
+          oauth|apikey)
+            cat >> /home/agent/.codex/config.toml << 'EOF'
+        forced_login_method = "api"
+        EOF
+            ;;
+        esac
+        if [ "$MODE" = oauth ]; then
+          cat >> /home/agent/.codex/config.toml << 'EOF'
+        model_provider = "sandboxd"
+        [model_providers.sandboxd]
+        name = "Sandbox Proxy"
+        base_url = "https://chatgpt.com/backend-api/codex"
+        experimental_bearer_token = "oai-oat01-proxy-managed"
+        requires_openai_auth = false
+        EOF
+        fi
+        case "$MODE" in
+          oauth|apikey)
+            cat > /home/agent/.codex/auth.json << 'EOF'
+        {
+          "OPENAI_API_KEY": "proxy-managed"
+        }
+        EOF
+            ;;
+          *)
+            rm -f /home/agent/.codex/auth.json
+            ;;
+        esac
+      user: "agent"
+      description: Seed Codex config/auth from SBX_CRED_OPENAI_MODE (replicated parent step)
+    # Must run after the seeding step above, which truncates config.toml. Not
+    # shipped as files/home/.codex/config.toml — the parent rewrites that file
+    # on every create. Uses env_vars (not env); see the entrypoint comment.
+    - command: |
+        set -eu
+        cat >> /home/agent/.codex/config.toml <<'TOML'
+
+        [mcp_servers.context7]
+        command = "npx"
+        args = ["-y", "@upstash/context7-mcp@4.0.0"]
+
+        [mcp_servers.github]
+        command = "github-mcp-server"
+        args = ["stdio"]
+        env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]
+        TOML
+      user: "agent"
+      description: Register the context7 and github MCP servers
+  startup:
+    # Also replicated from the parent, and lost for the same reason (#415).
+    # sandboxd injects MCP_GATEWAY_URL and MCP_SENTINEL_TOKEN_NAME when a
+    # gateway has been reserved; this is a no-op when it has not. The grep
+    # guard keeps it idempotent across gateway restarts.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          cfg="$HOME/.codex/config.toml"
+          touch "$cfg"
+          grep -q "^\[mcp_servers.mcp-gateway\]" "$cfg" && exit 0
+          cat >> "$cfg" <<EOF
+          [mcp_servers.mcp-gateway]
+          type = "http"
+          url = "$MCP_GATEWAY_URL"
+          [mcp_servers.mcp-gateway.headers]
+          Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"
+          EOF
+      user: "agent"
+      description: Register the sandbox MCP gateway (replicated parent step)

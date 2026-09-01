@@ -93,6 +93,7 @@
     "sbxagent",
     "sbxcodex",
     "sbxcursor",
-    "virtiofs"
+    "virtiofs",
+    "apikey"
   ]
 }

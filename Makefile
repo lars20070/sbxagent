@@ -8,7 +8,8 @@ CSPELL ?= cspell
 
 # Lint tracked files: Markdown (skip plan drafts), JSON, YAML, shell scripts
 # (shellcheck + bash -n, one file per xargs call), and spell-check (skip plan
-# drafts). Assert each kits/<name>/ declares name: <name>, and that
+# drafts). Assert each kits/<name>/ declares name: <name>, that the files every
+# kit duplicates stay byte-identical across kits, and that
 # kits/sbxclaude/spec.yaml version matches CHANGELOG's latest release.
 lint:
 	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' | xargs -0 $(MARKDOWNLINT)
@@ -22,6 +23,18 @@ lint:
 		grep -qx "name: $$name" "$$dir/spec.yaml" || { \
 			echo "lint: $$dir/spec.yaml does not declare 'name: $$name'" >&2; exit 1; \
 		}; \
+	done
+	for shared in home/.gitconfig workspace/.editorconfig; do \
+		ref="kits/sbxclaude/files/$$shared"; \
+		for kit in kits/*/; do \
+			copy="$${kit}files/$$shared"; \
+			[ -e "$$copy" ] || { \
+				echo "lint: $$copy is missing" >&2; exit 1; \
+			}; \
+			cmp -s "$$ref" "$$copy" || { \
+				echo "lint: $$copy differs from $$ref" >&2; exit 1; \
+			}; \
+		done; \
 	done
 	spec_version="$$(grep -m1 '^version:' kits/sbxclaude/spec.yaml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
 	changelog_version="$$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
@@ -38,6 +51,7 @@ lint:
 # Validate the sandbox kit spec against the current Sandbox Kit schema.
 validate:
 	./scripts/sbxclaude kit validate
+	./scripts/sbxcodex kit validate
 
 # Run every test
 test: test-unit test-toolchain

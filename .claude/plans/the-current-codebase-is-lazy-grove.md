@@ -581,12 +581,30 @@ setup:
   [mcp_servers.github]
   command = "github-mcp-server"
   args = ["stdio"]
-  [mcp_servers.github.env]
-  GITHUB_PERSONAL_ACCESS_TOKEN = "${GITHUB_TOKEN}"
+  env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]
   ```
 
   Do **not** ship this as `files/home/.codex/config.toml` — the parent rewrites
   that file on every create.
+
+  **Corrected during implementation.** This block originally specified
+  `[mcp_servers.github.env]` with
+  `GITHUB_PERSONAL_ACCESS_TOKEN = "${GITHUB_TOKEN}"`, copying the
+  `~/.claude.json` form. That is wrong for Codex and would have failed silently
+  — exactly the failure mode Stage 2 warned about. Codex's `RawMcpServerConfig`
+  types `env` as `Option<HashMap<String, String>>`, a **static** map with no
+  `${VAR}` expansion, so the server would have received the eleven characters
+  `${GITHUB_TOKEN}` as its token. Codex's own mechanism for this is
+  `env_vars`, a list of variable *names* inherited from Codex's environment at
+  spawn time. The entrypoint therefore exports `GITHUB_PERSONAL_ACCESS_TOKEN`
+  (alongside `GITHUB_TOKEN`) from `GH_TOKEN`.
+
+  Consequence worth carrying into Stage 4: the token reaches the MCP server
+  only in the session the entrypoint starts. A `codex` launched by hand from
+  `sbxcodex exec bash` does not inherit it — the same caveat the Claude kit
+  already documents. `codex mcp list` masks env values, so it shows
+  `GITHUB_PERSONAL_ACCESS_TOKEN=*****` whether or not the variable resolves;
+  it confirms the config parses, not that the token arrived.
 - **`agentInstructions.content`**: the shared block, with the "MCP servers"
   bullet kept and the network-guard paragraph replaced by a plain statement that
   blocked hosts must be reported to the user (there is no hook to enforce it).
@@ -609,6 +627,65 @@ Now that a second kit exists, add the `cmp` checks to `make lint`:
 byte-identical across kits.
 
 Verify with `make test-toolchain AGENT=codex`.
+
+### Stage 3 results (2026-09-01)
+
+Landed and green. `make lint`, `make validate` (both kits), `make test-unit`
+(16 tests, on both `bash` and `/bin/bash` for the 3.2 floor),
+`make test-toolchain AGENT=codex` (23 tests) and
+`make test-toolchain AGENT=claude` (35 tests — the Claude-only guard and
+`~/.claude.json` blocks still run, so the `KIT_NAME` branching did not silently
+drop coverage). `sbxclaude` and `sbxcodex` run against this repo at the same
+time as two separate live sandboxes.
+
+Checked beyond the suites:
+
+- `sudo` exists in the codex image, so the entrypoint's chown is safe. `~/.codex`
+  is already `agent`-owned, so the chown is a no-op today; it is kept because
+  #415 is unfixed and the ownership could change on any parent-kit update.
+- `codex mcp list` inside the sandbox reports `context7`, `github` and
+  `mcp-gateway` all `enabled`, which proves Codex parses the appended TOML.
+- Append order holds: the replicated seeding step truncates `config.toml`, our
+  MCP step appends after it, and the startup gateway step appends last.
+
+#### Auth: resolved by observation — Codex works, and signs itself in
+
+The interactive check was run. **Codex reaches a prompt and is usable.**
+
+What happens under the hood: because `SBX_CRED_OPENAI_MODE` is `none`, `sbx`
+seeds nothing (`sbx inspect` reports `Auth mode: not configured`, and `openai`
+never appears on the sandbox's `Secrets:` line). Codex therefore performs its
+own ChatGPT sign-in on first run and writes `~/.codex/auth.json` itself —
+4168 bytes, mode `0600`, `auth_mode: "chatgpt"`, holding real `access_token`,
+`refresh_token`, `id_token` and `account_id`. It contains no `proxy-managed`
+sentinel, so the sandbox credential proxy is not in the path for OpenAI traffic.
+
+**This is not a security regression relative to `sbxclaude`, contrary to what
+was assumed earlier in this plan.** `~/.claude/.credentials.json` in the live
+Claude sandbox also holds real tokens (108-character `accessToken` and
+`refreshToken`), not sentinels. Both agents keep a real OAuth credential on disk
+inside their sandbox. The proxy-sentinel path is simply not active for either on
+this host.
+
+The one genuine difference is convenience, and it is the thing to plan around:
+
+| | How the credential arrives | After `rm` + rebuild |
+| --- | --- | --- |
+| `sbxclaude` | sandboxd's `credentialFile` hook writes it at create | re-seeded automatically |
+| `sbxcodex` | Codex signs in itself on first run | **sign in again** |
+
+`~/.codex` is on the container filesystem with no volume, so the login survives
+stop/start but not `sbxcodex rm`. Stage 5 deletes every sandbox, so expect one
+Codex sign-in after that.
+
+Nothing to change in the kit. Two optional follow-ups, neither blocking:
+
+- Persist the login across rebuilds with a `volumes:` entry for `~/.codex`,
+  mirroring how the `claude` parent persists `~/.claude/projects` and
+  `~/.claude/sessions`. Note it would also persist several MB of Codex's own
+  sqlite logs, so scope it narrowly if taken up.
+- Chase `Auth mode: not configured` on the `sbx` side. That is the actual root
+  cause and is upstream of this repo.
 
 ---
 
