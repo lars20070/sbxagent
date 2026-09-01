@@ -327,6 +327,223 @@ guesswork:
   for its own gateway. Copy its key names verbatim in Stage 3 — a wrong TOML key
   fails silently, with the server simply absent.
 
+### Spike results (run 2026-09-01, `sbx` v0.39.0, macOS host)
+
+**Verdict: NO-GO on the naive approach, GO on workaround (b).** The parent's
+steps are dropped, and replicating them in our own kit fully restores them.
+
+**1. Issue #415 confirmed, and it is worse for Codex than for Claude.**
+A bare `kits/sbxcodex/spec.yaml` (`extends: codex`, nothing else) produced an
+agent-owned `~/.codex/config.toml` with the yolo keys and the `mcp-gateway`
+block. Adding a single trivial child `setup: install:` step (`apt-get install -y
+jq`) and rebuilding left `~/.codex` **completely empty** — no `config.toml`, no
+`auth.json`, no gateway registration. The child step itself ran (`jq-1.8.1`
+present), so this is a silent replacement, not a failure.
+
+**2. `setup:` is an alias for `environment:` — same node.** The embedded `codex`
+parent declares its steps as `environment.install` / `environment.startup`
+(alongside `environment.variables`); the string table in the `sbx` binary carries
+a literal `setupalias`. Renaming our block would not dodge the bug.
+
+**3. The merge is per-field within that node, not whole-node.**
+`environment.variables` from the parent **survived** (`CODEX_HOME`,
+`GIT_TERMINAL_PROMPT` both set in the rebuilt sandbox). Only the fields the child
+declares are replaced. Note that `startup` was lost too, even though the child
+declared only `install` — so it is not a simple per-field override; treat the
+whole `install`+`startup` pair as lost once either is declared.
+
+**4. Workaround (b) — replicate the parent's seeding in our own `setup:` — works.**
+Copying the parent's install step verbatim (with `user: "agent"`) plus its
+`startup:` gateway step into the child kit rebuilt a byte-equivalent
+`config.toml`, gateway block included. A child `startup:` step is honoured (a
+marker file probe was written). **Stage 3 must carry both replicated steps.**
+Workaround (a) (move the work into `entrypoint:`) is *not* usable here: the
+toolchain installs need root at create time, which `entrypoint:` does not give.
+
+The two steps to copy verbatim into `kits/sbxcodex/spec.yaml` are reproduced in
+full at the end of this section.
+
+**5. Codex CLI version in the parent image:** `codex-cli 0.149.1`.
+
+**6. Network: no OpenAI hosts need adding.** `sbxcodex policy check` says
+`api.openai.com`, `auth.openai.com` and `chatgpt.com` are already **allowed** by
+the base preset (`**.openai.com:443`, `**.chatgpt.com:443`). `context7.com` is
+**denied** by default. So Stage 3's `permissions.network.allow` is the Claude
+kit's list minus the Anthropic hosts, plus nothing OpenAI-specific. (The policy
+log could not observe live Codex traffic — see the caveat below.)
+
+**7. The `[mcp_servers.*]` shape the parent writes** (copy these key names):
+
+```toml
+[mcp_servers.mcp-gateway]
+type = "http"
+url = "$MCP_GATEWAY_URL"
+[mcp_servers.mcp-gateway.headers]
+Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"
+```
+
+Our own servers are `command`/`args`-shaped instead of `type = "http"`, as the
+Stage 3 sketch already has them.
+
+#### The auth half — tested, and the gap is upstream of this kit
+
+Re-run after storing an OpenAI credential (`sbx secret set openai`, shown by
+`sbx secret ls` as `openai (oauth configured)`) and adding the binding sbx asked
+for. The binding block added to `~/.config/sbx/credentials.yaml` was:
+
+```yaml
+    openai:
+        apiKey:
+            domains:
+                - api.openai.com
+                - openai.com
+        oauth:
+            domains:
+                - auth.openai.com
+```
+
+It is a mechanical read of the codex parent's `credentials:` block —
+`apiKey.domains` are its `apiKey.inject` domains, `oauth.domains` is its
+`oauth.tokenEndpoint.host` — and matches the shape of the existing `anthropic`
+entry exactly. After it was added the `no binding authorizes openai` note stopped
+appearing on create.
+
+**`SBX_CRED_OPENAI_MODE` is still `none`, and `auth.json` is still absent.**
+Things that did *not* change it: adding the binding, restarting `sandboxd`
+(`sbx daemon restart`), and recreating from scratch.
+
+The decisive observation is that this is **not caused by our kit**:
+
+- A **bare** `sbxcodex` kit — `extends: codex` and nothing else, no `setup:` at
+  all, i.e. the parent running unmodified — also yields `SBX_CRED_OPENAI_MODE=none`
+  and no `auth.json`.
+- The replicated kit produces a **byte-equivalent** `~/.codex/config.toml` to that
+  bare kit. Replication is therefore proven equivalent to the parent, which is
+  all Stage 2 can be asked to prove.
+- `sbx inspect` shows the same thing from the other side: the codex sandbox's
+  `Secrets:` line lists `github`, `mcpgateway`, `openrouter` — no `openai`. The
+  **working** `sbxclaude` sandbox likewise lists no `anthropic`. OAuth credentials
+  never appear as uploaded secrets in either.
+
+Why Claude works anyway and Codex may not: the `claude` parent declares
+`credentials[].oauth.credentialFile` (`~/.claude/.credentials.json`, written by
+sandboxd's OAuth hook), and that file **is** present and agent-owned in the live
+Claude sandbox despite `SBX_CRED_ANTHROPIC_MODE=none`. The `codex` parent
+declares **no** `credentialFile`; its only auth path is its install step writing
+`auth.json`, gated entirely on `SBX_CRED_OPENAI_MODE`. So when that variable is
+`none`, Codex has no seeded credential by design — the parent's `none` branch
+deletes `auth.json` deliberately so a stale `proxy-managed` placeholder cannot
+reach OpenAI and 401.
+
+**What this means for Stage 3.** Nothing to change in the kit: carry the
+replicated steps as written. The open question is an `sbx`/host credential-
+plumbing one, not a kit one, and it would bite an unmodified `extends: codex`
+kit identically. Stage 3's first task is to run `sbxcodex` interactively and see
+what actually happens:
+
+- If Codex reaches a prompt, `SBX_CRED_OPENAI_MODE` is a red herring on this
+  `sbx` build and there is nothing to fix.
+- If Codex asks to log in, log in once inside the sandbox and check whether it
+  survives a rebuild. If it does not, the fix belongs in the kit as a persisted
+  volume for `~/.codex` (mirroring how the claude parent persists
+  `~/.claude/projects` and `~/.claude/sessions`), **not** in the replicated
+  seeding step.
+
+Either way this does not block Stage 3, and it is not a reason to prefer a
+different workaround for #415.
+
+#### Replicated parent steps (verbatim, verified working)
+
+The spike spec that produced the passing result is reproduced below; lift these
+two steps into `kits/sbxcodex/spec.yaml` unchanged.
+
+```yaml
+schemaVersion: "2"
+kind: sandbox
+name: sbxcodex
+version: "0.1.0"
+displayName: Codex spike
+description: Stage 2 spike — replicate the parent seeding inside our own setup
+
+extends: codex
+
+setup:
+  install:
+    - command: |
+        set -eu
+        apt-get update
+        apt-get install -y jq
+      description: Spike probe — trivial child install step
+    # Replicated verbatim from the embedded `codex` parent kit, because sbx
+    # drops the parent's setup once this kit defines its own (issue #415).
+    - command: |
+        set -e
+        mkdir -p /home/agent/.codex /home/agent/.agents
+        MODE="${SBX_CRED_OPENAI_MODE:-none}"
+        cat > /home/agent/.codex/config.toml << 'EOF'
+        # Codex configuration for Docker sandbox
+        # This configuration enables "yolo mode" - no approvals, full access
+        approval_policy = "never"
+        sandbox_mode = "danger-full-access"
+        mcp_oauth_credentials_store = "file"
+        EOF
+        case "$MODE" in
+          oauth|apikey)
+            cat >> /home/agent/.codex/config.toml << 'EOF'
+        forced_login_method = "api"
+        EOF
+            ;;
+        esac
+        if [ "$MODE" = oauth ]; then
+          cat >> /home/agent/.codex/config.toml << 'EOF'
+        model_provider = "sandboxd"
+        [model_providers.sandboxd]
+        name = "Sandbox Proxy"
+        base_url = "https://chatgpt.com/backend-api/codex"
+        experimental_bearer_token = "oai-oat01-proxy-managed"
+        requires_openai_auth = false
+        EOF
+        fi
+        case "$MODE" in
+          oauth|apikey)
+            cat > /home/agent/.codex/auth.json << 'EOF'
+        {
+          "OPENAI_API_KEY": "proxy-managed"
+        }
+        EOF
+            ;;
+          *)
+            rm -f /home/agent/.codex/auth.json
+            ;;
+        esac
+      user: "agent"
+      description: Seed Codex config/auth from SBX_CRED_OPENAI_MODE (replicated parent step)
+  startup:
+    # Also replicated from the parent — dropped along with its install steps.
+    - command:
+        - sh
+        - -c
+        - |
+          set -e
+          [ -n "$MCP_GATEWAY_URL" ] || exit 0
+          cfg="$HOME/.codex/config.toml"
+          touch "$cfg"
+          grep -q "^\[mcp_servers.mcp-gateway\]" "$cfg" && exit 0
+          cat >> "$cfg" <<EOF
+          [mcp_servers.mcp-gateway]
+          type = "http"
+          url = "$MCP_GATEWAY_URL"
+          [mcp_servers.mcp-gateway.headers]
+          Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"
+          EOF
+      user: "agent"
+      description: Register the sandbox MCP gateway (replicated parent step)
+    # Spike probe — proves a child `startup:` step runs at all.
+    - command: ["sh", "-c", "echo spike-startup-ran > /home/agent/.codex/spike-marker"]
+      user: "agent"
+      description: Spike probe — child startup marker
+```
+
 ---
 
 ## Stage 3 — Land `sbxcodex`
@@ -337,14 +554,22 @@ guesswork:
 - **Entrypoint**: same shape as the Claude one, but chowning `$HOME/.codex`
   instead of `$HOME/.claude`, and `exec codex "$@"`. Keep the
   `GH_TOKEN` → `GITHUB_TOKEN` export — the GitHub MCP server needs it here too.
-  If Stage 2 showed the parent setup survives, drop the chown and use a plain
-  entrypoint.
-- **`permissions.network.allow`**: the shared list from the Claude kit, plus
-  whatever Stage 2's policy log showed for OpenAI. Drop the Anthropic hosts —
-  those come from `extends: claude` and are irrelevant here.
+  Stage 2 showed the parent setup does **not** survive, so keep the chown.
+  Note that `~/.codex` is created agent-owned by the template image, so the
+  chown may be a no-op here; keep it only if a rebuild shows root-owned files.
+- **`permissions.network.allow`**: the shared list from the Claude kit, and
+  nothing more. Stage 2 confirmed `api.openai.com`, `auth.openai.com` and
+  `chatgpt.com` are already allowed by the base preset, so no OpenAI hosts need
+  adding. Drop the Anthropic hosts — those come from `extends: claude` and are
+  irrelevant here.
 - **`setup.install`**: the same toolchain steps (CLI tools, `sbx`,
   `github-mcp-server`, ruff, yamllint, markdownlint/cspell, Playwright, mmdc),
-  minus the `Network-block escalation hook` step.
+  minus the `Network-block escalation hook` step, **plus the replicated parent
+  seeding step from Stage 2** — without it Codex has no `config.toml` and no
+  `auth.json` at all.
+- **`setup.startup`**: the replicated parent `mcp-gateway` registration step
+  from Stage 2. It is lost along with `setup.install` and has to be carried
+  explicitly.
 - **New step — register MCP servers.** Append to `~/.codex/config.toml` as
   `user: "agent"`, mirroring how the parent registers its gateway:
 
