@@ -26,6 +26,17 @@ sandbox:
       if [ -e "$HOME/.claude.json" ] || [ -L "$HOME/.claude.json" ]; then
         sudo chown -h -P "$owner" -- "$HOME/.claude.json"
       fi
+      # One `github` MCP definition has to work both on the host and in here,
+      # or the kit's user scope and a project .mcp.json collide and Claude Code
+      # reports conflicting endpoints. Both reference ${GITHUB_TOKEN}: on the
+      # host that is the developer's own PAT; here it is the proxy-managed
+      # `github` service sentinel, which the credential proxy swaps for the
+      # real token on requests to api.github.com. This only covers the agent
+      # session this entrypoint starts; a `claude` launched by hand from
+      # `sbxclaude exec bash` does not inherit it.
+      if [ -n "${GH_TOKEN:-}" ]; then
+        export GITHUB_TOKEN="$GH_TOKEN"
+      fi
       exec claude "$@"
     - sbxclaude-entrypoint
 # resources:
@@ -84,8 +95,8 @@ permissions:
       # files/home/.claude.json) calls its documentation API here.
       - "context7.com:443"
       # The GitHub MCP server (baked into every sandbox via
-      # files/home/.claude.json) uses this endpoint.
-      - "api.githubcopilot.com:443"
+      # files/home/.claude.json) runs locally and calls the REST API here.
+      - "api.github.com:443"
       - "github.com:443"
       # Gist
       - "gist.github.com:443"
@@ -140,6 +151,38 @@ setup:
         install -m 0755 "$tmp/docker-sbx/sbx" /usr/local/bin/sbx
         sbx version
       description: sbx CLI for offline kit commands
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v1.11.0 release assets.
+        case "$arch" in
+          amd64)
+            asset="Linux_x86_64"
+            expected_sha256="3b73bb7be0c8b043f861e90410df8ebdfc71b83128c54ced75fb32c4ff697fc5"
+            ;;
+          arm64)
+            asset="Linux_arm64"
+            expected_sha256="3f7615254f6b619469c471c5d275029299ff7431c93d6075496ea4b2eec020cb"
+            ;;
+          *)
+            echo "unsupported architecture for github-mcp-server: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/github/github-mcp-server/releases/download/v1.11.0/github-mcp-server_${asset}.tar.gz" \
+          -o "$tmp/gms.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "github-mcp-server checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/gms.tar.gz" -C "$tmp" github-mcp-server
+        install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
+        github-mcp-server --version
+      description: GitHub MCP server, run locally over stdio
     - command: |
         set -eu
         install -d -m 0755 /usr/local/lib/sbxclaude /etc/claude-code

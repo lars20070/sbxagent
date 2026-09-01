@@ -8,9 +8,12 @@
       ]
     },
     "github": {
-      "url": "https://api.githubcopilot.com/mcp/",
-      "headers": {
-        "Authorization": "Bearer ${env:GITHUB_TOKEN}"
+      "command": "github-mcp-server",
+      "args": [
+        "stdio"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_TOKEN}"
       }
     }
   }

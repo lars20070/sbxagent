@@ -11,6 +11,7 @@ EXPECTED_CSPELL_VERSION="10.0.1"
 EXPECTED_PLAYWRIGHT_VERSION="1.62.1"
 EXPECTED_MERMAID_VERSION="11.16.0"
 EXPECTED_CONTEXT7_MCP_VERSION="4.0.0"
+EXPECTED_GITHUB_MCP_VERSION="1.11.0"
 
 TESTS=0
 
@@ -70,6 +71,8 @@ check_tool_version markdownlint-cli2 "v${EXPECTED_MARKDOWNLINT_VERSION}" markdow
 check_tool_version cspell "${EXPECTED_CSPELL_VERSION}" cspell --version
 check_tool_version sbx "${EXPECTED_SBX_VERSION}" sbx version
 check_tool_version playwright "Version ${EXPECTED_PLAYWRIGHT_VERSION}" playwright --version
+check_tool_version github-mcp-server "${EXPECTED_GITHUB_MCP_VERSION}" \
+	github-mcp-server --version
 
 # Chromium must actually launch, not just be present — this is what lets the
 # agent verify UI changes in a real browser. If this fails specifically on
@@ -232,9 +235,16 @@ jq -e --arg v "@upstash/context7-mcp@${EXPECTED_CONTEXT7_MCP_VERSION}" \
 	fail "context7 MCP server missing or wrong pinned version in ${CLAUDE_JSON}"
 pass "context7 MCP server is pinned to ${EXPECTED_CONTEXT7_MCP_VERSION}"
 
-jq -e '.mcpServers.github.url == "https://api.githubcopilot.com/mcp/"' \
+# Must stay byte-identical to the `github` entry in the repo's .mcp.json: the
+# sandbox mounts the project, so a project-scope entry sits alongside this
+# user-scope one and Claude Code reports conflicting endpoints if they differ.
+# GITHUB_TOKEN is the developer's PAT on the host; the entrypoint points it at
+# the proxy-managed `github` sentinel in here.
+jq -e '.mcpServers.github.command == "github-mcp-server"
+	and (.mcpServers.github.args | index("stdio") != null)
+	and .mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN == "${GITHUB_TOKEN}"' \
 	"${CLAUDE_JSON}" >/dev/null ||
-	fail "github MCP server missing or has the wrong URL in ${CLAUDE_JSON}"
-pass "github MCP server is configured"
+	fail "github MCP server missing or misconfigured in ${CLAUDE_JSON}"
+pass "github MCP server is configured for local stdio"
 
 echo "All ${TESTS} toolchain tests passed."

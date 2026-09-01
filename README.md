@@ -129,6 +129,7 @@ same known versions:
 | `playwright` (+ Chromium) | `sbxclaude/spec.yaml` | `1.62.1` |
 | `mermaid-cli` (`mmdc`) | `sbxclaude/spec.yaml` | `11.16.0` |
 | Context7 MCP | `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `sbxclaude/files/home/.claude.json` | `4.0.0` |
+| `github-mcp-server` | `sbxclaude/spec.yaml` | `1.11.0` (SHA-256 verified) |
 
 Intentional exceptions that stay on latest:
 
@@ -136,6 +137,8 @@ Intentional exceptions that stay on latest:
   as soon as a new schema ships
 - `extends: claude`, the CI runner images, the packages those runners provide,
   and the host `sbx` install remain floating integration surfaces
+- the host's own `github-mcp-server` comes from Homebrew and floats; only the
+  in-sandbox copy is pinned, so the two can drift a version apart
 
 To bump a pin: update the version (and sbx checksums) in the files above,
 keep `tests/toolchain_test.sh` expectations in sync, then rebuild the
@@ -155,3 +158,55 @@ GitHub token on the host so the credential proxy can inject it:
 ```bash
 echo "$(gh auth token)" | sbx secret set github
 ```
+
+### GitHub MCP server
+
+Both the kit and this repo run [`github-mcp-server`](https://github.com/github/github-mcp-server)
+locally over stdio. The definition is byte-identical in all four MCP configs —
+[`.mcp.json`](.mcp.json), [`.cursor/mcp.json`](.cursor/mcp.json),
+[`.vscode/mcp.json`](.vscode/mcp.json) and
+[`sbxclaude/files/home/.claude.json`](sbxclaude/files/home/.claude.json) —
+because the sandbox mounts the project, so the repo's project-scope entry sits
+alongside the kit's user-scope one. Claude Code warns about conflicting
+endpoints if the two disagree.
+
+Both read `GITHUB_PERSONAL_ACCESS_TOKEN` from `${GITHUB_TOKEN}`, which means
+something different on each side and is what lets one definition serve both:
+
+| | `GITHUB_TOKEN` is | reaches GitHub as |
+| --- | --- | --- |
+| Host | your own PAT | itself |
+| Sandbox | a proxy-managed sentinel, exported by the entrypoint | the real token, swapped in by the proxy |
+
+So `sbx secret set github` above stays the only credential the sandbox needs,
+and the real token never enters it.
+
+The GitHub-hosted server at `https://api.githubcopilot.com/mcp/` is
+deliberately **not** used. That endpoint is a Copilot endpoint and needs a
+fine-grained PAT carrying the **Copilot Requests** permission; a token that
+works fine for `git` and `gh` is rejected there with
+`401 unauthorized: AuthenticateToken authentication failed`
+(see [docker/sbx-releases#231](https://github.com/docker/sbx-releases/issues/231)).
+Running the server locally sidesteps that, because it talks to the ordinary
+REST API at `api.github.com`, which the credential proxy already authenticates.
+
+#### Host setup
+
+The sandbox installs the binary itself. On the host, install it once and export
+your token:
+
+```bash
+brew install github-mcp-server          # Linux: see the project's releases page
+export GITHUB_TOKEN="$(gh auth token)"  # or your own PAT, in your shell profile
+```
+
+If you previously stored a custom secret for the hosted Copilot endpoint, it is
+now unused — retire it so it cannot shadow anything later:
+
+```bash
+sbx secret ls                      # find its placeholder
+sbx secret rm --placeholder <the sbx-cs-… value>
+```
+
+Check it with `claude mcp list`; the `github` line should read `✔ Connected`,
+both on the host and inside the sandbox.

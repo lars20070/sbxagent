@@ -8,6 +8,28 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The baked-in `github` MCP server now runs `github-mcp-server` `1.11.0`
+  locally over stdio instead of calling GitHub's hosted server at
+  `api.githubcopilot.com`. The hosted endpoint is a Copilot endpoint and needs
+  a fine-grained PAT with the Copilot Requests permission, so it rejected
+  tokens that work fine for `git` and `gh` with
+  `401 unauthorized: AuthenticateToken authentication failed`
+  ([docker/sbx-releases#231](https://github.com/docker/sbx-releases/issues/231)).
+  The local server talks to `api.github.com`, which the credential proxy
+  already authenticates, so `sbx secret set github` is now the only credential
+  the GitHub MCP tools need.
+- Network allowlist: `api.githubcopilot.com:443` replaced by
+  `api.github.com:443`.
+- `.mcp.json`, `.cursor/mcp.json`, and `.vscode/mcp.json` define `github` as
+  the same local stdio server, so the repo's project scope and the kit's user
+  scope no longer disagree about the endpoint. All four configs read
+  `GITHUB_PERSONAL_ACCESS_TOKEN` from `${GITHUB_TOKEN}`; the sandbox entrypoint
+  points that at the proxy-managed `github` sentinel so one definition works
+  both on the host and in the sandbox. The host now needs
+  `brew install github-mcp-server`.
+
 ## [0.1.0] - 2026-08-22
 
 ### Added
@@ -46,7 +68,7 @@ and this project adheres to
 - Context7 and GitHub MCP servers baked into every sandbox as user-scope MCP
   servers (`sbxclaude/files/home/.claude.json`), so they are available
   regardless of whether the target project defines its own. The GitHub server
-  authenticates with the `GITHUB_TOKEN` the sandbox proxy already provides.
+  authenticates with a `GITHUB_TOKEN` custom secret stored on the host.
 
 ### Changed
 
