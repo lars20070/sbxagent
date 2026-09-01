@@ -151,12 +151,16 @@ Codex signs itself in on first run and stores that login inside its sandbox, so
 a `sbxcodex rm` costs you one sign-in on the next start. Claude and Cursor are
 re-seeded automatically.
 
+### Repo version
+
+The repo version lives in `VERSION`, and `sbx<agent> version` prints it.
+`make lint` fails if it disagrees with any kit `version:` or with
+`CHANGELOG.md`'s latest release.
+
 ### Pinned toolchain versions
 
 Directly installed tools are pinned so sandbox rebuilds and CI lint use the
-same known versions. All three kits pin the same versions, and `make lint`
-fails if their `version:` fields disagree with each other or with
-`CHANGELOG.md`.
+same known versions. All three kits pin the same versions.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |

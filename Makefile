@@ -11,8 +11,8 @@ CSPELL ?= cspell
 # drafts). Assert each kits/<name>/ declares name: <name>, that the files every
 # kit duplicates stay byte-identical across kits, that the Cursor kit's
 # user-scope MCP config matches the repo's project-scope one (the sandbox mounts
-# the project, so the two sit side by side), and that every kits/*/spec.yaml
-# version matches CHANGELOG's latest release (and therefore each other).
+# the project, so the two sit side by side), and that VERSION, every
+# kits/*/spec.yaml version, and CHANGELOG's latest release all agree.
 lint:
 	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' | xargs -0 $(MARKDOWNLINT)
 	git ls-files -z -- '*.json' | xargs -0 -n1 jq empty
@@ -42,16 +42,26 @@ lint:
 		echo "lint: kits/sbxcursor/files/home/.cursor/mcp.json differs from .cursor/mcp.json" >&2; \
 		exit 1; \
 	}
+	if [ ! -f VERSION ]; then \
+		echo "lint: VERSION is missing" >&2; exit 1; \
+	fi; \
+	repo_version="$$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' VERSION)"; \
+	if [ -z "$$repo_version" ]; then \
+		echo "lint: could not find X.Y.Z in VERSION" >&2; exit 1; \
+	fi; \
 	changelog_version="$$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
 	if [ -z "$$changelog_version" ]; then \
 		echo "lint: could not find a ## [X.Y.Z] release heading in CHANGELOG.md" >&2; exit 1; \
+	elif [ "$$repo_version" != "$$changelog_version" ]; then \
+		echo "lint: VERSION is $$repo_version but CHANGELOG.md's latest release is $$changelog_version" >&2; \
+		exit 1; \
 	fi; \
 	for spec in kits/*/spec.yaml; do \
 		spec_version="$$(grep -m1 '^version:' "$$spec" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
 		if [ -z "$$spec_version" ]; then \
 			echo "lint: could not find version: in $$spec" >&2; exit 1; \
-		elif [ "$$spec_version" != "$$changelog_version" ]; then \
-			echo "lint: $$spec is version $$spec_version but CHANGELOG.md's latest release is $$changelog_version" >&2; \
+		elif [ "$$spec_version" != "$$repo_version" ]; then \
+			echo "lint: $$spec is version $$spec_version but VERSION is $$repo_version" >&2; \
 			exit 1; \
 		fi; \
 	done

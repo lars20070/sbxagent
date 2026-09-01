@@ -15,6 +15,7 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sbxagent-test.XXXXXX")"
 FAKE_BIN="${TEST_ROOT}/bin"
 SBX_LOG="${TEST_ROOT}/sbx.log"
 TESTS=0
+EXPECTED_VERSION="$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' "${ROOT}/VERSION")"
 
 cleanup() {
 	rm -rf "${TEST_ROOT}"
@@ -183,10 +184,10 @@ EMPTY_NAME="$(run_claude "${EMPTY_SLUG}" name)"
 assert_no_log "name"
 pass "name derivation is unique, stable, and canonical"
 
-# version: reads spec.yaml directly, needs no sbx call.
+# version: reads VERSION directly, needs no sbx call.
 clear_log
 CLAUDE_VERSION_OUT="$(run_claude "${WORK_A}" version)"
-assert_match "^sbxclaude [0-9]+\.[0-9]+\.[0-9]+$" "${CLAUDE_VERSION_OUT}" "version output"
+assert_eq "sbxclaude ${EXPECTED_VERSION}" "${CLAUDE_VERSION_OUT}" "version output"
 assert_no_log "version"
 pass "version prints the kit name and version without calling sbx"
 
@@ -306,7 +307,7 @@ assert_eq "sbxcodex-${NAME_A#sbxclaude-}" "${CODEX_NAME}" "codex name differs on
 assert_no_log "codex name"
 
 CODEX_VERSION_OUT="$(run_codex "${WORK_A}" version)"
-assert_match "^sbxcodex [0-9]+\.[0-9]+\.[0-9]+$" "${CODEX_VERSION_OUT}" "codex version output"
+assert_eq "sbxcodex ${EXPECTED_VERSION}" "${CODEX_VERSION_OUT}" "codex version output"
 
 CODEX_KIT="${ROOT}/kits/sbxcodex"
 clear_log
@@ -344,7 +345,7 @@ assert_eq "sbxcursor-${NAME_A#sbxclaude-}" "${CURSOR_NAME}" "cursor name differs
 assert_no_log "cursor name"
 
 CURSOR_VERSION_OUT="$(run_cursor "${WORK_A}" version)"
-assert_match "^sbxcursor [0-9]+\.[0-9]+\.[0-9]+$" "${CURSOR_VERSION_OUT}" "cursor version output"
+assert_eq "sbxcursor ${EXPECTED_VERSION}" "${CURSOR_VERSION_OUT}" "cursor version output"
 
 CURSOR_KIT="${ROOT}/kits/sbxcursor"
 clear_log
