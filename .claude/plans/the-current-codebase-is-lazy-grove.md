@@ -111,7 +111,7 @@ Other differences that the plan has to handle:
 │
 └── tests/
     ├── sbxagent_test.sh              # RENAMED from tests/sbxclaude_test.sh
-    └── toolchain_test.sh             # branches on /etc/sbxagent-kit
+    └── toolchain_test.sh             # branches on the SANDBOX_NAME prefix
 ```
 
 Why it is shaped this way:
@@ -362,9 +362,6 @@ guesswork:
 
   Do **not** ship this as `files/home/.codex/config.toml` — the parent rewrites
   that file on every create.
-- **New step — kit marker.** Write `/etc/sbxagent-kit` containing `sbxcodex`.
-  `tests/toolchain_test.sh` reads it to decide which agent-specific assertions
-  to run. Add the same step to the Claude and Cursor kits.
 - **`agentInstructions.content`**: the shared block, with the "MCP servers"
   bullet kept and the network-guard paragraph replaced by a plain statement that
   blocked hosts must be reported to the user (there is no hook to enforce it).
@@ -375,7 +372,8 @@ Add `scripts/sbxcodex -> sbxagent`, extend `tests/sbxagent_test.sh` to assert
 the `sbxcodex-` sandbox prefix and the `kits/sbxcodex` kit path, and confirm the
 three names produce three different sandbox names for the same directory.
 
-Make `tests/toolchain_test.sh` branch on `/etc/sbxagent-kit`: the guard-filter,
+Make `tests/toolchain_test.sh` branch on its `KIT_NAME` (added in Stage 1; it
+comes from the `SANDBOX_NAME` prefix, so no marker file is needed): the guard-filter,
 managed-settings and `~/.claude.json` blocks run only for `sbxclaude`; a
 `~/.codex/config.toml` MCP assertion runs only for `sbxcodex`. Everything else
 (tool versions, Chromium launch, mmdc render, CA bundle, git `insteadOf`) is
@@ -407,8 +405,7 @@ Same shape as Stage 3. Differences:
 - Do not chown `~/.cursor` blindly — Cursor's credential store is in memory and
   the parent's `cli-config.json` is `onlyIfMissing`. Only add a chown if the
   spike shows root-owned files.
-- `/etc/sbxagent-kit` contains `sbxcursor`; toolchain test gains a
-  `~/.cursor/mcp.json` branch.
+- Toolchain test gains a `~/.cursor/mcp.json` branch, keyed on `KIT_NAME`.
 
 Verify with `make test-toolchain AGENT=cursor`.
 

@@ -68,7 +68,7 @@ jobs:
         if: runner.os == 'macOS'
         run: make test-unit BASH=/bin/bash
 
-  # Validate sbxclaude/spec.yaml against the current Sandbox Kit schema.
+  # Validate kits/*/spec.yaml against the current Sandbox Kit schema.
   # Static check — no Docker or login; only the CLI download needs the
   # network. Install steps mirror docker/sbx-kits-contrib's
   # .github/workflows/e2e.yml.

@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
-# Smoke-tests the helper toolchain from inside a live sbxclaude sandbox.
-# Keep EXPECTED_* in sync with the pinned installs in sbxclaude/spec.yaml.
+# Smoke-tests the helper toolchain from inside a live sbxagent sandbox
+# (sbxclaude, sbxcodex or sbxcursor).
+# Keep EXPECTED_* in sync with the pinned installs in kits/*/spec.yaml.
 set -euo pipefail
+
+# Which kit built this sandbox. The wrapper names every sandbox
+# <kit>-<slug>-<hash>, so the prefix is the kit name and the command to rerun.
+KIT_NAME="${SANDBOX_NAME:-$(hostname)}"
+KIT_NAME="${KIT_NAME%%-*}"
+[[ -n "${KIT_NAME}" ]] || KIT_NAME="sbxclaude"
 
 EXPECTED_SBX_VERSION="v0.39.0"
 EXPECTED_RUFF_VERSION="0.16.2"
@@ -117,14 +124,14 @@ pass "GitHub SSH remotes rewrite to HTTPS"
 # Network-block escalation hook. A blocked request must end the turn and tell
 # the user which host to allow, rather than leaving the agent free to work
 # around it. Keep these in sync with the `Network-block escalation hook` setup
-# command in sbxclaude/spec.yaml.
-GUARD_FILTER="/usr/local/lib/sbxclaude/network-block.jq"
+# command in kits/sbxclaude/spec.yaml.
+GUARD_FILTER="/usr/local/lib/sbxagent/network-block.jq"
 MANAGED_SETTINGS="/etc/claude-code/managed-settings.json"
 
 # Both files are written by `setup:`, which only re-runs on a rebuild. A
 # sandbox created before that change has neither, and the bare "file missing"
 # would read as a broken test rather than a stale sandbox.
-REBUILD_HINT="sandbox may predate this kit change — rebuild: 'sbxclaude rm' then 'sbxclaude'"
+REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
 [[ -s "${GUARD_FILTER}" ]] ||
 	fail "guard filter is missing: ${GUARD_FILTER} (${REBUILD_HINT})"
@@ -215,7 +222,7 @@ check_guard_blocks "a blocked WebFetch of a URL containing spec.yaml" \
 	'sbx policy allow network "z.test"'
 
 # User-scope MCP servers baked into every sandbox via
-# sbxclaude/files/home/.claude.json, so Context7 and GitHub MCP tools are
+# kits/sbxclaude/files/home/.claude.json, so Context7 and GitHub MCP tools are
 # available regardless of the target project's own MCP configuration.
 CLAUDE_JSON="${HOME}/.claude.json"
 

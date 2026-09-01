@@ -4,8 +4,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Invoke through the symlink, not scripts/sbxagent, so every assertion below
+# goes through basename dispatch the same way an installed wrapper does.
 SCRIPT="${ROOT}/scripts/sbxclaude"
-TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sbxclaude-test.XXXXXX")"
+AGENT_SCRIPT="${ROOT}/scripts/sbxagent"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sbxagent-test.XXXXXX")"
 FAKE_BIN="${TEST_ROOT}/bin"
 SBX_LOG="${TEST_ROOT}/sbx.log"
 TESTS=0
@@ -106,6 +109,30 @@ reject_without_call() {
 	assert_no_log "'$*'"
 }
 
+# The wrapper picks its kit from the name it was invoked as. Running the real
+# script directly, or a copy under an unrelated name, must refuse and explain
+# how to link it — never guess an agent.
+reject_wrong_name() {
+	local invocation="$1"
+	shift
+	local label
+	local output
+	local status
+	local expected
+	label="$(basename "${invocation}")${1:+ $1}"
+	clear_log
+	set +e
+	output="$( (cd "${WORK_A}" && "${invocation}" "$@") 2>&1 )"
+	status=$?
+	set -e
+	[[ "${status}" -ne 0 ]] || fail "'${label}' unexpectedly succeeded"
+	for expected in sbxclaude sbxcodex sbxcursor "ln -s"; do
+		[[ "${output}" == *"${expected}"* ]] ||
+			fail "'${label}' did not mention '${expected}': ${output}"
+	done
+	assert_no_log "${label}"
+}
+
 mkdir -p "${FAKE_BIN}"
 # Fake `sbx`: appends each call's argv (tab-separated) to SBX_LOG. The
 # attach path probes with `sbx inspect` first, so SBX_SKIP_INSPECT_LOG lets a
@@ -161,7 +188,7 @@ assert_no_log "version"
 pass "version prints the kit name and version without calling sbx"
 
 SANDBOX="${NAME_A}"
-KIT="${ROOT}/sbxclaude"
+KIT="${ROOT}/kits/sbxclaude"
 
 # Attach: creates (validate + kit) only when the sandbox is missing, and
 # re-attaches directly when it already exists. Neither call passes `--`,
@@ -224,7 +251,13 @@ assert_no_log "help"
 [[ "${HELP_OUTPUT}" == *"destructive"* ]] || fail "help omitted rm warning"
 [[ "${HELP_OUTPUT}" == *"Use sbx or claude directly"* ]] ||
 	fail "help omitted direct-command guidance"
-pass "help documents the complete wrapper surface"
+# Usage is interpolated with the invoked name, so the real script name must not
+# appear anywhere in it.
+[[ "${HELP_OUTPUT}" == *"sbxclaude name"* ]] ||
+	fail "help did not use the invoked name"
+[[ "${HELP_OUTPUT}" != *"sbxagent"* ]] ||
+	fail "help leaked the real script name instead of the invoked name"
+pass "help documents the complete wrapper surface, under the invoked name"
 
 reject_without_call "${WORK_A}" foo
 pass "unknown commands make no sbx calls"
@@ -251,16 +284,39 @@ assert_log "$(printf 'policy\tcheck\tnetwork\t--sandbox\t%s\tgithub.com' \
 pass "policy check is scoped to the sandbox"
 
 # The README installs the wrapper as a symlink, so it has to resolve its own
-# path through the chain to locate the kit. Two hops, the second one relative,
-# invoked from an unrelated directory.
+# path through the chain to locate the kit. Two extra hops, the second one
+# relative, invoked from an unrelated directory. Every hop is named sbxclaude:
+# dispatch reads the basename of $0, so an arbitrary hop name is rejected (that
+# is covered separately below).
 clear_log
 LINK_BIN="${TEST_ROOT}/bin-link"
-mkdir -p "${LINK_BIN}"
-ln -s "${SCRIPT}" "${LINK_BIN}/hop1"
-(cd "${LINK_BIN}" && ln -s hop1 hop2)
-(cd "${WORK_B}" && "${LINK_BIN}/hop2" kit validate >/dev/null)
+LINK_BIN2="${TEST_ROOT}/bin-link2"
+mkdir -p "${LINK_BIN}" "${LINK_BIN2}"
+ln -s "${SCRIPT}" "${LINK_BIN}/sbxclaude"
+(cd "${LINK_BIN2}" && ln -s ../bin-link/sbxclaude sbxclaude)
+(cd "${WORK_B}" && "${LINK_BIN2}/sbxclaude" kit validate >/dev/null)
 assert_log "$(printf 'kit\tvalidate\t%s' "${KIT}")" "kit path via symlinked wrapper"
 pass "a symlinked wrapper still resolves the repo kit"
+
+# `help` is deliberately not exempt: in this state the refusal message is the
+# help you need, and a non-zero exit keeps "not a usable command" honest.
+reject_wrong_name "${AGENT_SCRIPT}"
+reject_wrong_name "${AGENT_SCRIPT}" help
+pass "running scripts/sbxagent directly refuses and explains how to link it"
+
+# A copy rather than a symlink is the one real failure mode of basename
+# dispatch, so it gets the same treatment.
+COPIED="${TEST_ROOT}/sbx-unknown-agent"
+# `cat` rather than `cp`: still a real copy, but virtiofs reports every
+# workspace file as fully sparse, so `cp` out of the workspace writes a
+# correctly-sized file of NUL bytes and this test would fail for a reason that
+# has nothing to do with dispatch. No `cp` flag avoids it; `cat` and `dd` are
+# unaffected. Open upstream, no fix as of sbx v0.39.0:
+# https://github.com/docker/sbx-releases/issues/526
+cat "${AGENT_SCRIPT}" >"${COPIED}"
+chmod +x "${COPIED}"
+reject_wrong_name "${COPIED}"
+pass "a copy under an unknown name refuses too"
 
 # require_sbx runs only in the commands that shell out to sbx, so the commands
 # that do not need it keep working on a host where sbx is not installed yet.

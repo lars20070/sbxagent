@@ -185,12 +185,12 @@ setup:
       description: GitHub MCP server, run locally over stdio
     - command: |
         set -eu
-        install -d -m 0755 /usr/local/lib/sbxclaude /etc/claude-code
+        install -d -m 0755 /usr/local/lib/sbxagent /etc/claude-code
 
         # Guard filter. Reads a Claude Code hook payload on stdin and writes
         # hook JSON on stdout. Root-owned and outside $HOME so the agent does
         # not disable its own escalation with an ordinary file edit.
-        cat > /usr/local/lib/sbxclaude/network-block.jq <<'JQFILTER'
+        cat > /usr/local/lib/sbxagent/network-block.jq <<'JQFILTER'
         # Every string in the payload except the tool's own input. Field names
         # differ per event (.tool_response on PostToolUse, .error on
         # PostToolUseFailure), so match the whole payload rather than a field.
@@ -258,7 +258,7 @@ setup:
               "matcher": "Bash|WebFetch",
               "hooks": [{
                 "type": "command",
-                "command": "jq -f /usr/local/lib/sbxclaude/network-block.jq",
+                "command": "jq -f /usr/local/lib/sbxagent/network-block.jq",
                 "timeout": 5
               }]
             }],
@@ -266,7 +266,7 @@ setup:
               "matcher": "Bash|WebFetch",
               "hooks": [{
                 "type": "command",
-                "command": "jq -f /usr/local/lib/sbxclaude/network-block.jq",
+                "command": "jq -f /usr/local/lib/sbxagent/network-block.jq",
                 "timeout": 5
               }]
             }]
@@ -274,7 +274,7 @@ setup:
         }
         SETTINGS
 
-        chmod 0644 /usr/local/lib/sbxclaude/network-block.jq \
+        chmod 0644 /usr/local/lib/sbxagent/network-block.jq \
           /etc/claude-code/managed-settings.json
 
         # Fail the build rather than ship a guard that silently does nothing.
@@ -283,7 +283,7 @@ setup:
         jq -e '.hooks.PostToolUseFailure[0].hooks[0].command' \
           /etc/claude-code/managed-settings.json >/dev/null
         jq -n '{tool_name:"Bash",tool_input:{command:"curl https://probe.test"},error:"Blocked by local rule for probe.test"}' \
-          | jq -e -f /usr/local/lib/sbxclaude/network-block.jq >/dev/null
+          | jq -e -f /usr/local/lib/sbxagent/network-block.jq >/dev/null
       description: Network-block escalation hook
     - command: "uv tool install ruff@0.16.2"
       user: "1000"
