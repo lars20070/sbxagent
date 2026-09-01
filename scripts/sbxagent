@@ -103,8 +103,6 @@ sbxcursor) CLI="cursor-agent" ;;
 esac
 
 KIT="${REPO}/kits/${SELF}"
-# A name can dispatch before its kit exists (sbxcursor arrives in Stage 4).
-# Say so here rather than letting sbx fail on a missing path.
 [[ -d "${KIT}" ]] || die "no kit directory at ${KIT}"
 KIT_NAME="${SELF}" # == spec.yaml name:
 DIR="$(pwd -P)"

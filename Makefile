@@ -9,8 +9,10 @@ CSPELL ?= cspell
 # Lint tracked files: Markdown (skip plan drafts), JSON, YAML, shell scripts
 # (shellcheck + bash -n, one file per xargs call), and spell-check (skip plan
 # drafts). Assert each kits/<name>/ declares name: <name>, that the files every
-# kit duplicates stay byte-identical across kits, and that
-# kits/sbxclaude/spec.yaml version matches CHANGELOG's latest release.
+# kit duplicates stay byte-identical across kits, that the Cursor kit's
+# user-scope MCP config matches the repo's project-scope one (the sandbox mounts
+# the project, so the two sit side by side), and that kits/sbxclaude/spec.yaml
+# version matches CHANGELOG's latest release.
 lint:
 	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' | xargs -0 $(MARKDOWNLINT)
 	git ls-files -z -- '*.json' | xargs -0 -n1 jq empty
@@ -36,6 +38,10 @@ lint:
 			}; \
 		done; \
 	done
+	cmp -s .cursor/mcp.json kits/sbxcursor/files/home/.cursor/mcp.json || { \
+		echo "lint: kits/sbxcursor/files/home/.cursor/mcp.json differs from .cursor/mcp.json" >&2; \
+		exit 1; \
+	}
 	spec_version="$$(grep -m1 '^version:' kits/sbxclaude/spec.yaml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
 	changelog_version="$$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
 	if [ -z "$$spec_version" ]; then \
@@ -52,6 +58,7 @@ lint:
 validate:
 	./scripts/sbxclaude kit validate
 	./scripts/sbxcodex kit validate
+	./scripts/sbxcursor kit validate
 
 # Run every test
 test: test-unit test-toolchain

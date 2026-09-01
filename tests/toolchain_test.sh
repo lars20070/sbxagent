@@ -306,4 +306,77 @@ pass "github MCP server is configured for local stdio"
 
 fi # end sbxcodex-only
 
+# ---------------------------------------------------------------------------
+# sbxcursor only. MCP servers ship as files/home/.cursor/mcp.json — the cursor
+# parent only writes ~/.cursor/cli-config.json, a different file, so a shipped
+# copy is safe here in a way it is not for Codex. The other assertions cover the
+# parent steps this kit has to replicate because sbx drops them (issue #415);
+# for Cursor that includes the parent's `setup.files:` entry, not just its
+# install and startup steps.
+# ---------------------------------------------------------------------------
+if [[ "${KIT_NAME}" == "sbxcursor" ]]; then
+
+CURSOR_JSON="${HOME}/.cursor/mcp.json"
+
+[[ -s "${CURSOR_JSON}" ]] || fail "${CURSOR_JSON} is missing (${REBUILD_HINT})"
+jq -e . "${CURSOR_JSON}" >/dev/null 2>&1 ||
+	fail "${CURSOR_JSON} is not valid JSON"
+pass "${CURSOR_JSON} is valid JSON"
+
+# Guards against root-owned files under ~/.cursor after the kit's files/home/
+# tree is copied in (see kits/sbxcursor/spec.yaml, issue #415).
+[[ -O "${CURSOR_JSON}" ]] || fail "${CURSOR_JSON} is not owned by the sandbox user"
+pass "${CURSOR_JSON} is owned by the sandbox user"
+
+jq -e --arg v "@upstash/context7-mcp@${EXPECTED_CONTEXT7_MCP_VERSION}" \
+	'.mcpServers.context7.args | index($v) != null' \
+	"${CURSOR_JSON}" >/dev/null ||
+	fail "context7 MCP server missing or wrong pinned version in ${CURSOR_JSON}"
+pass "context7 MCP server is pinned to ${EXPECTED_CONTEXT7_MCP_VERSION}"
+
+# Cursor expands "${env:VAR}", not "${VAR}" — the Claude form would be passed
+# through literally. Must stay byte-identical to the repo's .cursor/mcp.json:
+# the sandbox mounts the project, so project scope sits alongside this user
+# scope. `make lint` enforces that pairing.
+jq -e '.mcpServers.github.command == "github-mcp-server"
+	and (.mcpServers.github.args | index("stdio") != null)
+	and .mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN == "${env:GITHUB_TOKEN}"' \
+	"${CURSOR_JSON}" >/dev/null ||
+	fail "github MCP server missing or misconfigured in ${CURSOR_JSON}"
+pass "github MCP server is configured for local stdio"
+
+# Replicated parent step. Without it, agent traffic does not go through the
+# forward proxy.
+CURSOR_CLI_CONFIG="${HOME}/.cursor/cli-config.json"
+jq -e '.network.useHttp1ForAgent == true' "${CURSOR_CLI_CONFIG}" >/dev/null 2>&1 ||
+	fail "${CURSOR_CLI_CONFIG} does not force HTTP/1.1 for the agent (${REBUILD_HINT})"
+pass "cli-config.json forces HTTP/1.1 so traffic uses the forward proxy"
+
+# Replicated parent step. `--yolo` does not bypass the workspace trust gate, so
+# without this every interactive session opens with a trust prompt. The slug is
+# the workspace path with the leading slash dropped and the rest turned into "-".
+CURSOR_TRUST_SLUG="${PWD#/}"
+CURSOR_TRUST_FILE="${HOME}/.cursor/projects/${CURSOR_TRUST_SLUG//\//-}/.workspace-trusted"
+[[ -s "${CURSOR_TRUST_FILE}" ]] ||
+	fail "workspace is not pre-trusted: ${CURSOR_TRUST_FILE} missing (${REBUILD_HINT})"
+pass "workspace is pre-trusted, so the TUI skips its trust prompt"
+
+# Cursor gates MCP servers behind an approval separate from workspace trust,
+# and `--yolo` bypasses neither. Without the kit's startup step both servers
+# report "not loaded (needs approval)". The startup step soft-fails on purpose,
+# so this assertion is what catches a silent regression.
+CURSOR_MCP_APPROVALS="$(dirname "${CURSOR_TRUST_FILE}")/mcp-approvals.json"
+jq -e . "${CURSOR_MCP_APPROVALS}" >/dev/null 2>&1 ||
+	fail "MCP servers are not pre-approved: ${CURSOR_MCP_APPROVALS} missing or invalid (${REBUILD_HINT})"
+# Entries are "<name>-<hash of the server definition>", not bare names, so this
+# has to match on the prefix.
+for server in context7 github; do
+	jq -e --arg s "${server}" 'any(.[]; startswith($s + "-"))' \
+		"${CURSOR_MCP_APPROVALS}" >/dev/null ||
+		fail "${server} is not in ${CURSOR_MCP_APPROVALS}"
+done
+pass "context7 and github are pre-approved, so the TUI does not prompt for them"
+
+fi # end sbxcursor-only
+
 echo "All ${TESTS} toolchain tests passed."

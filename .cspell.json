@@ -94,6 +94,8 @@
     "sbxcodex",
     "sbxcursor",
     "virtiofs",
-    "apikey"
+    "apikey",
+    "unstartable",
+    "startswith"
   ]
 }

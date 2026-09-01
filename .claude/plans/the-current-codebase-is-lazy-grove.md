@@ -711,6 +711,65 @@ Same shape as Stage 3. Differences:
 
 Verify with `make test-toolchain AGENT=cursor`.
 
+### Stage 4 results (2026-09-01)
+
+Landed and green: `make lint`, all three kits validate, `make test-unit`
+(18 tests, on both `bash` and `/bin/bash`), `make test-toolchain AGENT=cursor`
+(25), and the two regressions `AGENT=claude` (35) and `AGENT=codex` (23). All
+three sandboxes coexist for this repo. `cursor-agent mcp list` reports
+`context7: ready` and `github: ready`.
+
+Four things differed from what this stage assumed:
+
+**1. #415 is worse for Cursor than for Codex — it drops `setup.files:` too.**
+Stage 2 only established that `install` and `startup` are lost. The Cursor spike
+showed the parent's `files:` entry goes as well: with a bare child `setup:`,
+`~/.cursor` **does not exist at all**. Three parent steps therefore had to be
+replicated, not one:
+
+- `chown agent:agent /home/agent/.cursor` (root). Must stay the first `install`
+  step — the kit's own `files/home/` tree is copied in after `install` runs.
+- The workspace pre-trust file. `--yolo` does *not* bypass the trust gate, and
+  `--trust` only works in headless (`-p`) mode, so without this every
+  interactive session opens with a "Workspace Trust Required" prompt.
+- `cli-config.json` (`{"network": {"useHttp1ForAgent": true}}`), written from a
+  command with a `[ -f ] ||` guard rather than a child `setup.files:`, which
+  would be a second unverified path. Without it agent traffic does not go
+  through the forward proxy. Cursor later rewrites this file with its own
+  defaults and **preserves** the setting, so seeding it is enough.
+
+**2. No Cursor hosts need adding.** `api2.cursor.sh`, `api3.cursor.sh`,
+`repo42.cursor.sh` and `cursor.com` are all already allowed by the base preset,
+confirmed with `sbxcursor policy check`. Same outcome as the OpenAI hosts in
+Stage 3, so the allowlist is the shared list unchanged.
+
+**3. No entrypoint chown, unlike the other two kits.** The plan said to add one
+only if the spike showed root-owned files. It did not: because the replicated
+parent chown runs as root during `install`, before the kit's files are copied,
+nothing under `~/.cursor` ends up root-owned. Verified on a clean rebuild and
+asserted by the toolchain test. The spec carries a comment telling future
+readers not to add one back for symmetry.
+
+**4. New problem this plan did not anticipate — MCP approval.** Cursor gates MCP
+servers behind an approval that is *separate* from workspace trust, and `--yolo`
+bypasses neither. Shipping `files/home/.cursor/mcp.json` alone left both servers
+at `not loaded (needs approval)`. Fixed with a `startup` step running
+`cursor-agent mcp enable` for each server, which records them in
+`~/.cursor/projects/<slug>/mcp-approvals.json` next to `.workspace-trusted`.
+
+Two traps found while building that step, both worth remembering:
+
+- **A `startup` step runs with a minimal environment.** `PATH` lacks
+  `~/.local/bin`, where `cursor-agent` lives, and `cursor-agent` aborts on an
+  unset `HOME`. The first version failed silently on `PATH` alone. The step now
+  sets both explicitly.
+- **`startup.command` must be a list**, not a block string — `install.command`
+  accepts either, `startup.command` does not, and the error
+  (`cannot unmarshal !!str into []string`) does not say which field it means.
+
+Also note `mcp-approvals.json` stores `"<name>-<hash>"` entries, not bare names,
+so the toolchain assertion matches on prefix.
+
 ---
 
 ## Stage 5 — Docs, lint, CI, release

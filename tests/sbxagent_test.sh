@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # goes through basename dispatch the same way an installed wrapper does.
 CLAUDE_SCRIPT="${ROOT}/scripts/sbxclaude"
 CODEX_SCRIPT="${ROOT}/scripts/sbxcodex"
+CURSOR_SCRIPT="${ROOT}/scripts/sbxcursor"
 # The real script, which must refuse to run under its own name.
 AGENT_SCRIPT="${ROOT}/scripts/sbxagent"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sbxagent-test.XXXXXX")"
@@ -329,6 +330,50 @@ assert_no_log "codex help"
 [[ "${CODEX_HELP}" != *"sbxagent"* ]] ||
 	fail "codex help leaked the real script name"
 pass "help names the invoked command and its underlying CLI"
+
+run_cursor() {
+	local directory="$1"
+	shift
+	(cd "${directory}" && "${CURSOR_SCRIPT}" "$@")
+}
+
+clear_log
+CURSOR_NAME="$(run_cursor "${WORK_A}" name)"
+assert_match "^sbxcursor-$(expected_slug "${WORK_A}")-[0-9a-f]{6}$" "${CURSOR_NAME}" "cursor derived name"
+assert_eq "sbxcursor-${NAME_A#sbxclaude-}" "${CURSOR_NAME}" "cursor name differs only by prefix"
+assert_no_log "cursor name"
+
+CURSOR_VERSION_OUT="$(run_cursor "${WORK_A}" version)"
+assert_match "^sbxcursor [0-9]+\.[0-9]+\.[0-9]+$" "${CURSOR_VERSION_OUT}" "cursor version output"
+
+CURSOR_KIT="${ROOT}/kits/sbxcursor"
+clear_log
+run_cursor "${WORK_A}" kit validate >/dev/null
+assert_log "$(printf 'kit\tvalidate\t%s' "${CURSOR_KIT}")" "cursor kit path"
+
+clear_log
+run_cursor "${WORK_A}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t--kit\t%s\tsbxcursor\t.' \
+	"${CURSOR_NAME}" "${CURSOR_KIT}")" "cursor create"
+pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
+
+clear_log
+CURSOR_HELP="$(run_cursor "${WORK_A}" help)"
+assert_no_log "cursor help"
+[[ "${CURSOR_HELP}" == *"Use sbx or cursor-agent directly"* ]] ||
+	fail "cursor help did not name the cursor-agent CLI: ${CURSOR_HELP}"
+[[ "${CURSOR_HELP}" == *"sbxcursor name"* ]] ||
+	fail "cursor help did not use the invoked name"
+[[ "${CURSOR_HELP}" != *"sbxagent"* ]] ||
+	fail "cursor help leaked the real script name"
+pass "cursor help names the invoked command and its underlying CLI"
+
+# The whole point of basename dispatch: one directory, three commands, three
+# separate sandboxes, so all three agents can run against a project at once.
+[[ "${NAME_A}" != "${CODEX_NAME}" && "${NAME_A}" != "${CURSOR_NAME}" &&
+	"${CODEX_NAME}" != "${CURSOR_NAME}" ]] ||
+	fail "the three names collide: ${NAME_A} ${CODEX_NAME} ${CURSOR_NAME}"
+pass "the three commands yield three distinct sandbox names for one directory"
 
 # The README installs the wrapper as a symlink, so it has to resolve its own
 # path through the chain to locate the kit. Two extra hops, the second one
