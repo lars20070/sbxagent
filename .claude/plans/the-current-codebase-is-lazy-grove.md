@@ -87,7 +87,7 @@ Use `git mv` so the rename is visible in history.
 
 ### `scripts/sbxagent`
 
-Add an agent-resolution block near the top, before `resolve_dir` is used:
+Add an agent-resolution block just after `SCRIPT_DIR` / `REPO` are computed:
 
 ```bash
 # Dispatch on the name we were invoked as, so one script serves sbxclaude,
@@ -97,14 +97,35 @@ Add an agent-resolution block near the top, before `resolve_dir` is used:
 SELF="$(basename "$0")"
 case "${SELF}" in
 sbxclaude | sbxcodex | sbxcursor) ;;
-sbxagent)
-	SELF="sbx${SBXAGENT_AGENT:-}"
-	[[ "${SELF}" != "sbx" ]] ||
-		die "run sbxagent through one of its names (sbxclaude, sbxcodex, sbxcursor) or set SBXAGENT_AGENT"
+*)
+	# Covers a direct `./scripts/sbxagent` run and any copy under another name.
+	# Deliberately no default agent: silently picking one is worse than failing.
+	echo "sbxagent: run this through an agent name, not directly." >&2
+	echo "Link it onto your PATH, once per agent you want:" >&2
+	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxclaude   # Claude Code" >&2
+	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxcodex    # Codex" >&2
+	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxcursor   # Cursor" >&2
+	echo "Then run sbxclaude, sbxcodex or sbxcursor." >&2
+	exit 1
 	;;
-*) die "unknown wrapper name '${SELF}'; expected sbxclaude, sbxcodex or sbxcursor" ;;
 esac
 ```
+
+Notes on this block:
+
+- No `SBXAGENT_AGENT` escape hatch. Nothing needs one: `make validate`,
+  `make test-toolchain` and the unit tests all go through the in-repo symlinks
+  (`scripts/sbxclaude` and friends), which is also what makes dispatch covered
+  by every test run.
+- No default agent. A `sbxagent` that quietly behaved as `sbxclaude` would let
+  you believe you were in Codex when you were not.
+- The hint prints an absolute, copy-pasteable path, which is why the block sits
+  after `SCRIPT_DIR` rather than at the very top.
+- The catch-all also handles someone `cp`-ing the script to an unrelated name,
+  which is the one real failure mode of basename dispatch.
+- `help` / `-h` / `--help` are **not** exempt. The message above already is the
+  help you need in that state, and exiting non-zero keeps the "this is not a
+  usable command" signal honest.
 
 Then derive everything from `${SELF}`:
 
@@ -145,10 +166,12 @@ Existing coverage stays. Changes:
 - Point `SCRIPT` at `scripts/sbxclaude` (the symlink) so basename dispatch is
   exercised on every assertion.
 - `KIT="${ROOT}/kits/sbxclaude"`.
-- Add a case: invoking `scripts/sbxagent` directly with no `SBXAGENT_AGENT`
-  fails, makes no `sbx` call, and names the three valid commands.
-- Add a case: `SBXAGENT_AGENT=claude scripts/sbxagent name` equals
-  `scripts/sbxclaude name`.
+- Add a case: invoking `scripts/sbxagent` directly fails, makes no `sbx` call,
+  and its message names all three commands and the `ln -s` recipe. Assert the
+  same for `sbxagent help` — the direct-call refusal is not exempt.
+- Add a case: a copy (not a symlink) of the script under an unrelated name fails
+  the same way. This is the one real failure mode of basename dispatch, so it
+  gets a test.
 - The help assertion `"Use sbx or claude directly"` becomes agent-aware.
 
 ### `kits/sbxclaude/spec.yaml`
