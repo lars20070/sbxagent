@@ -1,5 +1,9 @@
 # sbxagent
 
+[![CI](https://github.com/lars20070/sbxagent/actions/workflows/ci.yml/badge.svg)](https://github.com/lars20070/sbxagent/actions/workflows/ci.yml)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/lars20070/sbxagent)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 `sbxagent` runs a coding agent in an isolated sandbox, with a fixed toolchain
 already installed. Think of it as a customized version of
 [`sbx run <agent>`](https://docs.docker.com/ai/sandboxes/agents/).
