@@ -8,6 +8,54 @@ One script serves three commands — `sbxclaude`, `sbxcodex` and `sbxcursor` —
 by dispatching on the name it was invoked as. Each gets its own sandbox and its
 own credentials, so all three can run against the same project at once.
 
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph IN[" "]
+    direction TB
+    PROJ["your project<br/>(host working tree)"]
+    DRV["scripts/sbxclaude<br/>scripts/sbxcodex<br/>scripts/sbxcursor"]
+    KIT["kits/&lt;command&gt;/spec.yaml<br/>kits/&lt;command&gt;/files/"]
+  end
+
+  subgraph VM["sbx sandbox"]
+    AGENT["Claude Code / Codex /<br/>Cursor CLI"]
+    TOOLS["git, docker, rg, jq,<br/>ruff, playwright, ..."]
+    PROXY["credential + network<br/>allowlist proxy"]
+  end
+
+  subgraph NET[" "]
+    direction TB
+    LLM("Anthropic / OpenAI /<br/>other LLM APIs")
+    GH("GitHub")
+  end
+
+  PROJ -.->|"mounted"| VM
+  DRV -->|"creates / attaches"| VM
+  KIT -->|"builds"| VM
+  AGENT -.->|"runs"| TOOLS
+  AGENT -->|"via proxy"| PROXY
+  PROXY -->|"allowlisted"| LLM & GH
+  AGENT ==>|"edits"| PROJ
+
+  classDef data    fill:#E3F2F1,stroke:#0E7C86,stroke-width:2px,color:#0B3D40
+  classDef host    fill:#FDF3E0,stroke:#B8860B,stroke-width:2px,color:#4A3405
+  classDef helper  fill:#EDEAF7,stroke:#6A5ACD,stroke-width:2px,color:#2E1D63
+  classDef agent   fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
+  classDef ext     fill:#F0F0EE,stroke:#7A8482,stroke-width:1.5px,color:#3A4250
+  class PROJ data
+  class KIT,DRV host
+  class TOOLS,PROXY helper
+  class AGENT agent
+  class GH,LLM ext
+  style VM fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px
+  style IN fill:none,stroke:none
+  style NET fill:none,stroke:none
+```
+
+<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (pink) uses the pinned toolchain (lavender) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (teal) is mounted straight into the sandbox and edited in place.*
+
 ## Supported agents
 
 | Command | Agent | Parent kit | Entrypoint | Instruction file | MCP config | Network-block guard |
