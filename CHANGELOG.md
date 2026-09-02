@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `github.githubassets.com:443` on every kit's network allowlist, so github.com
+  pages render with their CSS and JavaScript in the sandbox's Playwright
+  browser instead of loading as unstyled HTML.
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

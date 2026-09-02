@@ -97,6 +97,7 @@
     "apikey",
     "unstartable",
     "startswith",
-    "unrecognised"
+    "unrecognised",
+    "githubassets"
   ]
 }

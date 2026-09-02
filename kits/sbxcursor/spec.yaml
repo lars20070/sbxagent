@@ -101,6 +101,9 @@ permissions:
       # files/home/.cursor/mcp.json) runs locally and calls the REST API here.
       - "api.github.com:443"
       - "github.com:443"
+      # GitHub serves page CSS/JS from this host; without it github.com
+      # pages load unstyled in the sandbox's Playwright browser.
+      - "github.githubassets.com:443"
       # Gist
       - "gist.github.com:443"
       - "gist.githubusercontent.com:443"
