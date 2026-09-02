@@ -1,0 +1,7 @@
+# Sandbox network policy allows github.com:443 but not SSH port 22.
+# Rewrite GitHub SSH remotes to HTTPS so `git fetch` works without changing
+# the host checkout's remote URL. See:
+# https://docs.docker.com/ai/sandboxes/troubleshooting/#ssh-and-other-non-http-connections-fail
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/

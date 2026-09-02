@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The jobs only read the checked-out tree.
+permissions:
+  contents: read
+
+# Cancel superseded runs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Lint Markdown, JSON, YAML, and shell, and spell-check. Reuses `make lint`
+  # so the lint definition lives in one place (the Makefile). markdownlint and
+  # cspell run via pinned npx packages. The runners differ: ubuntu-latest ships
+  # shellcheck, jq, and yamllint, while the macOS image ships only jq and Node.
+  lint:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No git operations after checkout, so don't leave the job token in
+          # .git/config where a later third-party step could read it.
+          persist-credentials: false
+
+      - name: Install lint tools missing from the macOS runner
+        if: runner.os == 'macOS'
+        run: brew install shellcheck yamllint
+
+      - name: Lint (markdownlint, jq, yamllint, shellcheck, cspell)
+        run: |
+          make lint \
+            MARKDOWNLINT='npx --yes markdownlint-cli2@0.23.2' \
+            CSPELL='npx --yes cspell@10.0.1'
+
+  # Test the wrapper's dispatch against a fake sbx CLI on PATH — no real
+  # sandbox, no Docker, no network.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test wrapper
+        run: make test-unit
+
+      # macOS still ships bash 3.2 as /bin/bash, which is the oldest
+      # interpreter the wrapper has to run under.
+      - name: Test wrapper under bash 3.2
+        if: runner.os == 'macOS'
+        run: make test-unit BASH=/bin/bash
+
+  # Validate kits/*/spec.yaml against the current Sandbox Kit schema.
+  # Static check — no Docker or login; only the CLI download needs the
+  # network. Install steps mirror docker/sbx-kits-contrib's
+  # .github/workflows/e2e.yml.
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Install the latest sbx CLI. "latest" is intentional: the schema is
+      # bundled in the binary, so this surfaces schema drift as soon as it
+      # ships.
+      - name: Install sbx CLI
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/docker/sbx-releases/releases/latest/download/DockerSandboxes-linux.tar.gz" \
+            -o /tmp/DockerSandboxes-linux.tar.gz
+          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
+          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
+          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
+
+      # The darwin archive has no install.sh and a different layout: the binary
+      # sits at bin/sbx, so extract it and put that bin on PATH. Homebrew is
+      # avoided here because `brew trust docker/tap` prompts.
+      - name: Install sbx CLI
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/docker/sbx-releases/releases/latest/download/DockerSandboxes-darwin.tar.gz" \
+            -o /tmp/DockerSandboxes-darwin.tar.gz
+          mkdir -p "${HOME}/.docker/sbx"
+          tar xzf /tmp/DockerSandboxes-darwin.tar.gz -C "${HOME}/.docker/sbx"
+          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
+
+      - name: Verify sbx
+        run: sbx version
+
+      - name: Validate kit spec
+        run: make validate

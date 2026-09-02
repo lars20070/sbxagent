@@ -1,0 +1,312 @@
+schemaVersion: "2"
+kind: sandbox
+name: sbxcursor
+version: "0.2.0"
+displayName: Cursor with custom toolchain
+description: Cursor with custom toolchain
+
+extends: cursor
+
+sandbox:
+  # OLD CODE:
+  # entrypoint: [cursor-agent] # Runs with --yolo !!
+  #
+  # TEMPORARY: works around sbx dropping the parent cursor kit's setup when
+  # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
+  # Revert to `entrypoint: [cursor-agent]` once sbx merges parent and child setup instead of replacing.
+  entrypoint:
+    - sh
+    - -c
+    - |
+      set -eu
+      # No chown here, deliberately — unlike the sbxclaude and sbxcodex kits.
+      # The parent's own root-owned `chown agent:agent /home/agent/.cursor` is
+      # replicated in setup.install below, and it runs before the kit's
+      # files/home/ tree is copied in, so the whole tree already belongs to the
+      # agent. Verified on a rebuild: nothing under ~/.cursor is root-owned, and
+      # tests/toolchain_test.sh asserts it. Do not add one back for symmetry.
+      #
+      # The `github` MCP server reads GITHUB_PERSONAL_ACCESS_TOKEN.
+      # files/home/.cursor/mcp.json supplies it as "${env:GITHUB_TOKEN}" —
+      # Cursor's own expansion syntax, which is why that file is not
+      # byte-identical to the Claude kit's ~/.claude.json (plain
+      # "${GITHUB_TOKEN}") nor to the Codex kit's config.toml (no expansion at
+      # all, so it names the variable via env_vars instead). GH_TOKEN here is
+      # the proxy-managed `github` service sentinel, which the credential proxy
+      # swaps for the real token on requests to api.github.com.
+      # This only covers the agent session this entrypoint starts; a
+      # `cursor-agent` launched by hand from `sbxcursor exec bash` does not
+      # inherit it.
+      if [ -n "${GH_TOKEN:-}" ]; then
+        export GITHUB_TOKEN="$GH_TOKEN"
+      fi
+      exec cursor-agent "$@"
+    - sbxcursor-entrypoint
+# resources:
+#   cpu: 8
+#   memory: 24g
+
+agentInstructions:
+  content: |
+    ## Sandbox environment
+    You are in a Docker Sandbox microVM. The user's project is mounted as your
+    workspace, so file edits modify the host working tree. `sudo` is
+    passwordless, and a sandbox-local Docker daemon is available.
+
+    Network egress is allowlisted. If a network request fails because its host
+    is blocked, stop and ask the user to run this on the host:
+    `sbx policy allow network "<host>"`. Do not run `sbx policy` inside the
+    sandbox, and do not work around a block by mirroring, vendoring, retrying
+    against a different host, or dropping the step. Nothing enforces this for
+    you here, so it is on you: end the turn and report the blocked host.
+
+    The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
+    `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
+    including `run`, `create`, `rm`, `exec`, `inspect`, and `policy`, require
+    the host CLI and `sandboxd`; ask the user to run them on the host.
+
+    ## Preinstalled tools
+    Follow the project's own instructions and use its declared dependencies
+    first. For general development tasks, these tools are already on `PATH`:
+
+    - Search and data: `rg` (ripgrep), `jq`
+    - Shell: `shellcheck`; use `bash -n` for syntax checks
+    - Python: `python3`, `ruff` for lint and format, `uv` for packages
+    - YAML: `yamllint`
+    - Markdown and prose: `markdownlint-cli2`, `cspell`
+    - Browser: `playwright`, with headless Chromium — load pages, screenshot
+      them, and read console output to verify UI changes before reporting done
+    - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
+      `mmdc -i diagram.mmd -o diagram.png`
+    - General: `git`, `docker`, `curl`, `node`, `npm`
+    - Sandbox kits: `sbx`, with the restrictions above
+    - MCP servers: `context7` (up-to-date library/framework docs) and `github`
+      (GitHub API) are configured and ready to use
+
+    Prefer `rg` over recursive `grep`, `ruff` over installing another Python
+    linter or formatter, and `uv` over `pip`. Install project dependencies when
+    needed, but do not install global replacements for tools already provided.
+
+permissions:
+  network:
+    allow:
+      - "registry.npmjs.org:443"
+      # Playwright downloads the Chromium browser binary from these CDN mirrors.
+      - "cdn.playwright.dev:443"
+      - "playwright.download.prss.microsoft.com:443"
+      # The Context7 MCP server (baked into every sandbox via
+      # files/home/.cursor/mcp.json) calls its documentation API here.
+      - "context7.com:443"
+      # The GitHub MCP server (baked into every sandbox via
+      # files/home/.cursor/mcp.json) runs locally and calls the REST API here.
+      - "api.github.com:443"
+      - "github.com:443"
+      # GitHub serves page CSS/JS from this host; without it github.com
+      # pages load unstyled in the sandbox's Playwright browser.
+      - "github.githubassets.com:443"
+      # Gist
+      - "gist.github.com:443"
+      - "gist.githubusercontent.com:443"
+      # GitHub release assets redirect here; needed to download the sbx binary.
+      - "release-assets.githubusercontent.com:443"
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # Pi agent development
+      - "pi.dev"
+      # No Cursor hosts here on purpose: api2.cursor.sh, api3.cursor.sh,
+      # repo42.cursor.sh and cursor.com are already allowed by the base preset.
+      # Verified with `sbxcursor policy check`.
+
+setup:
+  install:
+    # ---- Replicated from the embedded `cursor` parent kit ----
+    # sbx drops the parent's whole setup node once this kit declares its own
+    # (issue https://github.com/docker/sbx-releases/issues/415). For Cursor that
+    # is worse than for Codex: the parent's `install`, `startup` AND `files`
+    # entries all go, and a spike confirmed `~/.cursor` then does not exist at
+    # all. The three steps below restore it. Keep them in sync with the parent
+    # when bumping the pinned sbx version, and drop them once #415 is fixed.
+    #
+    # This one must stay first: the kit's own files/home/ tree is copied in
+    # after `install` runs, and it writes into ~/.cursor.
+    - command: mkdir -p /home/agent/.cursor && chown agent:agent /home/agent/.cursor
+      user: "0"
+      description: Ensure .cursor is owned by agent before bind mounts and initFiles run (replicated parent step)
+    # Pre-trust the workspace so the interactive cursor-agent TUI skips its
+    # "Workspace Trust Required" prompt on every run. `--yolo` bypasses tool
+    # approvals but NOT this trust gate, and `--trust` only works in headless
+    # (-p) mode, so without this every interactive session starts with a prompt.
+    # The slug is derived per-workspace, which is why it cannot be a static file.
+    - command: |
+        [ -n "$WORKSPACE_DIR" ] || { echo "WORKSPACE_DIR unset; skipping Cursor workspace pre-trust" >&2; exit 0; }
+        ws="$WORKSPACE_DIR"
+        slug=$(printf '%s' "$ws" | sed 's#^/##; s#/#-#g')
+        dir="/home/agent/.cursor/projects/$slug"
+        mkdir -p "$dir"
+        esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        [ -f "$dir/.workspace-trusted" ] || printf '{"trustedAt":"%s","workspacePath":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$esc" > "$dir/.workspace-trusted"
+      user: "agent"
+      description: Pre-trust the workspace so cursor-agent skips the interactive Workspace Trust prompt (replicated parent step)
+    # The parent ships this as a `setup.files:` entry with onlyIfMissing: true.
+    # That whole node is dropped along with the rest, and a child `setup.files:`
+    # would be a second unverified path, so it is written from a command here
+    # instead — the `[ -f ] ||` guard reproduces onlyIfMissing exactly.
+    # Without it, agent traffic does not go through the forward proxy.
+    - command: |
+        set -eu
+        f=/home/agent/.cursor/cli-config.json
+        [ -f "$f" ] || printf '%s\n' '{"network": {"useHttp1ForAgent": true}}' > "$f"
+      user: "agent"
+      description: Seed HTTP/1.1+SSE for agent connections so traffic goes through the forward proxy (replicated parent step)
+    # ---- End replicated parent steps ----
+    - command: |
+        set -eu
+        apt-get update
+        apt-get install -y \
+          ca-certificates \
+          curl \
+          jq \
+          python3 \
+          ripgrep \
+          shellcheck
+      description: CLI tools
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v0.39.0 release assets.
+        case "$arch" in
+          amd64)
+            expected_sha256="2ec45bc7938c20c2f406fe8cc72294ad5a954bdc047601484b89bf1a108311d4"
+            ;;
+          arm64)
+            expected_sha256="39c470a5f5e0991b1c2358952e2ab32a7b0309bfa57ac62b6bbc64b466d02c17"
+            ;;
+          *)
+            echo "unsupported architecture for sbx: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/docker/sbx-releases/releases/download/v0.39.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          -o "$tmp/sbx.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "sbx tarball checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/sbx.tar.gz" -C "$tmp" docker-sbx/sbx
+        install -m 0755 "$tmp/docker-sbx/sbx" /usr/local/bin/sbx
+        sbx version
+      description: sbx CLI for offline kit commands
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v1.11.0 release assets.
+        case "$arch" in
+          amd64)
+            asset="Linux_x86_64"
+            expected_sha256="3b73bb7be0c8b043f861e90410df8ebdfc71b83128c54ced75fb32c4ff697fc5"
+            ;;
+          arm64)
+            asset="Linux_arm64"
+            expected_sha256="3f7615254f6b619469c471c5d275029299ff7431c93d6075496ea4b2eec020cb"
+            ;;
+          *)
+            echo "unsupported architecture for github-mcp-server: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/github/github-mcp-server/releases/download/v1.11.0/github-mcp-server_${asset}.tar.gz" \
+          -o "$tmp/gms.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "github-mcp-server checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/gms.tar.gz" -C "$tmp" github-mcp-server
+        install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
+        github-mcp-server --version
+      description: GitHub MCP server, run locally over stdio
+    # No `Network-block escalation hook` step here. That guard is Claude Code
+    # specific — it installs /etc/claude-code/managed-settings.json with Claude
+    # Code hook JSON, and Cursor exposes no verified equivalent. See the
+    # agentInstructions above, which ask for the same behaviour unenforced.
+    - command: "uv tool install ruff@0.16.2"
+      user: "1000"
+      description: Ruff
+    - command: "uv tool install yamllint@1.38.0"
+      user: "1000"
+      description: yamllint
+    - command: "npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1"
+      user: "1000"
+      description: Markdown and spelling linters
+    - command: |
+        set -eu
+        npm install --global playwright@1.62.1
+        playwright install --with-deps chromium
+      user: "1000"
+      description: Playwright with headless Chromium
+    - command: |
+        set -eu
+        # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
+        # reuses the one Playwright just installed, below.
+        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.16.0
+        chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
+          'console.log(require("playwright").chromium.executablePath())')"
+        mmdc_bin="$(command -v mmdc)"
+        config="$(dirname "$mmdc_bin")/mermaid-puppeteer-config.json"
+        printf '{"executablePath": "%s"}\n' "$chromium_path" > "$config"
+        # mmdc only takes its Puppeteer config via an explicit flag, so wrap
+        # the real binary to always pass it — keeps `mmdc -i a.mmd -o a.png`
+        # working with no extra flags for the agent.
+        mv "$mmdc_bin" "${mmdc_bin}.real"
+        cat > "$mmdc_bin" <<WRAPPER
+        #!/bin/sh
+        exec "${mmdc_bin}.real" --puppeteerConfigFile "${config}" "\$@"
+        WRAPPER
+        chmod +x "$mmdc_bin"
+      user: "1000"
+      description: mermaid-cli, reusing the Playwright Chromium
+  startup:
+    # Replicated from the parent, and lost for the same reason (#415).
+    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
+      user: "root"
+      description: Update apt package cache in background (replicated parent step)
+    # Cursor gates MCP servers behind a separate approval from the workspace
+    # trust gate, and `--yolo` bypasses neither: without this, `cursor-agent mcp
+    # list` reports both servers as "not loaded (needs approval)". `mcp enable`
+    # records them in ~/.cursor/projects/<slug>/mcp-approvals.json, alongside the
+    # .workspace-trusted file the parent seeds.
+    #
+    # This has to be a startup step, not an install one: `install` runs before
+    # the kit's files/home/ tree is copied in, so ~/.cursor/mcp.json — which
+    # `mcp enable` reads to resolve the names — does not exist yet at that point.
+    #
+    # HOME and PATH are set explicitly because a startup step runs with a
+    # minimal environment: PATH lacks ~/.local/bin, where the cursor-agent
+    # binary lives, and cursor-agent aborts outright on an unset HOME. Both were
+    # observed — the first version of this step failed silently on PATH alone.
+    #
+    # Soft-failing so a Cursor CLI change cannot make the sandbox unstartable
+    # over a convenience feature; tests/toolchain_test.sh asserts the result, so
+    # a silent regression is still caught.
+    - command:
+        - sh
+        - -c
+        - |
+          set -eu
+          [ -n "${WORKSPACE_DIR:-}" ] || exit 0
+          HOME="${HOME:-/home/agent}"
+          PATH="${HOME}/.local/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
+          export HOME PATH
+          cd "$WORKSPACE_DIR"
+          for server in context7 github; do
+            cursor-agent mcp enable "$server" >/dev/null 2>&1 || true
+          done
+      user: "agent"
+      description: Pre-approve the kit's MCP servers so the TUI does not prompt

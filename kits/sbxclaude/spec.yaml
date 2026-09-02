@@ -1,0 +1,326 @@
+schemaVersion: "2"
+kind: sandbox
+name: sbxclaude
+version: "0.2.0"
+displayName: Claude Code with custom toolchain
+description: Claude Code with custom toolchain
+
+extends: claude
+
+sandbox:
+  # OLD CODE:
+  # entrypoint: [claude] # Runs with --dangerously-skip-permissions !!
+  #
+  # TEMPORARY: works around sbx dropping the parent claude kit's setup when
+  # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
+  # Revert to `entrypoint: [claude]` once sbx merges parent and child setup instead of replacing.
+  entrypoint:
+    - sh
+    - -c
+    - |
+      set -eu
+      owner="$(id -u):$(id -g)"
+      if [ -e "$HOME/.claude" ] || [ -L "$HOME/.claude" ]; then
+        sudo chown -hR -P "$owner" -- "$HOME/.claude"
+      fi
+      if [ -e "$HOME/.claude.json" ] || [ -L "$HOME/.claude.json" ]; then
+        sudo chown -h -P "$owner" -- "$HOME/.claude.json"
+      fi
+      # One `github` MCP definition has to work both on the host and in here,
+      # or the kit's user scope and a project .mcp.json collide and Claude Code
+      # reports conflicting endpoints. Both reference ${GITHUB_TOKEN}: on the
+      # host that is the developer's own PAT; here it is the proxy-managed
+      # `github` service sentinel, which the credential proxy swaps for the
+      # real token on requests to api.github.com. This only covers the agent
+      # session this entrypoint starts; a `claude` launched by hand from
+      # `sbxclaude exec bash` does not inherit it.
+      if [ -n "${GH_TOKEN:-}" ]; then
+        export GITHUB_TOKEN="$GH_TOKEN"
+      fi
+      exec claude "$@"
+    - sbxclaude-entrypoint
+# resources:
+#   cpu: 8
+#   memory: 24g
+
+agentInstructions:
+  content: |
+    ## Sandbox environment
+    You are in a Docker Sandbox microVM. The user's project is mounted as your
+    workspace, so file edits modify the host working tree. `sudo` is
+    passwordless, and a sandbox-local Docker daemon is available.
+
+    Network egress is allowlisted. If a network request fails because its host
+    is blocked, stop and ask the user to run this on the host:
+    `sbx policy allow network "<host>"`. Do not run `sbx policy` inside the
+    sandbox, and do not work around a block by mirroring, vendoring, retrying
+    against a different host, or dropping the step. A managed hook enforces
+    this: on a block it ends the turn and tells the user which host to allow.
+
+    The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
+    `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
+    including `run`, `create`, `rm`, `exec`, `inspect`, and `policy`, require
+    the host CLI and `sandboxd`; ask the user to run them on the host.
+
+    ## Preinstalled tools
+    Follow the project's own instructions and use its declared dependencies
+    first. For general development tasks, these tools are already on `PATH`:
+
+    - Search and data: `rg` (ripgrep), `jq`
+    - Shell: `shellcheck`; use `bash -n` for syntax checks
+    - Python: `python3`, `ruff` for lint and format, `uv` for packages
+    - YAML: `yamllint`
+    - Markdown and prose: `markdownlint-cli2`, `cspell`
+    - Browser: `playwright`, with headless Chromium — load pages, screenshot
+      them, and read console output to verify UI changes before reporting done
+    - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
+      `mmdc -i diagram.mmd -o diagram.png`
+    - General: `git`, `docker`, `curl`, `node`, `npm`
+    - Sandbox kits: `sbx`, with the restrictions above
+    - MCP servers: `context7` (up-to-date library/framework docs) and `github`
+      (GitHub API) are configured and ready to use
+
+    Prefer `rg` over recursive `grep`, `ruff` over installing another Python
+    linter or formatter, and `uv` over `pip`. Install project dependencies when
+    needed, but do not install global replacements for tools already provided.
+
+permissions:
+  network:
+    allow:
+      - "registry.npmjs.org:443"
+      # Playwright downloads the Chromium browser binary from these CDN mirrors.
+      - "cdn.playwright.dev:443"
+      - "playwright.download.prss.microsoft.com:443"
+      # The Context7 MCP server (baked into every sandbox via
+      # files/home/.claude.json) calls its documentation API here.
+      - "context7.com:443"
+      # The GitHub MCP server (baked into every sandbox via
+      # files/home/.claude.json) runs locally and calls the REST API here.
+      - "api.github.com:443"
+      - "github.com:443"
+      # GitHub serves page CSS/JS from this host; without it github.com
+      # pages load unstyled in the sandbox's Playwright browser.
+      - "github.githubassets.com:443"
+      # Gist
+      - "gist.github.com:443"
+      - "gist.githubusercontent.com:443"
+      # GitHub release assets redirect here; needed to download the sbx binary.
+      - "release-assets.githubusercontent.com:443"
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # Pi agent development
+      - "pi.dev"
+
+setup:
+  install:
+    - command: |
+        set -eu
+        apt-get update
+        apt-get install -y \
+          ca-certificates \
+          curl \
+          jq \
+          python3 \
+          ripgrep \
+          shellcheck
+      description: CLI tools
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v0.39.0 release assets.
+        case "$arch" in
+          amd64)
+            expected_sha256="2ec45bc7938c20c2f406fe8cc72294ad5a954bdc047601484b89bf1a108311d4"
+            ;;
+          arm64)
+            expected_sha256="39c470a5f5e0991b1c2358952e2ab32a7b0309bfa57ac62b6bbc64b466d02c17"
+            ;;
+          *)
+            echo "unsupported architecture for sbx: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/docker/sbx-releases/releases/download/v0.39.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          -o "$tmp/sbx.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "sbx tarball checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/sbx.tar.gz" -C "$tmp" docker-sbx/sbx
+        install -m 0755 "$tmp/docker-sbx/sbx" /usr/local/bin/sbx
+        sbx version
+      description: sbx CLI for offline kit commands
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v1.11.0 release assets.
+        case "$arch" in
+          amd64)
+            asset="Linux_x86_64"
+            expected_sha256="3b73bb7be0c8b043f861e90410df8ebdfc71b83128c54ced75fb32c4ff697fc5"
+            ;;
+          arm64)
+            asset="Linux_arm64"
+            expected_sha256="3f7615254f6b619469c471c5d275029299ff7431c93d6075496ea4b2eec020cb"
+            ;;
+          *)
+            echo "unsupported architecture for github-mcp-server: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/github/github-mcp-server/releases/download/v1.11.0/github-mcp-server_${asset}.tar.gz" \
+          -o "$tmp/gms.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "github-mcp-server checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/gms.tar.gz" -C "$tmp" github-mcp-server
+        install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
+        github-mcp-server --version
+      description: GitHub MCP server, run locally over stdio
+    - command: |
+        set -eu
+        install -d -m 0755 /usr/local/lib/sbxagent /etc/claude-code
+
+        # Guard filter. Reads a Claude Code hook payload on stdin and writes
+        # hook JSON on stdout. Root-owned and outside $HOME so the agent does
+        # not disable its own escalation with an ordinary file edit.
+        cat > /usr/local/lib/sbxagent/network-block.jq <<'JQFILTER'
+        # Every string in the payload except the tool's own input. Field names
+        # differ per event (.tool_response on PostToolUse, .error on
+        # PostToolUseFailure), so match the whole payload rather than a field.
+        def haystack: [ del(.tool_input) | .. | strings ] | join("\n");
+
+        # These block strings appear verbatim in this project's own docs, spec,
+        # and tests, so a Bash read of one of those files must not trip the
+        # guard. Scoped to Bash's own command field so a blocked WebFetch URL
+        # that merely contains one of these filenames is never exempted.
+        def self_reference:
+          .tool_name == "Bash"
+          and ((.tool_input.command // "")
+               | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"));
+
+        def stop($why; $tell):
+          { continue: false,
+            stopReason:
+              ($why + " Stopping — do not retry, mirror, vendor, or otherwise work "
+              + "around this. Report it to the user and wait."),
+            systemMessage: $tell };
+
+        haystack as $out
+        | if self_reference
+            or ($out | test("Blocked by (network policy|local rule for|org policy)") | not)
+          then
+            {}
+
+          # Centralised org policy. Deliberately does not suggest
+          # `sbx policy allow`: the user cannot lift this one themselves.
+          elif $out | test("Blocked by org policy") then
+            stop("A network request was blocked by your organisation's policy.";
+                 "Blocked by org policy.\n"
+                 + "Your company policy is blocking this request — contact IT if you need access.")
+
+          else
+            # `capture` yields nothing when it does not match, and
+            # `empty // empty` is still empty — that would bind no $host and
+            # emit no output at all, i.e. fail open. `// null` guarantees
+            # exactly one value.
+            ( ($out | capture("Blocked by network policy: domain (?<h>[^\\s]+)").h)
+              // ($out | capture("Blocked by local rule for (?<h>[^\\s]+)").h)
+              // null
+            ) as $host
+            | if $host == null then
+                stop("A network request was blocked by the sandbox network policy.";
+                     "A network request was blocked by the sandbox network policy.\n"
+                     + "See the tool output above for the host, then allow it with:\n"
+                     + "  sbx policy allow network \"<host>\"")
+              else
+                stop("The sandbox network policy blocked \($host).";
+                     "Blocked host: \($host)\n"
+                     + "Run on your host:  sbx policy allow network \"\($host)\"")
+              end
+          end
+        JQFILTER
+
+        # Managed settings: admin-tier, so this survives whatever the agent or
+        # Claude Code itself writes to ~/.claude/settings.json at runtime.
+        # PostToolUseFailure matters as much as PostToolUse — a blocked
+        # `curl -f` or `npm install` exits non-zero and only fires the former.
+        cat > /etc/claude-code/managed-settings.json <<'SETTINGS'
+        {
+          "hooks": {
+            "PostToolUse": [{
+              "matcher": "Bash|WebFetch",
+              "hooks": [{
+                "type": "command",
+                "command": "jq -f /usr/local/lib/sbxagent/network-block.jq",
+                "timeout": 5
+              }]
+            }],
+            "PostToolUseFailure": [{
+              "matcher": "Bash|WebFetch",
+              "hooks": [{
+                "type": "command",
+                "command": "jq -f /usr/local/lib/sbxagent/network-block.jq",
+                "timeout": 5
+              }]
+            }]
+          }
+        }
+        SETTINGS
+
+        chmod 0644 /usr/local/lib/sbxagent/network-block.jq \
+          /etc/claude-code/managed-settings.json
+
+        # Fail the build rather than ship a guard that silently does nothing.
+        jq -e '.hooks.PostToolUse[0].hooks[0].command' \
+          /etc/claude-code/managed-settings.json >/dev/null
+        jq -e '.hooks.PostToolUseFailure[0].hooks[0].command' \
+          /etc/claude-code/managed-settings.json >/dev/null
+        jq -n '{tool_name:"Bash",tool_input:{command:"curl https://probe.test"},error:"Blocked by local rule for probe.test"}' \
+          | jq -e -f /usr/local/lib/sbxagent/network-block.jq >/dev/null
+      description: Network-block escalation hook
+    - command: "uv tool install ruff@0.16.2"
+      user: "1000"
+      description: Ruff
+    - command: "uv tool install yamllint@1.38.0"
+      user: "1000"
+      description: yamllint
+    - command: "npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1"
+      user: "1000"
+      description: Markdown and spelling linters
+    - command: |
+        set -eu
+        npm install --global playwright@1.62.1
+        playwright install --with-deps chromium
+      user: "1000"
+      description: Playwright with headless Chromium
+    - command: |
+        set -eu
+        # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
+        # reuses the one Playwright just installed, below.
+        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.16.0
+        chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
+          'console.log(require("playwright").chromium.executablePath())')"
+        mmdc_bin="$(command -v mmdc)"
+        config="$(dirname "$mmdc_bin")/mermaid-puppeteer-config.json"
+        printf '{"executablePath": "%s"}\n' "$chromium_path" > "$config"
+        # mmdc only takes its Puppeteer config via an explicit flag, so wrap
+        # the real binary to always pass it — keeps `mmdc -i a.mmd -o a.png`
+        # working with no extra flags for the agent.
+        mv "$mmdc_bin" "${mmdc_bin}.real"
+        cat > "$mmdc_bin" <<WRAPPER
+        #!/bin/sh
+        exec "${mmdc_bin}.real" --puppeteerConfigFile "${config}" "\$@"
+        WRAPPER
+        chmod +x "$mmdc_bin"
+      user: "1000"
+      description: mermaid-cli, reusing the Playwright Chromium
