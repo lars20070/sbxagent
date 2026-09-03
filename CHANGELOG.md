@@ -26,6 +26,14 @@ and this project adheres to
   project, session and plugin hooks in that sandbox and only the managed guard
   runs. This is stricter than `sbxclaude`, which leaves user hooks alone.
 
+### Changed
+
+- `sbxclaude` gains an `ALLOW_WEB_SEARCH` switch (default `true`) in its own
+  setup step, which merges `permissions.deny` for the built-in `WebSearch`
+  tool into the same admin-tier `/etc/claude-code/managed-settings.json` as
+  the network-block escalation hook when flipped to `false`. Flip it in
+  `kits/sbxclaude/spec.yaml` and rebuild the kit to deny WebSearch.
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

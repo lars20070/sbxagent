@@ -289,6 +289,28 @@ setup:
         jq -n '{tool_name:"Bash",tool_input:{command:"curl https://probe.test"},error:"Blocked by local rule for probe.test"}' \
           | jq -e -f /usr/local/lib/sbxagent/network-block.jq >/dev/null
       description: Network-block escalation hook
+    - command: |
+        set -eu
+
+        # Flip to "false" and rebuild the kit to deny WebSearch in this
+        # sandbox. Merged into the same admin-tier managed-settings.json as
+        # the network-block hook above, so it also survives whatever the
+        # agent or Claude Code itself writes to ~/.claude/settings.json at
+        # runtime.
+        ALLOW_WEB_SEARCH=true
+
+        if [ "$ALLOW_WEB_SEARCH" = "false" ]; then
+          jq '.permissions.deny = ((.permissions.deny // []) + ["WebSearch"] | unique)' \
+            /etc/claude-code/managed-settings.json \
+            > /etc/claude-code/managed-settings.json.tmp
+          mv /etc/claude-code/managed-settings.json.tmp /etc/claude-code/managed-settings.json
+          chmod 0644 /etc/claude-code/managed-settings.json
+
+          # Fail the build rather than ship a switch that silently does nothing.
+          jq -e '.permissions.deny | index("WebSearch")' \
+            /etc/claude-code/managed-settings.json >/dev/null
+        fi
+      description: WebSearch toggle
     - command: "uv tool install ruff@0.16.2"
       user: "1000"
       description: Ruff
