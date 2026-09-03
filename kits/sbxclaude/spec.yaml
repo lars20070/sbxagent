@@ -292,15 +292,15 @@ setup:
     - command: |
         set -eu
 
-        # Flip to "false" and rebuild the kit to deny WebSearch in this
-        # sandbox. Merged into the same admin-tier managed-settings.json as
-        # the network-block hook above, so it also survives whatever the
-        # agent or Claude Code itself writes to ~/.claude/settings.json at
-        # runtime.
-        ALLOW_WEB_SEARCH=true
+        # Flip to "false" and rebuild the kit to deny WebSearch and WebFetch
+        # in this sandbox. Merged into the same admin-tier
+        # managed-settings.json as the network-block hook above, so it also
+        # survives whatever the agent or Claude Code itself writes to
+        # ~/.claude/settings.json at runtime.
+        ALLOW_WEB=true
 
-        if [ "$ALLOW_WEB_SEARCH" = "false" ]; then
-          jq '.permissions.deny = ((.permissions.deny // []) + ["WebSearch"] | unique)' \
+        if [ "$ALLOW_WEB" = "false" ]; then
+          jq '.permissions.deny = ((.permissions.deny // []) + ["WebSearch", "WebFetch"] | unique)' \
             /etc/claude-code/managed-settings.json \
             > /etc/claude-code/managed-settings.json.tmp
           mv /etc/claude-code/managed-settings.json.tmp /etc/claude-code/managed-settings.json
@@ -309,8 +309,10 @@ setup:
           # Fail the build rather than ship a switch that silently does nothing.
           jq -e '.permissions.deny | index("WebSearch")' \
             /etc/claude-code/managed-settings.json >/dev/null
+          jq -e '.permissions.deny | index("WebFetch")' \
+            /etc/claude-code/managed-settings.json >/dev/null
         fi
-      description: WebSearch toggle
+      description: Web access toggle (WebSearch + WebFetch)
     - command: "uv tool install ruff@0.16.2"
       user: "1000"
       description: Ruff
