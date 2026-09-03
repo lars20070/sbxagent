@@ -77,7 +77,7 @@ three CLIs offer different hook outputs:
   `PostToolUse` hook, but Codex's documented behaviour for every hook output —
   `continue: false` and `decision: "block"` alike — is to replace the tool
   result and let the model continue. So the agent sees the blocked host and a
-  firm instruction to stop, and the user sees the `sbx policy allow` line, but
+  firm instruction to stop, and the user sees how to lift the block, but
   nothing prevents the agent from carrying on.
 - `sbxcursor` has **no guard**. Its post-execution hooks are observation-only
   and cannot even inject feedback. Its instructions still ask for a blocked host
@@ -109,8 +109,11 @@ Each sandbox gets:
 - Passwordless `sudo`, and Docker, inside the sandbox
 - A network allowlist, not open internet access
 - `sbxclaude` and `sbxcodex`: a root-owned hook that catches a blocked request
-  and prints the `sbx policy allow` command to run — ending the turn on
-  `sbxclaude`, advising the agent to stop on `sbxcodex`
+  and prints the remedy that actually fits it — `sbx policy allow` for a
+  default-deny, `sbx policy rm` for a local deny rule (deny beats allow, so
+  allowing round it does nothing), or contact IT for an organisation policy the
+  user cannot lift — ending the turn on `sbxclaude`, advising the agent to stop
+  on `sbxcodex`
 - Your project mounted as the workspace — edits land on your real files
 - GitHub SSH remotes rewritten to HTTPS inside the sandbox, so `git fetch`
   works on the allowlisted port 443 without changing the host checkout

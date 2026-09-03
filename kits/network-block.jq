@@ -75,23 +75,34 @@ haystack as $out
          + "Your company policy is blocking this request — contact IT if you need access.")
 
   else
-    # `capture` yields nothing when it does not match, and
-    # `empty // empty` is still empty — that would bind no $host and
-    # emit no output at all, i.e. fail open. `// null` guarantees
-    # exactly one value.
-    ( ($out | capture("Blocked by network policy: domain (?<h>[^\\s]+)").h)
-      // ($out | capture("Blocked by local rule for (?<h>[^\\s]+)").h)
-      // null
-    ) as $host
-    | if $host == null then
+    # A local deny and a default-deny need opposite remedies: deny rules take
+    # precedence over allow rules, so `sbx policy allow` cannot lift a local
+    # deny — the rule itself has to be removed. Capture the two separately
+    # instead of collapsing them into one host with one piece of advice.
+    #
+    # `capture` yields nothing when it does not match, and `empty // empty` is
+    # still empty — that would bind no variable and emit no output at all, i.e.
+    # fail open. `// null` guarantees exactly one value.
+    ( ($out | capture("Blocked by local rule for (?<h>[^\\s]+)").h) // null
+    ) as $denied
+    | ( ($out | capture("Blocked by network policy: domain (?<h>[^\\s]+)").h) // null
+      ) as $host
+    | if $denied != null then
+        stop("A local deny rule blocks \($denied); `sbx policy allow` cannot override it.";
+             "Blocked host: \($denied) — by a local deny rule.\n"
+             + "Deny beats allow, so allowing it will not help. Find and remove the rule:\n"
+             + "  sbx policy ls --wide\n"
+             + "  sbx policy rm network --resource \"\($denied)\"                      # global\n"
+             + "  sbx policy rm network --sandbox <sandbox> --resource \"\($denied)\"  # one sandbox")
+      elif $host != null then
+        stop("The sandbox network policy blocked \($host).";
+             "Blocked host: \($host)\n"
+             + "Run on your host:  sbx policy allow network \"\($host)\"")
+      else
         stop("A network request was blocked by the sandbox network policy.";
              "A network request was blocked by the sandbox network policy.\n"
              + "See the tool output above for the host, then allow it with:\n"
              + "  sbx policy allow network \"<host>\"")
-      else
-        stop("The sandbox network policy blocked \($host).";
-             "Blocked host: \($host)\n"
-             + "Run on your host:  sbx policy allow network \"\($host)\"")
       end
   end
 # END-SYNCED

@@ -136,9 +136,9 @@ REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' 
 if [[ "${KIT_NAME}" == "sbxclaude" || "${KIT_NAME}" == "sbxcodex" ]]; then
 
 # Network-block escalation hook. A blocked request must produce a stop verdict
-# naming the host to allow, rather than leaving the agent free to work around
-# it. Keep these in sync with kits/network-block.jq and the `Network-block
-# escalation hook` setup command in each kit's spec.yaml.
+# with the remedy that fits the block type, rather than leaving the agent free
+# to work around it. Keep these in sync with kits/network-block.jq and the
+# `Network-block escalation hook` setup command in each kit's spec.yaml.
 GUARD_FILTER="/usr/local/lib/sbxagent/network-block.jq"
 
 [[ -s "${GUARD_FILTER}" ]] ||
@@ -176,9 +176,18 @@ check_guard_blocks "a PostToolUse block" \
 	'{"tool_name":"Bash","tool_input":{"command":"curl -sS https://example.org"},"tool_response":{"stderr":"Blocked by network policy: domain example.org"}}' \
 	'sbx policy allow network "example.org"'
 
+# A local deny needs the opposite remedy to a default-deny: deny rules take
+# precedence over allow rules, so the rule has to be removed, not allowed round.
 check_guard_blocks "a PostToolUseFailure block" \
 	'{"tool_name":"Bash","tool_input":{"command":"curl -f https://blocked.test"},"error":"Blocked by local rule for blocked.test"}' \
-	'sbx policy allow network "blocked.test"'
+	'sbx policy rm network --resource "blocked.test"'
+
+LOCAL_VERDICT="$(guard '{"tool_name":"Bash","tool_input":{"command":"curl -f https://blocked.test"},"error":"Blocked by local rule for blocked.test"}')" ||
+	fail "guard failed on the local-rule payload"
+if jq -r '.systemMessage' <<<"${LOCAL_VERDICT}" | grep -Fq 'sbx policy allow'; then
+	fail "local-rule message must not suggest 'sbx policy allow': ${LOCAL_VERDICT}"
+fi
+pass "local-rule message removes the deny instead of allowing round it"
 
 # Org policy is not liftable with `sbx policy allow`, so it must not be offered.
 check_guard_blocks "an org-policy block" \
@@ -219,7 +228,7 @@ check_guard_blocks "a blocked download writing to spec.yaml" \
 # A local read chained to a network call is still a network call.
 check_guard_blocks "a blocked curl chained after a CLAUDE.md read" \
 	'{"tool_name":"Bash","tool_input":{"command":"cat CLAUDE.md && curl https://y.test"},"error":"Blocked by local rule for y.test"}' \
-	'sbx policy allow network "y.test"'
+	'sbx policy rm network --resource "y.test"'
 
 # A blocked WebFetch must never be exempted just because its URL happens to
 # contain one of the self-reference filenames — only a Bash read of the
@@ -227,15 +236,15 @@ check_guard_blocks "a blocked curl chained after a CLAUDE.md read" \
 # tool, so there they prove the filter is byte-identical, not tool coverage.
 check_guard_blocks "a blocked WebFetch of a URL containing AGENTS.md" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/AGENTS.md"},"tool_response":{"content":"Blocked by local rule for x.test"}}' \
-	'sbx policy allow network "x.test"'
+	'sbx policy rm network --resource "x.test"'
 
 check_guard_blocks "a blocked WebFetch of a URL containing CLAUDE.md" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/CLAUDE.md"},"tool_response":{"content":"Blocked by local rule for y.test"}}' \
-	'sbx policy allow network "y.test"'
+	'sbx policy rm network --resource "y.test"'
 
 check_guard_blocks "a blocked WebFetch of a URL containing spec.yaml" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/spec.yaml"},"tool_response":{"content":"Blocked by local rule for z.test"}}' \
-	'sbx policy allow network "z.test"'
+	'sbx policy rm network --resource "z.test"'
 
 fi # end guard-filter tests
 

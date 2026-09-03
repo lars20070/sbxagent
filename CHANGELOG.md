@@ -60,6 +60,14 @@ and this project adheres to
   a command that both reads one of those files and reaches out fails safe and
   fires. Local readers, including `git diff` and `git show`, stay exempt.
   Applies to `sbxclaude` and `sbxcodex`.
+- The guard no longer tells the user to run `sbx policy allow` for a block
+  caused by a local **deny** rule. Deny rules take precedence over allow rules,
+  so that advice could never work; the message now points at `sbx policy ls
+  --wide` and `sbx policy rm network --resource "<host>"` (with the `--sandbox`
+  form for a sandbox-scoped rule) instead. Default-deny blocks still get
+  `sbx policy allow`, and organisation-policy blocks still say to contact IT.
+  The README and each kit's agent instructions were overstating this too, and
+  now name all three remedies.
 
 ## [0.2.0] - 2026-09-01
 

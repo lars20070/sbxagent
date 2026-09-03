@@ -53,11 +53,13 @@ agentInstructions:
     passwordless, and a sandbox-local Docker daemon is available.
 
     Network egress is allowlisted. If a network request fails because its host
-    is blocked, stop and ask the user to run this on the host:
-    `sbx policy allow network "<host>"`. Do not run `sbx policy` inside the
-    sandbox, and do not work around a block by mirroring, vendoring, retrying
-    against a different host, or dropping the step. Nothing enforces this for
-    you here, so it is on you: end the turn and report the blocked host.
+    is blocked, stop and ask the user to lift it on the host — the response
+    body says which: `sbx policy allow network "<host>"` for a default-deny,
+    `sbx policy rm network --resource "<host>"` for a local deny (deny beats
+    allow), or contact IT for organisation policy. Do not run `sbx policy`
+    inside the sandbox, and do not work around a block by mirroring, vendoring,
+    retrying against a different host, or dropping the step. Nothing enforces
+    this for you here, so it is on you: end the turn and report the blocked host.
 
     The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
     `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
