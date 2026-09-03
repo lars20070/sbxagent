@@ -88,7 +88,7 @@ REPO="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 case "${SELF}" in
 sbxclaude) CLI="claude" ;;
 sbxcodex) CLI="codex" ;;
-sbxcursor) CLI="cursor-agent" ;;
+sbxcursor) CLI="agent" ;;
 *)
 	# Covers a direct `./scripts/sbxagent` run and any copy under another name.
 	# Deliberately no default agent: silently picking one is worse than failing.

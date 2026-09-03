@@ -42,6 +42,12 @@ and this project adheres to
   `~/.codex/config.toml`, before any `[table]` header, so the key stays top
   level regardless of `SBX_CRED_OPENAI_MODE`. Flip it in
   `kits/sbxcodex/spec.yaml` and rebuild the kit to deny it.
+- `sbxcursor` now launches Cursor's CLI as `agent` rather than `cursor-agent`.
+  Cursor made `agent` the primary entrypoint on 2026-01-08 and kept
+  `cursor-agent` only as a backward-compatible alias, which it now prints a
+  deprecation tip for. The sbx kit name is unaffected — `sbx run cursor` and
+  `extends: cursor` are a different layer and unchanged. The Cursor CLI stays
+  deliberately unpinned; it auto-updates in place, so a pin would not hold.
 
 ## [0.2.0] - 2026-09-01
 

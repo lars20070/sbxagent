@@ -66,7 +66,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | `sbxclaude` | Claude Code | `claude` | `claude` | `CLAUDE.md` | `~/.claude.json` | **yes** |
 | `sbxcodex` | Codex | `codex` | `codex` | `AGENTS.md` | `~/.codex/config.toml` | yes (soft) |
-| `sbxcursor` | Cursor | `cursor` | `cursor-agent` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
+| `sbxcursor` | Cursor | `cursor` | `agent` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
 
 The **network-block guard is not equally strong in each sandbox**, because the
 three CLIs offer different hook outputs:
@@ -332,6 +332,6 @@ sbx secret ls                      # find its placeholder
 sbx secret rm --placeholder <the sbx-cs-… value>
 ```
 
-Check it with `claude mcp list`, `codex mcp list` or `cursor-agent mcp list`;
+Check it with `claude mcp list`, `codex mcp list` or `agent mcp list`;
 the `github` line should report connected, both on the host and inside the
 sandbox.

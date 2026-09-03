@@ -361,8 +361,8 @@ pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
 clear_log
 CURSOR_HELP="$(run_cursor "${WORK_A}" help)"
 assert_no_log "cursor help"
-[[ "${CURSOR_HELP}" == *"Use sbx or cursor-agent directly"* ]] ||
-	fail "cursor help did not name the cursor-agent CLI: ${CURSOR_HELP}"
+[[ "${CURSOR_HELP}" == *"Use sbx or agent directly"* ]] ||
+	fail "cursor help did not name the agent CLI: ${CURSOR_HELP}"
 [[ "${CURSOR_HELP}" == *"sbxcursor name"* ]] ||
 	fail "cursor help did not use the invoked name"
 [[ "${CURSOR_HELP}" != *"sbxagent"* ]] ||
