@@ -42,6 +42,16 @@ lint:
 		echo "lint: kits/sbxcursor/files/home/.cursor/mcp.json differs from .cursor/mcp.json" >&2; \
 		exit 1; \
 	}
+	jq_heredoc="$$(mktemp)"; jq_dev="$$(mktemp)"; \
+	trap 'rm -f "$$jq_heredoc" "$$jq_dev"' EXIT; \
+	awk '/<<.JQFILTER./{f=1; next} /^        JQFILTER$$/{f=0} f' \
+		kits/sbxclaude/spec.yaml | sed 's/^        //' > "$$jq_heredoc"; \
+	sed -n '/^# BEGIN-SYNCED/,/^# END-SYNCED/p' \
+		kits/sbxclaude/files/network-block.jq | sed '1d;$$d' > "$$jq_dev"; \
+	cmp -s "$$jq_heredoc" "$$jq_dev" || { \
+		echo "lint: kits/sbxclaude/files/network-block.jq is out of sync with the heredoc in kits/sbxclaude/spec.yaml" >&2; \
+		exit 1; \
+	}
 	if [ ! -f VERSION ]; then \
 		echo "lint: VERSION is missing" >&2; exit 1; \
 	fi; \
