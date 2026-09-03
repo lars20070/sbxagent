@@ -397,11 +397,10 @@ setup:
         esac
       user: "agent"
       description: Seed Codex config/auth from SBX_CRED_OPENAI_MODE (replicated parent step)
-    # ALLOW_WEB toggle for Codex's hosted web_search tool. Codex has no local
-    # WebFetch tool (see the network-block hook comment below): web_search is
-    # its only internet-access tool, and — like Claude's WebSearch/WebFetch —
-    # it calls out from OpenAI's servers rather than the sandbox, so it would
-    # otherwise side-step the sbx network allow list. Prepends rather than
+    # ALLOW_WEB toggle for Codex's hosted web_search tool. The tool is
+    # its only internet-access tool, and it calls out from OpenAI's servers
+    # rather than the sandbox, so it would otherwise side-step the sbx
+    # network allow list. Prepends rather than
     # appends to config.toml, so the key lands before any later [table]
     # header (e.g. [model_providers.sandboxd] above, or the MCP server
     # registrations below) regardless of SBX_CRED_OPENAI_MODE — TOML would
