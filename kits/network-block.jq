@@ -1,19 +1,26 @@
-# Dev-only mirror of the network-block escalation filter. This file is NOT
-# shipped into the sandbox — Docker Sandbox Kits can only write declared
-# files as the agent user (UID 1000; see docs.docker.com's kit-reference.md,
-# "Setup > files"), and this filter has to be root-owned and outside $HOME
-# so the agent it's watching can't disable it with an ordinary file edit.
-# The copy that actually ships is the heredoc in kits/sbxclaude/spec.yaml's
-# "Network-block escalation hook" setup step.
+# Dev-only mirror of the network-block escalation filter, shared by the
+# sbxclaude and sbxcodex kits. This file is NOT shipped into any sandbox —
+# Docker Sandbox Kits can only write declared files as the agent user
+# (UID 1000; see docs.docker.com's kit-reference.md, "Setup > files"), and
+# this filter has to be root-owned and outside $HOME so the agent it's
+# watching can't disable it with an ordinary file edit. The copies that
+# actually ship are the heredocs in each kit's "Network-block escalation
+# hook" setup step, which install it to /usr/local/lib/sbxagent/.
+#
+# Detection is identical on both hosts: the filter reads the whole payload
+# rather than named fields. Enforcement is not. Claude Code treats
+# `continue: false` as a hard turn-end; Codex instead replaces the tool
+# result with `stopReason` and lets the model continue, so on sbxcodex this
+# is a firm notice rather than a hard stop.
 #
 # Edit here for readability and local testing, then copy the body below
-# into that heredoc (or vice versa) — `make lint` fails if the two disagree.
+# into both heredocs — `make lint` fails if any of them disagree.
 #
 # Try it locally:
 #   jq -n '{tool_name:"Bash",tool_input:{command:"curl https://x"},error:"Blocked by local rule for x"}' \
-#     | jq -f kits/sbxclaude/files/network-block.jq
+#     | jq -f kits/network-block.jq
 
-# BEGIN-SYNCED (must match kits/sbxclaude/spec.yaml's heredoc exactly)
+# BEGIN-SYNCED (must match every kit's spec.yaml heredoc exactly)
 # Every string in the payload except the tool's own input. Field names
 # differ per event (.tool_response on PostToolUse, .error on
 # PostToolUseFailure), so match the whole payload rather than a field.

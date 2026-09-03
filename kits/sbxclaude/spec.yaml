@@ -193,7 +193,7 @@ setup:
         # Guard filter. Reads a Claude Code hook payload on stdin and writes
         # hook JSON on stdout. Root-owned and outside $HOME so the agent does
         # not disable its own escalation with an ordinary file edit.
-        # Kept in sync with kits/sbxclaude/files/network-block.jq — make lint checks this.
+        # Kept in sync with kits/network-block.jq — make lint checks this.
         cat > /usr/local/lib/sbxagent/network-block.jq <<'JQFILTER'
         # Every string in the payload except the tool's own input. Field names
         # differ per event (.tool_response on PostToolUse, .error on

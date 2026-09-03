@@ -127,38 +127,23 @@ pass "GitHub SSH remotes rewrite to HTTPS"
 REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
 # ---------------------------------------------------------------------------
-# sbxclaude only. The network-block guard is Claude Code specific (it installs
-# Claude Code hook JSON in /etc/claude-code/managed-settings.json) and
-# ~/.claude.json is Claude Code's MCP config. Neither exists in the sbxcodex
-# kit, which registers its MCP servers in ~/.codex/config.toml instead and
-# ships no guard — see kits/sbxcodex/spec.yaml.
+# sbxclaude and sbxcodex. Both kits install the same guard filter at the same
+# path, so its behaviour is tested once, here. What each host CLI *does* with
+# the verdict differs (Claude Code ends the turn; Codex replaces the tool
+# result and lets the model continue), and each registers the hook its own way
+# — those live in the per-kit blocks below.
 # ---------------------------------------------------------------------------
-if [[ "${KIT_NAME}" == "sbxclaude" ]]; then
+if [[ "${KIT_NAME}" == "sbxclaude" || "${KIT_NAME}" == "sbxcodex" ]]; then
 
-# Network-block escalation hook. A blocked request must end the turn and tell
-# the user which host to allow, rather than leaving the agent free to work
-# around it. Keep these in sync with the `Network-block escalation hook` setup
-# command in kits/sbxclaude/spec.yaml.
+# Network-block escalation hook. A blocked request must produce a stop verdict
+# naming the host to allow, rather than leaving the agent free to work around
+# it. Keep these in sync with kits/network-block.jq and the `Network-block
+# escalation hook` setup command in each kit's spec.yaml.
 GUARD_FILTER="/usr/local/lib/sbxagent/network-block.jq"
-MANAGED_SETTINGS="/etc/claude-code/managed-settings.json"
 
 [[ -s "${GUARD_FILTER}" ]] ||
 	fail "guard filter is missing: ${GUARD_FILTER} (${REBUILD_HINT})"
 pass "guard filter is installed"
-
-jq -e . "${MANAGED_SETTINGS}" >/dev/null 2>&1 ||
-	fail "managed settings are missing or not valid JSON: ${MANAGED_SETTINGS} (${REBUILD_HINT})"
-pass "managed settings are valid JSON"
-
-# The failure event matters as much as the success one: a blocked `curl -f` or
-# `npm install` exits non-zero and only fires PostToolUseFailure.
-for event in PostToolUse PostToolUseFailure; do
-	jq -e --arg e "${event}" \
-		'.hooks[$e][0].hooks[0].command | test("network-block\\.jq")' \
-		"${MANAGED_SETTINGS}" >/dev/null ||
-		fail "managed settings do not run the guard on ${event}"
-	pass "guard is registered on ${event}"
-done
 
 # Feed a payload through the installed filter and echo its verdict.
 guard() {
@@ -217,7 +202,8 @@ check_guard_ignores "a Bash read of CLAUDE.md" \
 
 # A blocked WebFetch must never be exempted just because its URL happens to
 # contain one of the self-reference filenames — only a Bash read of the
-# actual file is exempt.
+# actual file is exempt. These run under sbxcodex too: Codex has no WebFetch
+# tool, so there they prove the filter is byte-identical, not tool coverage.
 check_guard_blocks "a blocked WebFetch of a URL containing AGENTS.md" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/AGENTS.md"},"tool_response":{"content":"Blocked by local rule for x.test"}}' \
 	'sbx policy allow network "x.test"'
@@ -229,6 +215,31 @@ check_guard_blocks "a blocked WebFetch of a URL containing CLAUDE.md" \
 check_guard_blocks "a blocked WebFetch of a URL containing spec.yaml" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/spec.yaml"},"tool_response":{"content":"Blocked by local rule for z.test"}}' \
 	'sbx policy allow network "z.test"'
+
+fi # end guard-filter tests
+
+# ---------------------------------------------------------------------------
+# sbxclaude only. The guard is registered as Claude Code hook JSON in
+# /etc/claude-code/managed-settings.json, and ~/.claude.json is Claude Code's
+# MCP config. sbxcodex registers both differently — see its block below.
+# ---------------------------------------------------------------------------
+if [[ "${KIT_NAME}" == "sbxclaude" ]]; then
+
+MANAGED_SETTINGS="/etc/claude-code/managed-settings.json"
+
+jq -e . "${MANAGED_SETTINGS}" >/dev/null 2>&1 ||
+	fail "managed settings are missing or not valid JSON: ${MANAGED_SETTINGS} (${REBUILD_HINT})"
+pass "managed settings are valid JSON"
+
+# The failure event matters as much as the success one: a blocked `curl -f` or
+# `npm install` exits non-zero and only fires PostToolUseFailure.
+for event in PostToolUse PostToolUseFailure; do
+	jq -e --arg e "${event}" \
+		'.hooks[$e][0].hooks[0].command | test("network-block\\.jq")' \
+		"${MANAGED_SETTINGS}" >/dev/null ||
+		fail "managed settings do not run the guard on ${event}"
+	pass "guard is registered on ${event}"
+done
 
 # User-scope MCP servers baked into every sandbox via
 # kits/sbxclaude/files/home/.claude.json, so Context7 and GitHub MCP tools are
@@ -268,9 +279,40 @@ fi # end sbxclaude-only
 # ---------------------------------------------------------------------------
 # sbxcodex only. MCP servers live in ~/.codex/config.toml (TOML, appended by
 # `setup:`) rather than in a JSON file shipped under files/home/, because the
-# codex parent kit rewrites that file on every create.
+# codex parent kit rewrites that file on every create. The guard is registered
+# separately, in admin-tier /etc/codex/requirements.toml.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxcodex" ]]; then
+
+# Admin-tier hook registration. Asserted structurally rather than by grep:
+# `allow_managed_hooks_only` only works as a top-level key, and a copy that
+# drifted under [hooks] would still grep clean while doing nothing.
+REQUIREMENTS_TOML="/etc/codex/requirements.toml"
+
+[[ -s "${REQUIREMENTS_TOML}" ]] ||
+	fail "${REQUIREMENTS_TOML} is missing (${REBUILD_HINT})"
+pass "${REQUIREMENTS_TOML} exists"
+
+python3 - "${REQUIREMENTS_TOML}" <<'PYTOML' ||
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as fh:
+    req = tomllib.load(fh)
+
+if req.get("allow_managed_hooks_only") is not True:
+    sys.exit("allow_managed_hooks_only is not a top-level key set to true")
+if req.get("features", {}).get("hooks") is not True:
+    sys.exit("the hooks feature is not pinned on")
+try:
+    command = req["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+except (KeyError, IndexError):
+    sys.exit("no PostToolUse hook is registered")
+if "network-block.jq" not in command:
+    sys.exit("PostToolUse does not run the guard: " + command)
+PYTOML
+	fail "${REQUIREMENTS_TOML} does not register the guard as a managed hook (${REBUILD_HINT})"
+pass "guard is registered as a managed PostToolUse hook"
 
 CODEX_TOML="${HOME}/.codex/config.toml"
 

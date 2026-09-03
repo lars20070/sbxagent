@@ -55,8 +55,10 @@ agentInstructions:
     is blocked, stop and ask the user to run this on the host:
     `sbx policy allow network "<host>"`. Do not run `sbx policy` inside the
     sandbox, and do not work around a block by mirroring, vendoring, retrying
-    against a different host, or dropping the step. Nothing enforces this for
-    you here, so it is on you: end the turn and report the blocked host.
+    against a different host, or dropping the step. A managed hook watches for
+    this: on a block it replaces the tool output with a stop notice naming the
+    host. It cannot force you to stop, so honour it — end the turn and report
+    the host.
 
     The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
     `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
@@ -191,10 +193,123 @@ setup:
         install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
         github-mcp-server --version
       description: GitHub MCP server, run locally over stdio
-    # No `Network-block escalation hook` step here. That guard is Claude Code
-    # specific — it installs /etc/claude-code/managed-settings.json with Claude
-    # Code hook JSON, and Codex exposes no verified equivalent. See the
-    # agentInstructions above, which ask for the same behaviour unenforced.
+    - command: |
+        set -eu
+        install -d -m 0755 /usr/local/lib/sbxagent /etc/codex
+
+        # Guard filter. Reads a Codex hook payload on stdin and writes hook
+        # JSON on stdout. Root-owned and outside $HOME so the agent does not
+        # disable its own escalation with an ordinary file edit.
+        # Kept in sync with kits/network-block.jq — make lint checks this.
+        cat > /usr/local/lib/sbxagent/network-block.jq <<'JQFILTER'
+        # Every string in the payload except the tool's own input. Field names
+        # differ per event (.tool_response on PostToolUse, .error on
+        # PostToolUseFailure), so match the whole payload rather than a field.
+        def haystack: [ del(.tool_input) | .. | strings ] | join("\n");
+
+        # These block strings appear verbatim in this project's own docs, spec,
+        # and tests, so a Bash read of one of those files must not trip the
+        # guard. Scoped to Bash's own command field so a blocked WebFetch URL
+        # that merely contains one of these filenames is never exempted.
+        def self_reference:
+          .tool_name == "Bash"
+          and ((.tool_input.command // "")
+               | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"));
+
+        def stop($why; $tell):
+          { continue: false,
+            stopReason:
+              ($why + " Stopping — do not retry, mirror, vendor, or otherwise work "
+              + "around this. Report it to the user and wait."),
+            systemMessage: $tell };
+
+        haystack as $out
+        | if self_reference
+            or ($out | test("Blocked by (network policy|local rule for|org policy)") | not)
+          then
+            {}
+
+          # Centralised org policy. Deliberately does not suggest
+          # `sbx policy allow`: the user cannot lift this one themselves.
+          elif $out | test("Blocked by org policy") then
+            stop("A network request was blocked by your organisation's policy.";
+                 "Blocked by org policy.\n"
+                 + "Your company policy is blocking this request — contact IT if you need access.")
+
+          else
+            # `capture` yields nothing when it does not match, and
+            # `empty // empty` is still empty — that would bind no $host and
+            # emit no output at all, i.e. fail open. `// null` guarantees
+            # exactly one value.
+            ( ($out | capture("Blocked by network policy: domain (?<h>[^\\s]+)").h)
+              // ($out | capture("Blocked by local rule for (?<h>[^\\s]+)").h)
+              // null
+            ) as $host
+            | if $host == null then
+                stop("A network request was blocked by the sandbox network policy.";
+                     "A network request was blocked by the sandbox network policy.\n"
+                     + "See the tool output above for the host, then allow it with:\n"
+                     + "  sbx policy allow network \"<host>\"")
+              else
+                stop("The sandbox network policy blocked \($host).";
+                     "Blocked host: \($host)\n"
+                     + "Run on your host:  sbx policy allow network \"\($host)\"")
+              end
+          end
+        JQFILTER
+
+        # Admin-tier requirements: user and project config cannot override or
+        # disable a managed hook declared here. `allow_managed_hooks_only` MUST
+        # stay above every [table] header — TOML would otherwise scope it to the
+        # preceding table, where Codex ignores it. The self-test below asserts
+        # the parsed key really is top level.
+        #
+        # matcher is Bash-only: Codex has no local WebFetch tool, and hosted
+        # tools such as WebSearch never fire hooks. Network work here goes
+        # through Bash (curl, npm, pip, git). Known gap, shared with the Claude
+        # kit: PostToolUse also fires for MCP tools (tool_name `mcp__*`), which
+        # this matcher does not cover.
+        cat > /etc/codex/requirements.toml <<'REQUIREMENTS'
+        allow_managed_hooks_only = true
+
+        [features]
+        hooks = true
+
+        [hooks]
+        managed_dir = "/usr/local/lib/sbxagent"
+
+        [[hooks.PostToolUse]]
+        matcher = "^Bash$"
+
+        [[hooks.PostToolUse.hooks]]
+        type = "command"
+        command = "jq -f /usr/local/lib/sbxagent/network-block.jq"
+        timeout = 5
+        REQUIREMENTS
+
+        chmod 0644 /usr/local/lib/sbxagent/network-block.jq \
+          /etc/codex/requirements.toml
+
+        # Fail the build rather than ship a guard that silently does nothing.
+        # Structural, not grep: a key in the wrong TOML table is exactly the
+        # failure that would otherwise pass unnoticed.
+        python3 - <<'SELFTEST'
+        import tomllib
+
+        with open("/etc/codex/requirements.toml", "rb") as fh:
+            req = tomllib.load(fh)
+
+        assert req.get("allow_managed_hooks_only") is True, \
+            "allow_managed_hooks_only is not a top-level key set to true"
+        assert req["features"]["hooks"] is True, "hooks feature is not pinned on"
+        command = req["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        assert "network-block.jq" in command, \
+            "PostToolUse does not run the guard: " + command
+        SELFTEST
+
+        jq -n '{tool_name:"Bash",tool_input:{command:"curl https://probe.test"},tool_response:{stderr:"Blocked by local rule for probe.test"}}' \
+          | jq -e -f /usr/local/lib/sbxagent/network-block.jq >/dev/null
+      description: Network-block escalation hook
     - command: "uv tool install ruff@0.16.2"
       user: "1000"
       description: Ruff

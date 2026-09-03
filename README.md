@@ -65,14 +65,32 @@ flowchart LR
 | Command | Agent | Parent kit | Entrypoint | Instruction file | MCP config | Network-block guard |
 | --- | --- | --- | --- | --- | --- | --- |
 | `sbxclaude` | Claude Code | `claude` | `claude` | `CLAUDE.md` | `~/.claude.json` | **yes** |
-| `sbxcodex` | Codex | `codex` | `codex` | `AGENTS.md` | `~/.codex/config.toml` | no |
+| `sbxcodex` | Codex | `codex` | `codex` | `AGENTS.md` | `~/.codex/config.toml` | yes (soft) |
 | `sbxcursor` | Cursor | `cursor` | `cursor-agent` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
 
-The **network-block guard exists only for `sbxclaude`**. It is built on Claude
-Code's managed-settings hook JSON, and neither Codex nor Cursor exposes a
-verified equivalent. In those two sandboxes the agent instructions still ask for
-a blocked host to be reported rather than worked around, but nothing enforces
-it.
+The **network-block guard is not equally strong in each sandbox**, because the
+three CLIs offer different hook outputs:
+
+- `sbxclaude` **ends the turn**. Claude Code treats the guard's `continue:
+  false` as a hard stop, registered as managed-settings hook JSON.
+- `sbxcodex` **cannot force a stop**. The same guard runs as a managed
+  `PostToolUse` hook, but Codex's documented behaviour for every hook output —
+  `continue: false` and `decision: "block"` alike — is to replace the tool
+  result and let the model continue. So the agent sees the blocked host and a
+  firm instruction to stop, and the user sees the `sbx policy allow` line, but
+  nothing prevents the agent from carrying on.
+- `sbxcursor` has **no guard**. Its post-execution hooks are observation-only
+  and cannot even inject feedback. Its instructions still ask for a blocked host
+  to be reported, with nothing enforcing it.
+
+Both guards share one coverage gap: they match shell commands only, so a block
+that surfaces solely in an MCP server's response is not caught.
+
+`sbxcodex` is also the strictest sandbox in one respect: its admin-tier
+`requirements.toml` sets `allow_managed_hooks_only`, so Codex ignores *all*
+user, project, session and plugin hooks in there. That is deliberate — it stops
+the guard being crowded out — but it is stricter than `sbxclaude`, which leaves
+user hooks alone.
 
 ## What it does
 
@@ -90,8 +108,9 @@ Each sandbox gets:
   `kit inspect`, `kit pack`) so `make validate` works inside the sandbox
 - Passwordless `sudo`, and Docker, inside the sandbox
 - A network allowlist, not open internet access
-- `sbxclaude` only: a root-owned hook that stops the agent on a blocked request
-  and prints the `sbx policy allow` command to run
+- `sbxclaude` and `sbxcodex`: a root-owned hook that catches a blocked request
+  and prints the `sbx policy allow` command to run — ending the turn on
+  `sbxclaude`, advising the agent to stop on `sbxcodex`
 - Your project mounted as the workspace — edits land on your real files
 - GitHub SSH remotes rewritten to HTTPS inside the sandbox, so `git fetch`
   works on the allowlisted port 443 without changing the host checkout

@@ -13,8 +13,8 @@ CSPELL ?= cspell
 # kit duplicates stay byte-identical across kits, that the Cursor kit's
 # user-scope MCP config matches the repo's project-scope one (the sandbox mounts
 # the project, so the two sit side by side), that the dev-only copy of the
-# network-block jq filter stays in sync with the heredoc that actually ships
-# it, and that VERSION, every kits/*/spec.yaml version, and CHANGELOG's latest
+# network-block jq filter stays in sync with every kit heredoc that ships it,
+# and that VERSION, every kits/*/spec.yaml version, and CHANGELOG's latest
 # release all agree.
 lint:
 	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' | xargs -0 $(MARKDOWNLINT)
@@ -48,14 +48,17 @@ lint:
 	}
 	jq_heredoc="$$(mktemp)"; jq_dev="$$(mktemp)"; \
 	trap 'rm -f "$$jq_heredoc" "$$jq_dev"' EXIT; \
-	awk '/<<.JQFILTER./{f=1; next} /^        JQFILTER$$/{f=0} f' \
-		kits/sbxclaude/spec.yaml | sed 's/^        //' > "$$jq_heredoc"; \
 	sed -n '/^# BEGIN-SYNCED/,/^# END-SYNCED/p' \
-		kits/sbxclaude/files/network-block.jq | sed '1d;$$d' > "$$jq_dev"; \
-	cmp -s "$$jq_heredoc" "$$jq_dev" || { \
-		echo "lint: kits/sbxclaude/files/network-block.jq is out of sync with the heredoc in kits/sbxclaude/spec.yaml" >&2; \
-		exit 1; \
-	}
+		kits/network-block.jq | sed '1d;$$d' > "$$jq_dev"; \
+	for spec in kits/*/spec.yaml; do \
+		grep -q "<<'JQFILTER'" "$$spec" || continue; \
+		awk '/<<.JQFILTER./{f=1; next} /^        JQFILTER$$/{f=0} f' \
+			"$$spec" | sed 's/^        //' > "$$jq_heredoc"; \
+		cmp -s "$$jq_heredoc" "$$jq_dev" || { \
+			echo "lint: $$spec is out of sync with kits/network-block.jq" >&2; \
+			exit 1; \
+		}; \
+	done
 	if [ ! -f VERSION ]; then \
 		echo "lint: VERSION is missing" >&2; exit 1; \
 	fi; \

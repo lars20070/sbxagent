@@ -13,6 +13,18 @@ and this project adheres to
 - `github.githubassets.com:443` on every kit's network allowlist, so github.com
   pages render with their CSS and JavaScript in the sandbox's Playwright
   browser instead of loading as unstyled HTML.
+- A network-block escalation hook for `sbxcodex`, sharing the filter
+  `sbxclaude` already uses. It is registered as a managed Codex `PostToolUse`
+  hook in root-owned `/etc/codex/requirements.toml`, which user and project
+  config cannot override. **It is weaker than the `sbxclaude` guard**: Codex
+  replaces the blocked tool's result with the stop notice and lets the model
+  continue, rather than ending the turn, because no Codex hook output ends a
+  turn. The agent is told the host to allow and instructed to stop; nothing
+  forces it to. Both guards match shell commands only, so a block surfacing
+  solely in an MCP response is not caught.
+- `sbxcodex` now sets `allow_managed_hooks_only`, so Codex ignores all user,
+  project, session and plugin hooks in that sandbox and only the managed guard
+  runs. This is stricter than `sbxclaude`, which leaves user hooks alone.
 
 ## [0.2.0] - 2026-09-01
 
