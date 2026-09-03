@@ -28,11 +28,20 @@ and this project adheres to
 
 ### Changed
 
-- `sbxclaude` gains an `ALLOW_WEB_SEARCH` switch (default `true`) in its own
-  setup step, which merges `permissions.deny` for the built-in `WebSearch`
-  tool into the same admin-tier `/etc/claude-code/managed-settings.json` as
-  the network-block escalation hook when flipped to `false`. Flip it in
-  `kits/sbxclaude/spec.yaml` and rebuild the kit to deny WebSearch.
+- `sbxclaude` gains an `ALLOW_WEB` switch (default `true`) in its own setup
+  step, which merges `permissions.deny` for the built-in `WebSearch` and
+  `WebFetch` tools into the same admin-tier
+  `/etc/claude-code/managed-settings.json` as the network-block escalation
+  hook when flipped to `false`. Flip it in `kits/sbxclaude/spec.yaml` and
+  rebuild the kit to deny both tools — they call out from Anthropic's
+  servers, not the sandbox, so they would otherwise side-step the sbx
+  network allow list.
+- `sbxcodex` gains a matching `ALLOW_WEB` switch (default `true`). Codex has
+  only one hosted internet tool, `web_search` (no separate fetch tool); when
+  flipped to `false` the setup step prepends `web_search = "disabled"` to
+  `~/.codex/config.toml`, before any `[table]` header, so the key stays top
+  level regardless of `SBX_CRED_OPENAI_MODE`. Flip it in
+  `kits/sbxcodex/spec.yaml` and rebuild the kit to deny it.
 
 ## [0.2.0] - 2026-09-01
 
