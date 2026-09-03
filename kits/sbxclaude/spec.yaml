@@ -200,12 +200,31 @@ setup:
         # PostToolUseFailure), so match the whole payload rather than a field.
         def haystack: [ del(.tool_input) | .. | strings ] | join("\n");
 
+        # Commands that can reach the network. Used to disqualify the
+        # self-reference exemption below, so a real block is never masked.
+        # Local git readers stay eligible; only git's network subcommands count.
+        def reaches_network:
+          (.tool_input.command // "")
+          | test("https?://"
+               + "|\\b(curl|wget|nc|telnet|ssh|scp|rsync)\\b"
+               + "|\\b(npm|npx|pnpm|yarn|pip|pip3|uv|uvx)\\b"
+               + "|\\b(apt|apt-get|brew|gh)\\b"
+               + "|\\bdocker\\s+(pull|push|run|build)\\b"
+               + "|\\bgit\\s+(fetch|pull|push|clone|remote|ls-remote|submodule)\\b");
+
         # These block strings appear verbatim in this project's own docs, spec,
         # and tests, so a Bash read of one of those files must not trip the
         # guard. Scoped to Bash's own command field so a blocked WebFetch URL
         # that merely contains one of these filenames is never exempted.
+        #
+        # The command must also show no sign of network egress. Without that,
+        # `curl https://blocked # spec.yaml` would suppress a genuine block
+        # behind a filename mention — the exact outcome this guard exists to
+        # prevent. When a command both reads such a file and reaches out, fail
+        # safe and let the guard fire.
         def self_reference:
           .tool_name == "Bash"
+          and (reaches_network | not)
           and ((.tool_input.command // "")
                | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"));
 

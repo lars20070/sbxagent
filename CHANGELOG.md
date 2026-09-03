@@ -49,6 +49,18 @@ and this project adheres to
   `extends: cursor` are a different layer and unchanged. The Cursor CLI stays
   deliberately unpinned; it auto-updates in place, so a pin would not hold.
 
+### Fixed
+
+- The network-block guard's `self_reference` exemption no longer lets a network
+  command suppress a real block. It matched any Bash command mentioning
+  `AGENTS.md`, `CLAUDE.md`, `spec.yaml`, `network-block` or `toolchain_test`,
+  so `curl https://blocked  # see spec.yaml` returned "no action" and the agent
+  never saw the stop notice — the one outcome the guard exists to prevent. The
+  exemption now also requires the command to show no sign of network egress, so
+  a command that both reads one of those files and reaches out fails safe and
+  fires. Local readers, including `git diff` and `git show`, stay exempt.
+  Applies to `sbxclaude` and `sbxcodex`.
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

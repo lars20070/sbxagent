@@ -200,6 +200,27 @@ check_guard_ignores "ordinary output" \
 check_guard_ignores "a Bash read of CLAUDE.md" \
 	'{"tool_name":"Bash","tool_input":{"command":"cat CLAUDE.md"},"tool_response":{"stdout":"Blocked by network policy: domain foo.test"}}'
 
+# Local readers stay exempt, including git's read-only subcommands — a
+# `git diff` of the spec prints the block strings the filter itself contains.
+check_guard_ignores "a git diff of the spec" \
+	'{"tool_name":"Bash","tool_input":{"command":"git diff kits/sbxcodex/spec.yaml"},"tool_response":{"stdout":"Blocked by network policy: domain foo.test"}}'
+
+# ...but mentioning one of those filenames must never buy a network command an
+# exemption. Without this, `curl https://blocked # spec.yaml` silently suppresses
+# the notice and the agent is free to do exactly what the guard forbids.
+check_guard_blocks "a blocked curl whose command mentions spec.yaml" \
+	'{"tool_name":"Bash","tool_input":{"command":"curl -sS https://evil.test  # see spec.yaml"},"tool_response":{"stderr":"Blocked by network policy: domain evil.test"}}' \
+	'sbx policy allow network "evil.test"'
+
+check_guard_blocks "a blocked download writing to spec.yaml" \
+	'{"tool_name":"Bash","tool_input":{"command":"wget -O kits/sbxcodex/spec.yaml https://x.test/s"},"tool_response":{"stderr":"Blocked by network policy: domain x.test"}}' \
+	'sbx policy allow network "x.test"'
+
+# A local read chained to a network call is still a network call.
+check_guard_blocks "a blocked curl chained after a CLAUDE.md read" \
+	'{"tool_name":"Bash","tool_input":{"command":"cat CLAUDE.md && curl https://y.test"},"error":"Blocked by local rule for y.test"}' \
+	'sbx policy allow network "y.test"'
+
 # A blocked WebFetch must never be exempted just because its URL happens to
 # contain one of the self-reference filenames — only a Bash read of the
 # actual file is exempt. These run under sbxcodex too: Codex has no WebFetch
