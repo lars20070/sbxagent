@@ -8,6 +8,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Local [Ollama](https://ollama.com) models on `sbxpi`, alongside OpenRouter.
+  Ollama is declared as a custom provider in `models.json` — it has no built-in
+  catalogue in Pi, so each model id is listed explicitly; `qwen2.5-coder:7b`,
+  `qwen3-coder:30b` and `gpt-oss:20b` ship. OpenRouter remains the default provider, so this is opt-in
+  per run (`pi --provider ollama --model <id>`) and a stopped Ollama cannot
+  break a session.
+  Reaching Ollama needs two host-side steps that the kit deliberately does not
+  bake in: `OLLAMA_HOST=0.0.0.0`, so Ollama listens where the microVM can see
+  it, and a network rule,
+  `sbx policy allow network --sandbox <sbxpi-sandbox> localhost:11434`. The
+  rule cannot live in the kit: the sandbox reaches the host at
+  `host.docker.internal`, but the proxy resolves that back to the host's own
+  loopback and checks `localhost:11434`, a form a kit allowlist rejects. Note
+  that `OLLAMA_HOST=0.0.0.0` exposes Ollama to the local network, and that this
+  is the first path in any kit pointing inward at the user's own machine.
+
 ## [0.3.0] - 2026-09-04
 
 ### Added

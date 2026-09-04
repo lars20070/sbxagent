@@ -84,6 +84,16 @@ permissions:
       # Model API. DeepInfra sits upstream of OpenRouter and is never
       # contacted directly — pinned via models.json's openRouterRouting.only.
       - "openrouter.ai"
+      # No entry for Ollama here, deliberately — it cannot be expressed in a
+      # kit. models.json reaches the host's Ollama at host.docker.internal,
+      # but the proxy resolves that back to the host's own loopback and
+      # reports the resource as "localhost:11434". A kit allowlist rejects
+      # that form outright ("failed to apply kit to sandbox" — allow patterns
+      # are dotted domains), and "host.docker.internal:11434" applies cleanly
+      # yet never matches, which is worse: it looks like it works.
+      # So enabling Ollama is a host-side step, like the OpenRouter secret:
+      #   sbx policy allow network --sandbox <sbxpi-sandbox> localhost:11434
+      # See the Ollama section in README.md.
       # Pi service bootstrap, telemetry and version checks (both disabled
       # above, but the host is still contacted).
       - "pi.dev"

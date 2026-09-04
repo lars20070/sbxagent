@@ -490,6 +490,14 @@ jq -e '.providers.openrouter.modelOverrides["qwen/qwen3-coder"].compat.openRoute
 	fail "openrouter provider is missing the DeepInfra routing pin in ${PI_MODELS_JSON}"
 pass "openrouter is pinned to DeepInfra for qwen/qwen3-coder"
 
+# Ollama runs on the host, so the provider must point at host.docker.internal:
+# the sandbox has its own localhost, and Pi's own docs use `localhost` in their
+# example, which is the easy mistake to copy in here.
+jq -e '.providers.ollama.baseUrl | startswith("http://host.docker.internal:")' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "ollama provider missing, or its baseUrl is not host.docker.internal, in ${PI_MODELS_JSON}"
+pass "ollama provider points at the host, not the sandbox's own localhost"
+
 [[ -s "${PI_SETTINGS_JSON}" ]] || fail "${PI_SETTINGS_JSON} is missing (${REBUILD_HINT})"
 jq -e . "${PI_SETTINGS_JSON}" >/dev/null 2>&1 ||
 	fail "${PI_SETTINGS_JSON} is not valid JSON"
