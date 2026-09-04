@@ -1,0 +1,292 @@
+schemaVersion: "2"
+kind: sandbox
+name: sbxpi
+version: "0.2.0"
+displayName: Pi with custom toolchain
+description: Pi with custom toolchain
+
+sandbox:
+  # No `extends:` — Pi has no parent kit (only claude, codex, copilot, cursor,
+  # gemini, kiro, opencode are valid `extends:` values). Built on the bare
+  # shell-docker template instead, so unlike the siblings there is no
+  # sbx-releases#415 parent/child setup collision to work around: plain
+  # `entrypoint: [pi]` is correct here.
+  image: "docker/sandbox-templates:shell-docker"
+  entrypoint: [pi]
+# resources:
+#   cpu: 8
+#   memory: 24g
+
+environment:
+  variables:
+    PI_TELEMETRY: "0"
+    PI_SKIP_VERSION_CHECK: "1"
+
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    ## Sandbox environment
+    You are in a Docker Sandbox microVM. The user's project is mounted as your
+    workspace, so file edits modify the host working tree. `sudo` is
+    passwordless, and a sandbox-local Docker daemon is available.
+
+    Network egress is allowlisted. If a network request fails because its host
+    is blocked, stop and report it — do not run `sbx policy` inside the
+    sandbox, and do not work around a block by mirroring, vendoring, retrying
+    against a different host, or dropping the step. This kit does not yet
+    enforce that automatically; follow it yourself.
+
+    The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
+    `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
+    including `run`, `create`, `rm`, `exec`, `inspect`, and `policy`, require
+    the host CLI and `sandboxd`; ask the user to run them on the host.
+
+    ## Preinstalled tools
+    Follow the project's own instructions and use its declared dependencies
+    first. For general development tasks, these tools are already on `PATH`:
+
+    - Search and data: `rg` (ripgrep), `fdfind` (fd — Ubuntu names it
+      `fdfind`, not `fd`), `jq`
+    - Shell: `shellcheck`; use `bash -n` for syntax checks
+    - Python: `python3`, `ruff` for lint and format, `uv` for packages
+    - YAML: `yamllint`
+    - Markdown and prose: `markdownlint-cli2`, `cspell`
+    - Browser: `playwright`, with headless Chromium — load pages, screenshot
+      them, and read console output to verify UI changes before reporting done
+    - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
+      `mmdc -i diagram.mmd -o diagram.png`
+    - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`
+    - Sandbox kits: `sbx`, with the restrictions above
+    - Docs: Context7 is installed as a native Pi package, not an MCP server —
+      it registers its own tools directly. There is no GitHub MCP server in
+      this kit either; Pi has no MCP support at all, so use `git` and `gh`
+      via bash for GitHub operations instead.
+
+    Prefer `rg` over recursive `grep`, `ruff` over installing another Python
+    linter or formatter, and `uv` over `pip`. Install project dependencies when
+    needed, but do not install global replacements for tools already provided.
+
+# No web-access toggle here: unlike sbxclaude/sbxcodex/sbxcursor, Pi has no
+# built-in WebSearch/WebFetch tool to gate, so there is nothing for an
+# ALLOW_WEB switch to flip. Do not add a no-op toggle just to match siblings.
+
+# Outbound egress allowlist. Default-deny: every host the kit reaches must be
+# listed. This is the union of every kits/sbxclaude/spec.yaml host (this kit
+# has no parent to inherit them from) plus the OpenRouter model API.
+permissions:
+  network:
+    allow:
+      # Model API. DeepInfra sits upstream of OpenRouter and is never
+      # contacted directly — pinned via models.json's openRouterRouting.only.
+      - "openrouter.ai"
+      # Pi service bootstrap, telemetry and version checks (both disabled
+      # above, but the host is still contacted).
+      - "pi.dev"
+      # npm: pi-coding-agent, context7-pi, markdownlint-cli2, cspell.
+      - "registry.npmjs.org:443"
+      # uv tool install: ruff, yamllint (index + wheels).
+      - "pypi.org:443"
+      - "files.pythonhosted.org:443"
+      # Playwright downloads the Chromium browser binary from these CDN mirrors.
+      - "cdn.playwright.dev:443"
+      - "playwright.download.prss.microsoft.com:443"
+      # The Context7 native Pi package calls its documentation API here.
+      - "context7.com:443"
+      # GitHub release downloads (sbx CLI, github-mcp-server) and page assets.
+      # Playwright still browses these; dropping them is a policy change this
+      # work is not making, even though this kit registers no GitHub MCP server.
+      - "api.github.com:443"
+      - "github.com:443"
+      - "github.githubassets.com:443"
+      - "gist.github.com:443"
+      - "gist.githubusercontent.com:443"
+      - "release-assets.githubusercontent.com:443"
+      # apt-get update refreshes every template source, so all of them must be
+      # reachable: Ubuntu amd64 (archive/security), arm64 (ports), and
+      # Docker's apt repo. The siblings get these from their parent kit;
+      # sbxpi has no parent kit, so they are listed explicitly here.
+      - "archive.ubuntu.com:80"
+      - "security.ubuntu.com:80"
+      - "ports.ubuntu.com:80"
+      - "download.docker.com:443"
+
+# Credentials declare WHAT the kit needs and how the proxy injects it — not
+# where it lives on the host. proxyManaged: true sets OPENROUTER_API_KEY
+# inside the container as a proxy-managed sentinel.
+credentials:
+  - service: openrouter
+    apiKey:
+      name: OPENROUTER_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: openrouter.ai
+          header: Authorization
+          format: "Bearer %s"
+
+setup:
+  install:
+    - command: |
+        set -eu
+        apt-get update
+        # fd-find is not part of the sibling toolchain: Pi's file-search tool
+        # shells out to `fd`, and if it finds neither `fd` nor `fdfind` on PATH
+        # it downloads the binary from GitHub releases at first launch —
+        # resolving "latest" at runtime, with no version pin and no checksum,
+        # unlike every other binary this kit installs. Ubuntu
+        # ships the binary as `fdfind` (the name `fd` is taken), which Pi
+        # accepts natively via its systemBinaryNames list, so no symlink is
+        # needed. ripgrep covers Pi's other bundled tool the same way.
+        apt-get install -y \
+          ca-certificates \
+          curl \
+          fd-find \
+          jq \
+          python3 \
+          ripgrep \
+          shellcheck
+      description: CLI tools
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v0.39.0 release assets.
+        case "$arch" in
+          amd64)
+            expected_sha256="2ec45bc7938c20c2f406fe8cc72294ad5a954bdc047601484b89bf1a108311d4"
+            ;;
+          arm64)
+            expected_sha256="39c470a5f5e0991b1c2358952e2ab32a7b0309bfa57ac62b6bbc64b466d02c17"
+            ;;
+          *)
+            echo "unsupported architecture for sbx: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/docker/sbx-releases/releases/download/v0.39.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          -o "$tmp/sbx.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "sbx tarball checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/sbx.tar.gz" -C "$tmp" docker-sbx/sbx
+        install -m 0755 "$tmp/docker-sbx/sbx" /usr/local/bin/sbx
+        sbx version
+      description: sbx CLI for offline kit commands
+    - command: "uv tool install ruff@0.16.2"
+      user: "1000"
+      description: Ruff
+    - command: "uv tool install yamllint@1.38.0"
+      user: "1000"
+      description: yamllint
+    - command: |
+        set -eu
+        # npm through the sandbox proxy is flaky on this image. `npm config`
+        # writes ~/.npmrc, so every npm step below inherits these — which is
+        # why this runs before the first of them, as the same user (1000)
+        # that owns that ~/.npmrc.
+        npm config set proxy "$HTTP_PROXY"
+        npm config set https-proxy "$HTTP_PROXY"
+      user: "1000"
+      description: Point npm at the sandbox proxy
+    - command: "npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1"
+      user: "1000"
+      description: Markdown and spelling linters
+    - command: |
+        set -eu
+        npm install --global playwright@1.62.1
+        playwright install --with-deps chromium
+      user: "1000"
+      description: Playwright with headless Chromium
+    - command: |
+        set -eu
+        # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
+        # reuses the one Playwright just installed, above.
+        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.16.0
+        chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
+          'console.log(require("playwright").chromium.executablePath())')"
+        mmdc_bin="$(command -v mmdc)"
+        config="$(dirname "$mmdc_bin")/mermaid-puppeteer-config.json"
+        printf '{"executablePath": "%s"}\n' "$chromium_path" > "$config"
+        # mmdc only takes its Puppeteer config via an explicit flag, so wrap
+        # the real binary to always pass it — keeps `mmdc -i a.mmd -o a.png`
+        # working with no extra flags for the agent.
+        mv "$mmdc_bin" "${mmdc_bin}.real"
+        cat > "$mmdc_bin" <<WRAPPER
+        #!/bin/sh
+        exec "${mmdc_bin}.real" --puppeteerConfigFile "${config}" "\$@"
+        WRAPPER
+        chmod +x "$mmdc_bin"
+      user: "1000"
+      description: mermaid-cli, reusing the Playwright Chromium
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v1.11.0 release assets.
+        case "$arch" in
+          amd64)
+            asset="Linux_x86_64"
+            expected_sha256="3b73bb7be0c8b043f861e90410df8ebdfc71b83128c54ced75fb32c4ff697fc5"
+            ;;
+          arm64)
+            asset="Linux_arm64"
+            expected_sha256="3f7615254f6b619469c471c5d275029299ff7431c93d6075496ea4b2eec020cb"
+            ;;
+          *)
+            echo "unsupported architecture for github-mcp-server: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/github/github-mcp-server/releases/download/v1.11.0/github-mcp-server_${asset}.tar.gz" \
+          -o "$tmp/gms.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "github-mcp-server checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/gms.tar.gz" -C "$tmp" github-mcp-server
+        install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
+        github-mcp-server --version
+      description: GitHub MCP server binary, toolchain parity only — Pi never calls it
+    - command: |
+        set -eu
+        PI_VERSION=0.84.4
+
+        # Pi is the one install worth retrying: it is the agent itself, so a
+        # transient proxy failure here leaves an unusable sandbox. One socket,
+        # 10-minute fetch, five attempts.
+        npm_install_retry() {
+          pkg=$1
+          attempt=1
+          until npm install -g --ignore-scripts --maxsockets=1 \
+            --fetch-timeout=600000 "$pkg"
+          do
+            if [ "$attempt" -ge 5 ]; then
+              echo "${pkg} install failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+            echo "${pkg} install failed (attempt ${attempt}/5), retrying..."
+            attempt=$((attempt + 1))
+            sleep 5
+          done
+        }
+
+        # Note the scope: @earendil-works, not the frozen, security-patch-less
+        # legacy @mariozechner/pi-coding-agent.
+        npm_install_retry "@earendil-works/pi-coding-agent@${PI_VERSION}"
+      user: "1000"
+      description: Pi coding agent
+    - command: |
+        set -eu
+        CONTEXT7_PI_VERSION=0.1.2
+        # `pi install` and settings.json's `packages` key are the same
+        # mechanism — this writes the entry AND materialises the package now,
+        # so nothing is fetched from the network at first launch.
+        pi install "npm:@upstash/context7-pi@${CONTEXT7_PI_VERSION}"
+      user: "1000"
+      description: Context7 Pi extension, installed at build time

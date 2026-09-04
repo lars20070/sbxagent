@@ -1,0 +1,17 @@
+{
+  "providers": {
+    "openrouter": {
+      "apiKey": "$OPENROUTER_API_KEY",
+      "modelOverrides": {
+        "qwen/qwen3-coder": {
+          "compat": {
+            "openRouterRouting": {
+              "only": ["deepinfra"],
+              "allow_fallbacks": false
+            }
+          }
+        }
+      }
+    }
+  }
+}

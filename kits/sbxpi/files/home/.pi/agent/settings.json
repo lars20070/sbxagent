@@ -1,0 +1,15 @@
+{
+  "defaultProvider": "openrouter",
+  "defaultModel": "qwen/qwen3-coder",
+  "defaultThinkingLevel": "off",
+  "defaultProjectTrust": "always",
+  "enableInstallTelemetry": false,
+  "retry": {
+    "enabled": true,
+    "maxRetries": 3,
+    "provider": {
+      "maxRetries": 0,
+      "timeoutMs": 3600000
+    }
+  }
+}

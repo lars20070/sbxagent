@@ -89,6 +89,7 @@ validate:
 	./scripts/sbxclaude kit validate
 	./scripts/sbxcodex kit validate
 	./scripts/sbxcursor kit validate
+	./scripts/sbxpi kit validate
 
 # Run every test
 test: test-unit test-toolchain

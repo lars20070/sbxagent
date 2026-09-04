@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Smoke-tests the helper toolchain from inside a live sbxagent sandbox
-# (sbxclaude, sbxcodex or sbxcursor).
+# (sbxclaude, sbxcodex, sbxcursor or sbxpi).
 # Keep EXPECTED_* in sync with the pinned installs in kits/*/spec.yaml.
 set -euo pipefail
 
@@ -19,6 +19,8 @@ EXPECTED_PLAYWRIGHT_VERSION="1.62.1"
 EXPECTED_MERMAID_VERSION="11.16.0"
 EXPECTED_CONTEXT7_MCP_VERSION="4.0.0"
 EXPECTED_GITHUB_MCP_VERSION="1.11.0"
+EXPECTED_PI_VERSION="0.84.4"
+EXPECTED_CONTEXT7_PI_VERSION="0.1.2"
 
 TESTS=0
 
@@ -450,5 +452,69 @@ done
 pass "context7 and github are pre-approved, so the TUI does not prompt for them"
 
 fi # end sbxcursor-only
+
+# ---------------------------------------------------------------------------
+# sbxpi only. Pi has no parent kit and no MCP support at all — there is no MCP
+# config file to check here. Its config lives directly under
+# files/home/.pi/agent/ (models.json, settings.json), and GitHub operations go
+# through `git`/`gh` on PATH instead of a registered MCP server.
+# ---------------------------------------------------------------------------
+if [[ "${KIT_NAME}" == "sbxpi" ]]; then
+
+check_tool_version pi "${EXPECTED_PI_VERSION}" pi --version
+# Pi has no MCP, so GitHub work goes through the `gh` CLI instead.
+check_tool gh gh --version
+
+# Pi's file-search tool downloads `fd` from GitHub releases at first launch
+# unless it finds `fd` or `fdfind` on PATH — unpinned, and network traffic on
+# a cold start. The apt-installed `fdfind` is what suppresses that.
+command -v fdfind >/dev/null 2>&1 || command -v fd >/dev/null 2>&1 ||
+	fail "neither fd nor fdfind is on PATH, so Pi will download fd at launch (${REBUILD_HINT})"
+pass "fd is preinstalled, so Pi fetches nothing at first launch"
+
+PI_MODELS_JSON="${HOME}/.pi/agent/models.json"
+PI_SETTINGS_JSON="${HOME}/.pi/agent/settings.json"
+
+[[ -s "${PI_MODELS_JSON}" ]] || fail "${PI_MODELS_JSON} is missing (${REBUILD_HINT})"
+jq -e . "${PI_MODELS_JSON}" >/dev/null 2>&1 ||
+	fail "${PI_MODELS_JSON} is not valid JSON"
+pass "${PI_MODELS_JSON} is valid JSON"
+
+[[ -O "${PI_MODELS_JSON}" ]] || fail "${PI_MODELS_JSON} is not owned by the sandbox user"
+pass "${PI_MODELS_JSON} is owned by the sandbox user"
+
+jq -e '.providers.openrouter.modelOverrides["qwen/qwen3-coder"].compat.openRouterRouting.only == ["deepinfra"]' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "openrouter provider is missing the DeepInfra routing pin in ${PI_MODELS_JSON}"
+pass "openrouter is pinned to DeepInfra for qwen/qwen3-coder"
+
+[[ -s "${PI_SETTINGS_JSON}" ]] || fail "${PI_SETTINGS_JSON} is missing (${REBUILD_HINT})"
+jq -e . "${PI_SETTINGS_JSON}" >/dev/null 2>&1 ||
+	fail "${PI_SETTINGS_JSON} is not valid JSON"
+pass "${PI_SETTINGS_JSON} is valid JSON"
+
+[[ -O "${PI_SETTINGS_JSON}" ]] || fail "${PI_SETTINGS_JSON} is not owned by the sandbox user"
+pass "${PI_SETTINGS_JSON} is owned by the sandbox user"
+
+jq -e '.defaultProvider == "openrouter" and .defaultModel == "qwen/qwen3-coder"' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "defaultProvider/defaultModel are not set to openrouter/qwen3-coder in ${PI_SETTINGS_JSON}"
+pass "settings.json defaults to openrouter / qwen/qwen3-coder"
+
+# `pi install` merges this key into the shipped settings.json at build time —
+# the kit does not hand-write it, so this is what proves that step ran and its
+# result survived. Without the entry Pi loads no Context7 tools at all.
+jq -e --arg v "npm:@upstash/context7-pi@${EXPECTED_CONTEXT7_PI_VERSION}" \
+	'.packages | index($v) != null' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "context7 package missing or wrong pinned version in ${PI_SETTINGS_JSON} (${REBUILD_HINT})"
+pass "context7 Pi package is pinned to ${EXPECTED_CONTEXT7_PI_VERSION}"
+
+# Pre-installed at build time, so first launch fetches nothing from the network.
+[[ -d "${HOME}/.pi/agent/npm/node_modules" ]] ||
+	fail "context7 package was not materialised under ~/.pi/agent/npm (${REBUILD_HINT})"
+pass "context7 package is materialised on disk, not fetched at first launch"
+
+fi # end sbxpi-only
 
 echo "All ${TESTS} toolchain tests passed."
