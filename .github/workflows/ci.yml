@@ -15,10 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Lint Markdown, JSON, YAML, and shell, and spell-check. Reuses `make lint`
-  # so the lint definition lives in one place (the Makefile). markdownlint and
-  # cspell run via pinned npx packages. The runners differ: ubuntu-latest ships
-  # shellcheck, jq, and yamllint, while the macOS image ships only jq and Node.
+  # Lint Markdown, JSON, jq, TypeScript, YAML, and shell, and spell-check.
+  # Reuses `make lint` so the lint definition lives in one place (the
+  # Makefile). markdownlint and cspell run via pinned npx packages, overridden
+  # below because the runners lack them; esbuild needs no override, since the
+  # Makefile already defaults it to a pinned npx invocation for want of any
+  # local install. The runners differ: ubuntu-latest ships shellcheck, jq, and
+  # yamllint, while the macOS image ships only jq and Node.
   lint:
     strategy:
       fail-fast: false
@@ -38,7 +41,7 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install shellcheck yamllint
 
-      - name: Lint (markdownlint, jq, yamllint, shellcheck, cspell)
+      - name: Lint (markdownlint, jq, esbuild, yamllint, shellcheck, cspell)
         run: |
           make lint \
             MARKDOWNLINT='npx --yes markdownlint-cli2@0.23.2' \

@@ -1,6 +1,7 @@
 {
   "defaultProvider": "openrouter",
   "defaultModel": "qwen/qwen3-coder",
+  "extensions": ["/usr/local/lib/sbxagent/network-block.ts"],
   "defaultThinkingLevel": "off",
   "defaultProjectTrust": "always",
   "enableInstallTelemetry": false,

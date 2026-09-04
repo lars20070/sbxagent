@@ -129,13 +129,15 @@ pass "GitHub SSH remotes rewrite to HTTPS"
 REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
 # ---------------------------------------------------------------------------
-# sbxclaude and sbxcodex. Both kits install the same guard filter at the same
-# path, so its behaviour is tested once, here. What each host CLI *does* with
-# the verdict differs (Claude Code ends the turn; Codex replaces the tool
-# result and lets the model continue), and each registers the hook its own way
-# — those live in the per-kit blocks below.
+# sbxclaude, sbxcodex and sbxpi. All three kits install the same guard filter
+# at the same path, so its behaviour is tested once, here. What each host CLI
+# *does* with the verdict differs (Claude Code ends the turn; Codex replaces
+# the tool result and lets the model continue; Pi rewrites the result and then
+# refuses the next tool call), and each registers it its own way — those live
+# in the per-kit blocks below.
 # ---------------------------------------------------------------------------
-if [[ "${KIT_NAME}" == "sbxclaude" || "${KIT_NAME}" == "sbxcodex" ]]; then
+if [[ "${KIT_NAME}" == "sbxclaude" || "${KIT_NAME}" == "sbxcodex" ||
+	"${KIT_NAME}" == "sbxpi" ]]; then
 
 # Network-block escalation hook. A blocked request must produce a stop verdict
 # with the remedy that fits the block type, rather than leaving the agent free
@@ -514,6 +516,32 @@ pass "context7 Pi package is pinned to ${EXPECTED_CONTEXT7_PI_VERSION}"
 [[ -d "${HOME}/.pi/agent/npm/node_modules" ]] ||
 	fail "context7 package was not materialised under ~/.pi/agent/npm (${REBUILD_HINT})"
 pass "context7 package is materialised on disk, not fetched at first launch"
+
+# The Pi half of the network-block guard. sbxclaude registers the filter as an
+# admin-tier hook Claude Code cannot be talked out of; Pi has no equivalent
+# tier, so the binding is this settings.json entry plus a root-owned file.
+GUARD_EXTENSION="/usr/local/lib/sbxagent/network-block.ts"
+
+[[ -s "${GUARD_EXTENSION}" ]] ||
+	fail "guard extension is missing: ${GUARD_EXTENSION} (${REBUILD_HINT})"
+pass "guard extension is installed"
+
+# Root-owned and outside $HOME is the whole tamper-resistance story here, so
+# assert it rather than assume the setup step ran as root.
+[[ ! -O "${GUARD_EXTENSION}" && ! -w "${GUARD_EXTENSION}" ]] ||
+	fail "${GUARD_EXTENSION} is owned or writable by the agent, so the agent can disable its own guard"
+pass "guard extension is not writable by the agent"
+
+jq -e --arg p "${GUARD_EXTENSION}" '.extensions | index($p) != null' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "guard extension is not registered in ${PI_SETTINGS_JSON}"
+pass "guard extension is registered in settings.json"
+
+# Belt and braces: the system prompt restates the rule at higher authority
+# than AGENTS.md, in case the extension is ever overridden.
+[[ -s "${HOME}/.pi/agent/APPEND_SYSTEM.md" ]] ||
+	fail "APPEND_SYSTEM.md is missing (${REBUILD_HINT})"
+pass "APPEND_SYSTEM.md restates the no-workaround rule"
 
 fi # end sbxpi-only
 

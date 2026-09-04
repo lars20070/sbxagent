@@ -3,23 +3,31 @@ BASH ?= bash
 MARKDOWNLINT ?= markdownlint-cli2
 YAMLLINT ?= yamllint
 CSPELL ?= cspell
+# Syntax-checks TypeScript by type-stripping it. Pinned and fetched through
+# npx by default because no kit installs esbuild, so unlike markdownlint and
+# cspell there is no local binary to fall back on; npx caches after the first
+# run. Syntax only — it neither resolves imports nor checks types.
+ESBUILD ?= npx --yes esbuild@0.28.2
 
 .PHONY: lint validate test test-unit test-toolchain
 
 # Lint tracked files: Markdown (skip plan drafts), JSON, jq filters (parsed
-# against null input, so a syntax error fails the build), YAML, shell scripts
-# (shellcheck + bash -n, one file per xargs call), and spell-check (skip plan
-# drafts). Assert each kits/<name>/ declares name: <name>, that the files every
-# kit duplicates stay byte-identical across kits, that the Cursor kit's
-# user-scope MCP config matches the repo's project-scope one (the sandbox mounts
-# the project, so the two sit side by side), that the dev-only copy of the
-# network-block jq filter stays in sync with every kit heredoc that ships it,
-# and that VERSION, every kits/*/spec.yaml version, and CHANGELOG's latest
-# release all agree.
+# against null input, so a syntax error fails the build), TypeScript
+# (type-stripped by esbuild, so a syntax error fails the build too), YAML,
+# shell scripts (shellcheck + bash -n, one file per xargs call), and
+# spell-check (skip plan drafts). Assert each kits/<name>/ declares
+# name: <name>, that the files every kit duplicates stay byte-identical across
+# kits, that the Cursor kit's user-scope MCP config matches the repo's
+# project-scope one (the sandbox mounts the project, so the two sit side by
+# side), that the dev-only copies of the network-block jq filter and its Pi
+# extension each stay in sync with every kit heredoc that ships them, and that
+# VERSION, every kits/*/spec.yaml version, and CHANGELOG's latest release all
+# agree.
 lint:
 	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' | xargs -0 $(MARKDOWNLINT)
 	git ls-files -z -- '*.json' | xargs -0 -n1 jq empty
 	git ls-files -z -- '*.jq' | xargs -0 -n1 sh -c 'jq -n -f "$$1" >/dev/null' --
+	git ls-files -z -- '*.ts' | xargs -0 -n1 sh -c '$(ESBUILD) --loader=ts --log-level=warning <"$$1" >/dev/null' --
 	git ls-files -z -- '*.yaml' '*.yml' | xargs -0 $(YAMLLINT)
 	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 shellcheck --enable=all
 	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 -n1 bash -n
@@ -56,6 +64,23 @@ lint:
 			"$$spec" | sed 's/^        //' > "$$jq_heredoc"; \
 		cmp -s "$$jq_heredoc" "$$jq_dev" || { \
 			echo "lint: $$spec is out of sync with kits/network-block.jq" >&2; \
+			exit 1; \
+		}; \
+	done
+	ts_heredoc="$$(mktemp)"; ts_dev="$$(mktemp)"; \
+	trap 'rm -f "$$ts_heredoc" "$$ts_dev"' EXIT; \
+	awk '/^\/\/ BEGIN-SYNCED/{f=1; next} /^\/\/ END-SYNCED/{f=0} f' \
+		kits/network-block.ts > "$$ts_dev"; \
+	[ -s "$$ts_dev" ] || { \
+		echo "lint: no BEGIN-SYNCED body found in kits/network-block.ts" >&2; \
+		exit 1; \
+	}; \
+	for spec in kits/*/spec.yaml; do \
+		grep -q "<<'EXTENSION'" "$$spec" || continue; \
+		awk '/<<.EXTENSION./{f=1; next} /^        EXTENSION$$/{f=0} f' \
+			"$$spec" | sed 's/^        //' > "$$ts_heredoc"; \
+		cmp -s "$$ts_heredoc" "$$ts_dev" || { \
+			echo "lint: $$spec is out of sync with kits/network-block.ts" >&2; \
 			exit 1; \
 		}; \
 	done

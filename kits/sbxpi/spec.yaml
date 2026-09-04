@@ -33,8 +33,13 @@ agentInstructions:
     Network egress is allowlisted. If a network request fails because its host
     is blocked, stop and report it — do not run `sbx policy` inside the
     sandbox, and do not work around a block by mirroring, vendoring, retrying
-    against a different host, or dropping the step. This kit does not yet
-    enforce that automatically; follow it yourself.
+    against a different host, or dropping the step. An extension enforces this
+    in two steps: the blocked command's output is replaced with the remedy that
+    fits — `sbx policy allow` for a default-deny, `sbx policy rm` for a local
+    deny (deny beats allow), or contact IT for organisation policy — and your
+    next tool call is then refused and the run ends. Reporting the block is the
+    only way forward, so do it first rather than spending the one call you have
+    left on a workaround.
 
     The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
     `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
@@ -175,6 +180,221 @@ setup:
         install -m 0755 "$tmp/docker-sbx/sbx" /usr/local/bin/sbx
         sbx version
       description: sbx CLI for offline kit commands
+    - command: |
+        set -eu
+        install -d -m 0755 /usr/local/lib/sbxagent
+
+        # Guard filter. Reads a tool-result payload on stdin and writes a
+        # verdict on stdout. Root-owned and outside $HOME so the agent does
+        # not disable its own escalation with an ordinary file edit.
+        # Kept in sync with kits/network-block.jq — make lint checks this.
+        cat > /usr/local/lib/sbxagent/network-block.jq <<'JQFILTER'
+        # Every string in the payload except the tool's own input. Field names
+        # differ per event (.tool_response on PostToolUse, .error on
+        # PostToolUseFailure), so match the whole payload rather than a field.
+        def haystack: [ del(.tool_input) | .. | strings ] | join("\n");
+
+        # Commands that can reach the network. Used to disqualify the
+        # self-reference exemption below, so a real block is never masked.
+        # Local git readers stay eligible; only git's network subcommands count.
+        def reaches_network:
+          (.tool_input.command // "")
+          | test("https?://"
+               + "|\\b(curl|wget|nc|telnet|ssh|scp|rsync)\\b"
+               + "|\\b(npm|npx|pnpm|yarn|pip|pip3|uv|uvx)\\b"
+               + "|\\b(apt|apt-get|brew|gh)\\b"
+               + "|\\bdocker\\s+(pull|push|run|build)\\b"
+               + "|\\bgit\\s+(fetch|pull|push|clone|remote|ls-remote|submodule)\\b");
+
+        # These block strings appear verbatim in this project's own docs, spec,
+        # and tests, so a Bash read of one of those files must not trip the
+        # guard. Scoped to Bash's own command field so a blocked WebFetch URL
+        # that merely contains one of these filenames is never exempted.
+        #
+        # The command must also show no sign of network egress. Without that,
+        # `curl https://blocked # spec.yaml` would suppress a genuine block
+        # behind a filename mention — the exact outcome this guard exists to
+        # prevent. When a command both reads such a file and reaches out, fail
+        # safe and let the guard fire.
+        def self_reference:
+          .tool_name == "Bash"
+          and (reaches_network | not)
+          and ((.tool_input.command // "")
+               | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"));
+
+        def stop($why; $tell):
+          { continue: false,
+            stopReason:
+              ($why + " Stopping — do not retry, mirror, vendor, or otherwise work "
+              + "around this. Report it to the user and wait."),
+            systemMessage: $tell };
+
+        # `capture` yields nothing on miss; without `// null` the pipeline would
+        # emit no output at all (fail open). Bind hosts up front so each branch
+        # below can use them — jq does not keep `as` bindings from an `if` condition.
+        haystack as $out
+        | (($out | capture("Blocked by local rule for (?<h>[^\\s]+)").h) // null) as $denied
+        | (($out | capture("Blocked by network policy: domain (?<h>[^\\s]+)").h) // null) as $host
+        | if self_reference then
+            {}
+          # Org policy: user cannot lift this; do not suggest `sbx policy allow`.
+          elif $out | test("Blocked by org policy") then
+            stop("A network request was blocked by your organisation's policy.";
+                 "Blocked by org policy.\n"
+                 + "Your company policy is blocking this request — contact IT if you need access.")
+          # Local deny: deny beats allow, so the rule must be removed.
+          elif $denied != null then
+            stop("A local deny rule blocks \($denied); `sbx policy allow` cannot override it.";
+                 "Blocked host: \($denied) — by a local deny rule.\n"
+                 + "Deny beats allow, so allowing it will not help. Find and remove the rule:\n"
+                 + "  sbx policy ls --wide\n"
+                 + "  sbx policy rm network --resource \"\($denied)\"                      # global\n"
+                 + "  sbx policy rm network --sandbox <sandbox> --resource \"\($denied)\"  # one sandbox")
+          # Default-deny: allow the host on the host machine.
+          elif $host != null then
+            stop("The sandbox network policy blocked \($host).";
+                 "Blocked host: \($host)\n"
+                 + "Run on your host:  sbx policy allow network \"\($host)\"")
+          # Block string present but host not parseable.
+          elif $out | test("Blocked by (network policy|local rule for)") then
+            stop("A network request was blocked by the sandbox network policy.";
+                 "A network request was blocked by the sandbox network policy.\n"
+                 + "See the tool output above for the host, then allow it with:\n"
+                 + "  sbx policy allow network \"<host>\"")
+          else
+            {}
+          end
+        JQFILTER
+
+        # The Pi half of the guard. sbxclaude registers the filter as an
+        # admin-tier Claude Code hook; Pi has no managed-settings tier, so
+        # this extension is registered from ~/.pi/agent/settings.json
+        # instead — a weaker binding, documented in the README.
+        cat > /usr/local/lib/sbxagent/network-block.ts <<'EXTENSION'
+        /**
+         * Network-block escalation guard.
+         *
+         * Pi has no managed-settings tier the way Claude Code does, so this file is
+         * root-owned and lives outside $HOME: the agent it watches cannot disable it
+         * with an ordinary file edit. The policy itself is not restated here — the
+         * verdict comes from network-block.jq, the same filter sbxclaude and
+         * sbxcodex run, so there is exactly one place to change what counts as a
+         * block and `make lint` keeps every copy of it in sync.
+         *
+         * Two phases, because a tool_result handler cannot end a run: it may only
+         * patch content, details, isError and usage.
+         *   1. tool_result — replace the blocked tool's output with the remedy.
+         *   2. tool_call   — refuse every later call and terminate the run.
+         * The net effect matches sbxclaude's hard stop, one beat later.
+         */
+        import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+        import { spawnSync } from "node:child_process";
+
+        const FILTER = "/usr/local/lib/sbxagent/network-block.jq";
+
+        // Every stop path in the filter requires this literal, so it is a safe
+        // necessary condition — used only to avoid spawning jq on output that cannot
+        // be a block. Deliberately broader than the policy; jq still decides.
+        const MAYBE_BLOCKED = "Blocked by ";
+
+        function textOf(content: unknown): string {
+          if (!Array.isArray(content)) return "";
+          return content
+            .map((block: any) =>
+              block && typeof block.text === "string" ? block.text : "")
+            .join("\n");
+        }
+
+        /** The filter's verdict for one tool result, or null to allow it through. */
+        function verdict(event: any): string | null {
+          // Only bash reaches the network, which mirrors the "Bash|WebFetch" hook
+          // matcher on sbxclaude. The scoping is load-bearing: the filter exempts a
+          // *Bash* read of this repo's own docs, so routing Pi's `read` tool through
+          // it would turn an ordinary read of AGENTS.md into a false block.
+          if (event?.toolName !== "bash") return null;
+
+          const response = {
+            output: textOf(event.content),
+            details: event.details ?? null,
+            isError: event.isError === true,
+          };
+
+          let haystack: string;
+          try {
+            haystack = JSON.stringify(response);
+          } catch {
+            return null;
+          }
+          if (!haystack.includes(MAYBE_BLOCKED)) return null;
+
+          // tool_name and tool_input are the field names network-block.jq already
+          // expects. "Bash" carries a capital B to match its self-reference
+          // exemption, which is scoped to that exact tool name.
+          const payload = JSON.stringify({
+            tool_name: "Bash",
+            tool_input: { command: String(event?.input?.command ?? "") },
+            tool_response: response,
+          });
+
+          const jq = spawnSync("jq", ["-f", FILTER], {
+            input: payload,
+            encoding: "utf8",
+            timeout: 5000,
+          });
+          // Fail open if the toolchain is broken. A guard that blocked every command
+          // whenever jq went missing would do more damage than the escape it stops.
+          if (jq.status !== 0 || !jq.stdout) return null;
+
+          let parsed: any;
+          try {
+            parsed = JSON.parse(jq.stdout);
+          } catch {
+            return null;
+          }
+          if (!parsed || parsed.continue !== false) return null;
+
+          // stopReason instructs the model, systemMessage carries the remedy. Pi has
+          // one channel here, so the model gets both.
+          return [parsed.stopReason, parsed.systemMessage]
+            .filter(Boolean)
+            .join("\n\n");
+        }
+
+        export default function (pi: ExtensionAPI) {
+          let blocked: string | null = null;
+
+          // Reset per agent run, not per turn. `turn_start` fires again for every
+          // LLM response *within* one user prompt, so clearing there would release
+          // the exact follow-up call this guard exists to stop. Never clearing would
+          // strand the session, still blocked after the user has fixed the policy.
+          pi.on("agent_start", () => {
+            blocked = null;
+          });
+
+          pi.on("tool_result", (event: any) => {
+            if (blocked) return;
+            const stop = verdict(event);
+            if (!stop) return;
+            blocked = stop;
+            return { content: [{ type: "text", text: stop }], isError: true };
+          });
+
+          pi.on("tool_call", () => {
+            if (!blocked) return;
+            return { block: true, reason: blocked, terminate: true };
+          });
+        }
+        EXTENSION
+
+        chmod 0644 /usr/local/lib/sbxagent/network-block.jq \
+          /usr/local/lib/sbxagent/network-block.ts
+
+        # Fail the build rather than ship a guard that silently does nothing.
+        jq -n '{tool_name:"Bash",tool_input:{command:"curl https://probe.test"},error:"Blocked by local rule for probe.test"}' \
+          | jq -e -f /usr/local/lib/sbxagent/network-block.jq >/dev/null
+        grep -q "network-block\.jq" /usr/local/lib/sbxagent/network-block.ts
+        grep -q "export default function" /usr/local/lib/sbxagent/network-block.ts
+      description: Network-block escalation guard
     - command: "uv tool install ruff@0.16.2"
       user: "1000"
       description: Ruff
