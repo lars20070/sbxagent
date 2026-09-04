@@ -114,6 +114,8 @@ permissions:
       - "files.pythonhosted.org:443"
       # Pi agent development
       - "pi.dev"
+      # OpenRouter model API, for agents configured against it.
+      - "openrouter.ai:443"
       # No Cursor hosts here on purpose: api2.cursor.sh, api3.cursor.sh,
       # repo42.cursor.sh and cursor.com are already allowed by the base preset.
       # Verified with `sbxcursor policy check`.

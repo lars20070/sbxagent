@@ -114,6 +114,8 @@ permissions:
       - "files.pythonhosted.org:443"
       # Pi agent development
       - "pi.dev"
+      # OpenRouter model API, for agents configured against it.
+      - "openrouter.ai:443"
       # No OpenAI hosts here on purpose: api.openai.com, auth.openai.com and
       # chatgpt.com are already allowed by the base preset (**.openai.com:443
       # and **.chatgpt.com:443). Verified with `sbxcodex policy check`.

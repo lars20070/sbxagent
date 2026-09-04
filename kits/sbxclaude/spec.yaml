@@ -111,6 +111,8 @@ permissions:
       - "files.pythonhosted.org:443"
       # Pi agent development
       - "pi.dev"
+      # OpenRouter model API, for agents configured against it.
+      - "openrouter.ai:443"
 
 setup:
   install:
