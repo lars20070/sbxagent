@@ -1,132 +1,212 @@
 # Add `sbxpi`: a fourth kit running the Pi agent on OpenRouter → DeepInfra
 
+> Revised twice since the first draft: once against
+> `add-sbxpi-plan-review.md`, then again against
+> `research-report-pi-coding-agent.md`.
+
 ## Context
 
-This repo (`sbxagent`) wraps three coding agents — Claude Code, Codex,
-Cursor — each as its own Docker Sandbox Kit (`kits/sbxclaude`,
-`kits/sbxcodex`, `kits/sbxcursor`) plus a `scripts/sbx<agent>` symlink that
-dispatches to a shared wrapper script. We want a fourth: `sbxpi`, running
-the **Pi** agent (pi.dev), talking to **OpenRouter**, with model calls
-pinned to route through **DeepInfra** specifically.
+`sbxagent` wraps terminal coding agents as Docker Sandbox Kits — one
+`kits/<command>/spec.yaml` plus a `scripts/sbx<agent>` symlink into a shared
+wrapper. Three exist today: `sbxclaude`, `sbxcodex`, `sbxcursor`. We want a
+fourth, `sbxpi`, running the **Pi** agent (`pi.dev`,
+`@earendil-works/pi-coding-agent`) against **OpenRouter** with model calls
+pinned to the **DeepInfra** backend.
 
-Two facts (checked against Docker's and Pi's own docs) shape the whole
-design, and make `sbxpi` structurally different from the other three kits:
+**The governing objective is resemblance.** `sbxpi` must look and behave like
+its three siblings: same toolchain, same network allowlist, same hooks as
+`sbxclaude`. Where Pi/sbx/OpenRouter mechanics raise a question the siblings
+cannot answer, the reference is the working sibling repo
+[md2okf](https://github.com/lars20070/md2okf) (`pi/` directory). Clone it into
+the session scratchpad and keep it as a read-only reference throughout
+planning and implementation. Its `skills/` folder and its `AGENTS.md` are
+specific to that repo's wiki-compiling task — **do not carry those over**.
 
-- **Docker Sandboxes has no built-in Pi agent kit.** The three existing
-  kits each do `extends: claude` / `codex` / `cursor` and inherit a lot
-  (network baseline, an agent-aware entrypoint) from that built-in parent.
-  Pi isn't on Docker's supported-agent list, so `sbxpi` has **no
-  `extends:`** — it builds straight on the generic, agent-less `Shell`
-  template (`docker/sandbox-templates:shell-docker`) and sets up
-  everything itself, network allowlist included.
-- **Pi has no built-in MCP support.** Pi's own docs say so explicitly —
-  its extension mechanism is native packages/skills, not MCP. So unlike
-  the other three kits, `sbxpi` configures **no GitHub MCP server**. This
-  is a real, permanent capability gap for this kit, not an oversight —
-  state it plainly in the docs, don't paper over it.
+### Decisions taken
 
-A real, working reference exists for the Pi+OpenRouter+DeepInfra part: a
-sibling repo, `md2okf` (github.com/lars20070/md2okf), has a `pi/` kit doing
-exactly this shape of thing (different end task — it's a Markdown→wiki
-compiler — but the kit mechanics are directly reusable). Clone that repo
-into this session's scratchpad directory and keep it there as a read-only
-reference throughout planning and implementation; its `pi/` subdirectory
-is the part that matters. Its `skills/` folder and its `AGENTS.md` content
-are 100% specific to that repo's own wiki-compiling task — **do not carry
-those over**. Everything else (install mechanics, provider config shape,
-credential wiring, network allowlist reasoning) is generic and worth
-reusing.
+| # | Question | Decision |
+|---|---|---|
+| 1 | Guard strength | **Two-phase hard stop** via a Pi extension |
+| 2 | Allowlist | **Superset**: every `sbxclaude` host + no-parent-kit hosts |
+| 3 | GitHub MCP | **No MCP in v1**; install `github-mcp-server` for toolchain parity only |
+| 4 | Default model | `qwen/qwen3-coder` — **confirmed** by research, no longer provisional |
+| 5 | OpenRouter secrets | md2okf's dual `set` + `set-custom`, **plus** the BYOK workspace toggle |
+| 6 | "Same toolchain" | Includes `github-mcp-server`, even though Pi never calls it |
+| 7 | Project trust | `defaultProjectTrust: "always"` — no prompt, mounted project config honoured |
+| 8 | `models.json` form | **Minimal** — no `baseUrl`/`api`; inherit the built-in catalogue |
 
-**Model choice**: you asked for `Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo`
-on DeepInfra, via the routing pin below. On OpenRouter that model's id is
-`qwen/qwen3-coder` (DeepInfra's "Turbo" backend is one of the providers
-behind it) — that's the id to use in config, not DeepInfra's own internal
-name. **You're setting up BYOK yourself** on openrouter.ai (Settings →
-Integrations → your DeepInfra key) — nothing in this repo needs to know
-about that; the kit only ever holds `OPENROUTER_API_KEY`.
+### Facts established (verified against primary sources — do not re-derive)
+
+- `extends: shell` is **not** valid — documented values are `claude`, `codex`,
+  `copilot`, `cursor`, `gemini`, `kiro`, `opencode`. `sbx kit validate`
+  accepts any `extends:` string including nonsense, so a green `make validate`
+  proves nothing here. Use `image:`.
+- **No kit in this repo declares a `credentials:` block.** The other three
+  inherit credentials from their parent kit. `sbxpi`'s must be modelled on
+  md2okf's.
+- Pi's extension API: `pi.on("tool_call", …)` may return
+  `{ block, reason, terminate }`. `pi.on("tool_result", …)` may return only
+  `{ content, details, isError, usage }` — **no `terminate`**. This shapes the
+  guard.
+- Extensions load from `settings.json` `extensions: []` (absolute paths) and
+  from auto-discovered `~/.pi/agent/extensions`.
+- **Pi has no MCP.** Its README is explicit: *"No MCP. Build CLI tools with
+  READMEs, or build an extension that adds MCP support"*, and *"No MCP
+  configuration, CLI flags, or stdio server compatibility exists in the
+  codebase."* The research report's headline claim that Pi natively reads
+  `.mcp.json` / `~/.config/mcp/mcp.json` is **wrong** — only an extension can
+  add MCP. Our decision stands; only the wording softens, from "permanent
+  platform gap" to "not built-in; an extension could add it, deferred past
+  v1."
+- **`pi install` and `settings.json` `packages` are one mechanism**, not two.
+  `pi install` writes the entry into `packages` and materialises it under
+  `~/.pi/agent/npm/`. A package listed but never installed is **fetched from
+  the network at first launch** — unacceptable in a sealed image. This
+  resolves the old open question: pre-install at build time.
+- **`qwen/qwen3-coder`** is confirmed: 262,144-token context, 65,536 max
+  output, present in Pi's built-in OpenRouter catalogue, and **non-reasoning**
+  (Qwen's model card: *"supports only non-thinking mode"*) — so no
+  `reasoning: true` and no `thinkingLevelMap`. Avoid the `:free` variant (it
+  often rejects tool-calling) and `:nitro` (sorts by throughput, which fights
+  the DeepInfra pin).
+- `openrouter` is a **built-in provider**, so `baseUrl` and `api` are already
+  known to Pi.
+- `only: ["deepinfra"]` matches DeepInfra's endpoint for this model
+  (OpenRouter lists it as "DeepInfra (Turbo)"; base-slug matching includes
+  turbo). `deepinfra/turbo` is the strict slug if ever needed.
+- **`AGENTS.md` files concatenate** — global `~/.pi/agent/AGENTS.md`, then
+  each ancestor directory, then cwd. Our append-to-a-base-file approach is
+  therefore sound.
+- `pi.dev` serves telemetry (`/api/report-install`) and version checks
+  (`/api/latest-version`); both are disableable.
+- The official npm install line is `npm install -g --ignore-scripts`.
+- The legacy `@mariozechner/*` scope is frozen at 0.73.1 and missing security
+  fixes — check the **scope**, not just the version, on the install line.
+- Pi needs `~/.pi/agent/` writable: `auth.json` (0600), session JSONL, `npm/`,
+  `git/`, and `models-store.json`.
 
 ## The new kit: `kits/sbxpi/`
 
-**`kits/sbxpi/spec.yaml`** (new). Same top-level shape as
-`kits/sbxclaude/spec.yaml` (`name`, `version` matching the root `VERSION`
-file — currently `0.2.0` — `displayName`, `description`, commented-out
-`resources:`), but built like `md2okf/pi/spec.yaml` underneath:
+`kits/sbxpi/spec.yaml`, same top-level shape as `kits/sbxclaude/spec.yaml`
+(`name`, `version` matching root `VERSION`, `displayName`, `description`,
+commented-out `resources:`), built like `md2okf/pi/spec.yaml` underneath:
 
-- `sandbox.image: "docker/sandbox-templates:shell-docker"`, no `extends:`.
-- `sandbox.entrypoint: [pi]` — the simple form. The other three kits wrap
-  their entrypoint in a `chown`-fixing `sh -c` script, but only because of
-  a specific bug ([docker/sbx-releases#415](https://github.com/docker/sbx-releases/issues/415))
-  where `sbx` drops a *parent* kit's setup when a child kit defines its
-  own `setup:`. `sbxpi` has no parent kit, so nothing to drop — the plain
-  form is what `md2okf/pi/spec.yaml` actually runs in production.
-  *(Verify once, after the first real build: `sbxpi exec ls -la
-  ~/.pi/agent` — if files come out root-owned, add the same chown
-  workaround the other three use.)*
-- `agentInstructions.filename: AGENTS.md`, `content:` = the same generic
-  "Sandbox environment / Preinstalled tools" blurb `kits/sbxclaude`
-  already uses (copy it, drop nothing agent-specific), plus one added
-  paragraph stating plainly that this kit has no GitHub MCP server and
-  no MCP support at all, so use `git` directly.
-- `permissions.network.allow` — has to be a **complete** list, not just
-  extras (no parent kit to inherit a baseline from): `openrouter.ai`,
-  `pi.dev`, `registry.npmjs.org:443`, `pypi.org:443`,
-  `files.pythonhosted.org:443`, `cdn.playwright.dev:443`,
-  `playwright.download.prss.microsoft.com:443`, `context7.com:443`,
-  `github.com:443`, `github.githubassets.com:443`,
-  `release-assets.githubusercontent.com:443` (for the `sbx` CLI download),
-  and the apt/Docker mirrors `archive.ubuntu.com:80`,
-  `security.ubuntu.com:80`, `ports.ubuntu.com:80`,
-  `download.docker.com:443`. Deliberately **no** `api.github.com` /
-  `gist.github.com*` — nothing in this kit calls them (no
-  `github-mcp-server`, no `gh` CLI).
-- `credentials`: one entry, identical in shape to `kits/sbxclaude`'s —
+- **`sandbox.image: "docker/sandbox-templates:shell-docker"`**, no `extends:`.
+- **`sandbox.entrypoint: [pi]`** — the plain form. The siblings' `sh -c`
+  wrapper exists only to work around
+  [sbx-releases#415](https://github.com/docker/sbx-releases/issues/415)
+  (a child's `setup:` drops a *parent's* setup). No parent here, so no bug.
+- **Environment**: `PI_TELEMETRY=0` and `PI_SKIP_VERSION_CHECK=1`, so nothing
+  phones `pi.dev` at startup.
+- **`permissions.network.allow`** — the **union**, not a Pi-specific list:
+  - every host in `kits/sbxclaude/spec.yaml` today, *including*
+    `api.github.com:443`, `gist.github.com:443`,
+    `gist.githubusercontent.com:443` (Playwright still browses these; dropping
+    them is a policy change we are not making), plus `registry.npmjs.org`,
+    `cdn.playwright.dev`, `playwright.download.prss.microsoft.com`,
+    `context7.com`, `github.com`, `github.githubassets.com`,
+    `release-assets.githubusercontent.com`, `pypi.org`,
+    `files.pythonhosted.org`;
+  - hosts a parent kit would otherwise supply: `archive.ubuntu.com:80`,
+    `security.ubuntu.com:80`, `ports.ubuntu.com:80`,
+    `download.docker.com:443`;
+  - provider host: `openrouter.ai` — **the only provider host needed**;
+    DeepInfra sits upstream of OpenRouter and is never contacted directly.
+  - `pi.dev` — keep it, but *verify* whether anything still reaches it once
+    telemetry and version checks are off and packages are pre-installed. If
+    nothing does, drop it and say so in the changelog.
+  - *Verify during the first `sbx` install on `shell-docker`* whether
+    `objects.githubusercontent.com:443` is needed for a release redirect
+    (md2okf allows it; this repo does not). Add only if observed.
+- **`credentials`** — modelled on md2okf's `pi/spec.yaml`:
   `service: openrouter`, `apiKey.name: OPENROUTER_API_KEY`,
   `proxyManaged: true`, injected as `Authorization: Bearer %s` to
   `openrouter.ai`.
-- `setup.install`: apt tools (curl, jq, python3, ripgrep, shellcheck,
-  ca-certificates) → **the `sbx` CLI, pinned `v0.39.0`, checksums copied
-  verbatim from `kits/sbxclaude/spec.yaml:127-156`** (verified those
-  checksums are the real ones already in use elsewhere in this repo, not
-  invented) → `ruff@0.16.2` / `yamllint@1.38.0` (uv tool install) →
+- **`setup.install`** — the same steps as `kits/sbxclaude`, in the same order,
+  reusing its pins verbatim: apt tools (ca-certificates, curl, jq, python3,
+  ripgrep, shellcheck) → `sbx` CLI `v0.39.0` with the checksums already in
+  `kits/sbxclaude/spec.yaml` → `ruff@0.16.2` / `yamllint@1.38.0` →
   `markdownlint-cli2@0.23.2` + `cspell@10.0.1` → Playwright `1.62.1` +
-  Chromium → mermaid-cli `11.16.0` wrapper (same four steps as
-  `kits/sbxclaude`, byte-for-byte reusable) → **Pi itself**, pinned
-  global npm install of `@earendil-works/pi-coding-agent`, using the
-  proxy-config + 5-attempt retry wrapper from `md2okf/pi/spec.yaml`
-  (npm-through-the-sandbox-proxy is flaky) → **Context7**, via `pi
-  install "npm:@upstash/context7-pi@0.1.2"` (Pi's native package
-  mechanism, not MCP — this is how every other kit's Context7 access gets
-  its Pi-side equivalent). No `github-mcp-server` install step — nothing
-  in this kit would ever call it.
-  *(Verify the exact Pi version pin at implementation time —
-  `npm view @earendil-works/pi-coding-agent version` — rather than
-  trusting `md2okf`'s pin blindly; same for context7-pi.)*
+  Chromium → mermaid-cli `11.16.0` wrapper → **`github-mcp-server` at the same
+  pin (`v1.11.0`) and checksums as the siblings** (toolchain parity only; no
+  MCP client registered) → **Pi**, `npm install -g --ignore-scripts
+  @earendil-works/pi-coding-agent@<pin>` (note the **scope**), keeping
+  md2okf's npm-proxy config and retry wrapper → **Context7**, `pi install
+  "npm:@upstash/context7-pi@<pin>"` **at build time** → **the network-block
+  extension** (below).
+  - The research report argues the retry loop masks a fixable transient
+    failure. Keep it anyway: it exists because npm-through-the-sbx-proxy is
+    flaky in *this* environment, which the report did not test. But add
+    `--ignore-scripts` and the exact version pin, which are the parts it is
+    right about.
+  - `git` and `gh` must be on `PATH` — they are Pi's idiomatic replacement for
+    a GitHub MCP server.
+  - *Verify pins at implementation time* (`npm view
+    @earendil-works/pi-coding-agent version`; latest at time of research was
+    0.84.4) rather than trusting md2okf's blindly.
 
-**`kits/sbxpi/files/home/.gitconfig`** and
-**`kits/sbxpi/files/workspace/.editorconfig`** — byte-identical copies of
-`kits/sbxclaude`'s (this repo's `make lint` diffs every kit's copy against
-sbxclaude's as the reference and fails otherwise).
+`kits/sbxpi/files/home/.gitconfig` and
+`kits/sbxpi/files/workspace/.editorconfig` — byte-identical copies of
+`kits/sbxclaude`'s; `make lint` diffs every kit's copies against sbxclaude's.
 
-**`kits/sbxpi/files/home/.pi/agent/AGENTS.md`** (new, generic — this is
-the base file `agentInstructions.content` gets appended to):
+### The network-block guard
 
-```markdown
-# Pi coding agent
+`sbxclaude` hard-stops on a blocked host via managed `PostToolUse` /
+`PostToolUseFailure` hooks piping the payload through
+`/usr/local/lib/sbxagent/network-block.jq`. `sbxpi` gets the same, with one
+structural difference forced by Pi's API.
 
-You are Pi, a terminal coding agent, working inside a Docker Sandbox microVM
-on the user's project. Follow the project's own conventions, tests, and
-tooling first. Make focused changes, verify them before reporting done, and
-ask before large or irreversible changes.
+**Reuse the existing policy, do not port it.** Ship a thin Pi extension at
+`/usr/local/lib/sbxagent/network-block.ts` (root-owned, outside `$HOME`, same
+tamper-resistance rationale as the jq filter) that **shells out to the
+existing `jq -f /usr/local/lib/sbxagent/network-block.jq`**, passing the
+payload shape that filter already expects and mapping its
+`{continue, stopReason, systemMessage}` verdict onto Pi's return types. One
+policy source, and `make lint`'s existing `JQFILTER` sync check keeps covering
+it unchanged. The kit installs the same jq filter heredoc as the other two.
+
+**Two-phase hard stop**, because `tool_result` cannot terminate:
+
+```ts
+pi.on("tool_result", (e) => {
+  if (BLOCK_RE.test(text(e))) {
+    blocked = advice(text(e));           // verdict from the jq filter
+    return { content: [{ type: "text", text: blocked }], isError: true };
+  }
+});
+
+pi.on("tool_call", () => {
+  if (blocked) return { block: true, reason: blocked, terminate: true };
+});
 ```
 
-**`kits/sbxpi/files/home/.pi/agent/models.json`** (new):
+Detected on the result, turn ended on the next tool call. Net effect matches
+`sbxclaude`, one beat later.
+
+**Register it** via `settings.json` `extensions:
+["/usr/local/lib/sbxagent/network-block.ts"]`.
+
+**Known limitation — document it, do not paper over it.** `sbxclaude`'s
+managed settings are root-owned and cannot be overridden. Pi has no
+managed-settings equivalent, so the guard is weaker in two ways: the agent can
+edit its own `~/.pi/agent/settings.json`, and — because we set
+`defaultProjectTrust: "always"` — a mounted repo's `.pi/settings.json` can
+override the `extensions` array too. That is the accepted cost of a smooth
+launch and honoured project config. State it plainly in the README row.
+Consider `~/.pi/agent/APPEND_SYSTEM.md` (appended to the system prompt at
+higher authority than `AGENTS.md`) as a belt-and-braces restatement of the
+"do not work around a block" rule.
+
+### Config files
+
+`kits/sbxpi/files/home/.pi/agent/models.json` — **minimal form**. `openrouter`
+is built-in, so declaring `baseUrl`/`api` risks shadowing the catalogue entry
+that supplies the real 262,144-token context window:
 
 ```json
 {
   "providers": {
     "openrouter": {
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "api": "openai-completions",
       "apiKey": "$OPENROUTER_API_KEY",
       "modelOverrides": {
         "qwen/qwen3-coder": {
@@ -143,104 +223,153 @@ ask before large or irreversible changes.
 }
 ```
 
-No top-level `models` array — deliberate, same reasoning as `md2okf`:
-leaving it out lets Pi's built-in catalogue fill in `qwen/qwen3-coder`'s
-real context/output-token limits (262K context, 64K output) instead of
-generic small defaults. `allow_fallbacks: false` matters here specifically
-because it stops OpenRouter silently falling back to a different backend
-if DeepInfra ever has an issue — without it, a DeepInfra hiccup would
-silently route to a different (non-BYOK) provider instead of failing loud.
+Use `modelOverrides`, never a full `models[]` array — a full entry silently
+drops Pi's built-in compat defaults (`thinkingFormat`, `supportsDeveloperRole`,
+`maxTokensField`, `supportsStrictMode`) and subtly breaks requests. Unknown
+model ids are silently ignored, so the id string must be exact.
+`allow_fallbacks: false` makes an unavailable DeepInfra return a hard 404
+instead of silently rerouting. Optionally add
+`"cost": { "input": 0.22, "output": 1.80 }` — cosmetic only, it never affects
+routing.
 
-**`kits/sbxpi/files/home/.pi/agent/settings.json`** (new):
+`kits/sbxpi/files/home/.pi/agent/settings.json`:
 
 ```json
 {
   "defaultProvider": "openrouter",
   "defaultModel": "qwen/qwen3-coder",
-  "packages": ["npm:@upstash/context7-pi@0.1.2"]
+  "defaultThinkingLevel": "off",
+  "defaultProjectTrust": "always",
+  "enableInstallTelemetry": false,
+  "extensions": ["/usr/local/lib/sbxagent/network-block.ts"],
+  "retry": { "enabled": true, "maxRetries": 3,
+             "provider": { "maxRetries": 0, "timeoutMs": 3600000 } }
 }
 ```
 
-No `skills/` directory — none of the other three kits ship one either.
+`defaultThinkingLevel: "off"` because Qwen3 Coder is non-reasoning.
+`provider.maxRetries: 0` so SDK-level retries do not swallow quota errors
+before Pi sees them. **No hand-written `packages` key** — `pi install` writes
+that entry itself at build time; verify afterwards that the resulting file
+still carries our `extensions` array.
 
-## Wiring the new command into the rest of the repo
+`kits/sbxpi/files/home/.pi/agent/AGENTS.md` — short generic base file, kept
+lean (under ~200 lines per Pi's own guidance). The spec's
+`agentInstructions.filename: AGENTS.md` + `content:` appends to it; Pi
+concatenates `AGENTS.md` files, so this composes correctly.
 
-Same pattern as the existing three everywhere; add a fourth entry
-alongside each:
+`agentInstructions.content` — **rewrite, do not copy `sbxclaude`'s verbatim.**
+Two bullets must change or they lie to the agent: the MCP bullet (Context7 on
+Pi is a native package registering tools directly, not an MCP server; there is
+no GitHub MCP — use `git` and `gh` via bash) and the network-guard paragraph
+(must describe the two-phase stop actually implemented). The rest of the
+"Sandbox environment / Preinstalled tools" blurb copies across.
 
-- **`scripts/sbxagent`**: add `sbxpi) CLI="pi" ;;` to the dispatch `case`,
-  and a fourth `ln -s ... sbxpi` hint line in the no-name-given error
-  message.
-- **`scripts/sbxpi`**: a new checked-in symlink to `sbxagent`, same as
-  `scripts/sbxclaude` etc. (`ln -s sbxagent scripts/sbxpi && git add
-  scripts/sbxpi`).
-- **`Makefile`**: add `./scripts/sbxpi kit validate` to the `validate`
-  target. (Everything else in the Makefile — `lint`'s name/version
-  checks, `test-toolchain`'s `AGENT` parameter — is already glob-based or
-  parameterized and needs no change.)
-- **`tests/sbxagent_test.sh`**: add `sbxpi` to the `reject_wrong_name`
-  expected-strings list; add a `PI_SCRIPT`/`run_pi`/`PI_KIT` block
-  matching the **lighter Codex/Cursor spot-check style** (own name, own
-  kit path, own `create` dispatch, help text names `pi`) rather than
-  duplicating Claude's exhaustive first-kit block — the generic dispatch
-  machinery it proves is already covered once; extend the 3-way
-  distinctness check to 4-way.
-- **`tests/toolchain_test.sh`**: add a `sbxpi`-only block (mirroring the
-  existing per-kit `if` blocks) checking `pi` is on `PATH`, and that
-  `~/.pi/agent/models.json` / `settings.json` exist, parse as JSON, and
-  have the expected `openrouter` provider / `defaultProvider`. **Also**:
-  the existing `github-mcp-server --version` check (currently
-  unconditional, shared by all kits) needs to skip `sbxpi` specifically —
-  this kit installs no such binary, on purpose.
-- **`README.md`**: add `sbxpi` to — the intro's `sbx run <agent>` list,
-  the "one script serves N commands" prose, the Mermaid diagram, the
-  "Supported agents" table (new row: Pi / no parent kit / `pi` /
-  `AGENTS.md` / `~/.pi/agent/{models,settings}.json` / no network-block
-  guard), the install-symlink instructions, the usage example, "all N
-  commands take the same signatures," "all N kits pin the same versions."
-  For the GitHub-MCP-config table and the `<agent> mcp list` sentence:
-  **leave `sbxpi` out of both** (a row that's "n/a" in every column adds
-  noise, not information) and add one plain sentence instead: Pi has no
-  MCP support, so this kit configures no GitHub MCP server.
-- **`AGENTS.md`** (repo root): update the Repository Map's "There are
-  three" sentence and kit list, the `scripts/sbxagent` bullet's symlink
-  list, and the "`make validate` — validates all three kits" line (reword
-  to "every kit" so it doesn't need updating again for a fifth).
-- **`CHANGELOG.md`**: new `## [Unreleased]` / `### Added` entry describing
-  `sbxpi` (no parent kit, no MCP support, Context7 via native package
-  instead) — match the existing entries' voice/detail level.
-- **`.cspell.json`**: add `sbxpi`, `deepinfra`, `earendil` to `words`.
+No `skills/` directory — the siblings ship none, and Pi's guidance is that
+skills are task-specific, not general-purpose kit furniture.
 
-## Cleanup found along the way
+No `ALLOW_WEB` toggle — Pi has no WebSearch/WebFetch tool to gate. Say so in a
+comment so a later implementer does not "match sbxclaude" by inventing a
+no-op.
 
-All three existing kits (`kits/sbxclaude/spec.yaml`,
-`kits/sbxcodex/spec.yaml`, `kits/sbxcursor/spec.yaml`) carry a stray,
-unused network-allowlist entry:
-```yaml
-      # Pi agent development
-      - "pi.dev"
-```
-This looks like leftover prep for exactly this work, sitting on kits that
-have nothing to do with Pi. Remove all three (verified via grep — it's in
-all three files, not just Claude's). `sbxpi` is the one kit that
-legitimately needs `pi.dev`. Worth its own small `### Security`
-`CHANGELOG.md` line, mirroring the `0.1.0` entry that already recorded
-removing "unused OpenRouter and Pi hosts" once before.
+## Wiring into the rest of the repo
+
+Same pattern as the existing three; add a fourth entry alongside each.
+
+- **`scripts/sbxagent`** — add `sbxpi) CLI="pi" ;;` to the dispatch `case`,
+  and a fourth `ln -s` hint line in the no-name-given error message.
+- **`scripts/sbxpi`** — new checked-in symlink to `sbxagent`.
+- **`Makefile`** — add `./scripts/sbxpi kit validate` to `validate`. Nothing
+  else changes (`lint` is glob-based, `test-toolchain` is parameterised).
+- **`tests/sbxagent_test.sh`** — add `sbxpi` to the `reject_wrong_name` list;
+  add a `PI_SCRIPT`/`run_pi`/`PI_KIT` block in the **lighter Codex/Cursor
+  spot-check style**; extend the 3-way distinctness check to 4-way.
+- **`tests/toolchain_test.sh`** — add an `sbxpi` block checking `pi` is on
+  `PATH`, that `~/.pi/agent/{models,settings}.json` parse and carry the
+  expected `openrouter` provider / `defaultProvider`, that the guard extension
+  is registered and its jq filter present, and that `git`/`gh` resolve. The
+  shared `github-mcp-server --version` check **stays unconditional** — every
+  kit now installs the binary.
+- **`README.md`** — add `sbxpi` to the intro list, the "one script serves N
+  commands" prose, the Mermaid diagram, the Supported agents table (new row:
+  Pi / no parent kit / `pi` / `AGENTS.md` /
+  `~/.pi/agent/{models,settings}.json` / network-block guard **with the
+  override caveat noted**), the install-symlink instructions, the usage
+  example, and the "all N …" counts. Add **Pinned toolchain versions** rows
+  for `@earendil-works/pi-coding-agent` and `@upstash/context7-pi`. Leave
+  `sbxpi` out of the GitHub-MCP-config table and the `<agent> mcp list`
+  sentence; add one sentence: Pi has no built-in MCP, so this kit registers no
+  MCP servers (the `github-mcp-server` binary is installed for toolchain
+  parity only; Pi uses `git`/`gh` directly). Add an **OpenRouter setup**
+  subsection:
+
+  ```bash
+  echo "$OPENROUTER_API_KEY" | sbx secret set openrouter
+  # And again as a custom secret, to work around
+  # https://github.com/docker/sbx-releases/issues/25
+  sbx secret set-custom --sandbox <sbxpi-sandbox-name> \
+    --host openrouter.ai --env OPENROUTER_API_KEY \
+    --value "$OPENROUTER_API_KEY"
+  ```
+
+  `--sandbox` takes the actual `sbxpi-…` sandbox name, not a fixed one.
+  **Also document the BYOK controls**, which the routing pin alone does not
+  cover: OpenRouter states that if your own key fails it will complete the
+  request through another provider *and bill your OpenRouter credits*. For a
+  genuinely fail-closed BYOK path the user must set **"Never use shared
+  capacity for this provider"** in their OpenRouter workspace (and "Always use
+  this key for this provider" on the key) in addition to
+  `allow_fallbacks: false`.
+- **`AGENTS.md`** (repo root) — update the "There are three" sentence and kit
+  list, the symlink list, and reword "validates all three kits" to "every kit".
+- **`CHANGELOG.md`** — `## [Unreleased]` / `### Added` entry for `sbxpi`
+  (no parent kit, OpenRouter→DeepInfra pin, Context7 as a native package, no
+  built-in MCP), matching existing entries' voice.
+- **`.cspell.json`** — add `sbxpi`, `deepinfra`, `earendil`.
+
+## Cleanup
+
+All three existing kits carry a stray, unused `- "pi.dev"` allowlist entry
+under a `# Pi agent development` comment. Remove it from `sbxclaude`,
+`sbxcodex`, `sbxcursor`. Log under `### Removed` ("unused allowlist entry"),
+not `### Security` — a tidy-up, not a vulnerability fix.
 
 ## Verification
 
-- `make lint` — must pass with the new kit in place (name/version sync,
-  shared-file byte-identity, cspell, shellcheck/bash -n on the new setup
-  script, markdownlint on the new `AGENTS.md`).
-- `make validate` — validates all four kits' `spec.yaml` against the
-  Sandbox Kit schema, no Docker/network needed.
-- `make test-unit` — exercises the new `sbxpi` dispatch block.
-- `make test-toolchain AGENT=pi` — builds a real `sbxpi` sandbox and runs
-  the smoke test; this is the real proof the kit boots, installs Pi
-  correctly, and can reach `openrouter.ai`. Needs a live sandbox, so run
-  it last, after `lint`/`validate`/`test-unit` are clean.
-- Manual check once built: `sbxpi exec pi --list-models openrouter` (or
-  equivalent) to confirm `qwen/qwen3-coder` resolves and the DeepInfra
-  routing pin is actually in effect — plus confirm your OpenRouter BYOK
-  setup (the dashboard side) is picking it up rather than falling back to
-  pooled credits.
+Run in order; the first three need no Docker or network.
+
+1. `make lint` — name/version sync, shared-file byte-identity, the `JQFILTER`
+   sync check (must still pass with the guard reusing the same filter),
+   cspell, shellcheck/`bash -n`, markdownlint.
+2. `make validate` — all four specs against the kit schema. Necessary, not
+   sufficient: it does not check `extends:`/image validity.
+3. `make test-unit` — exercises the new `sbxpi` dispatch.
+4. `make test-toolchain AGENT=pi` — builds a real sandbox; proves it boots, Pi
+   installs, and `openrouter.ai` is reachable.
+5. **Context-window check** — `sbxpi exec pi --list-models openrouter` must
+   show `qwen/qwen3-coder` with a **262144** context window. If it reads
+   128000, the minimal `models.json` did not inherit the catalogue entry and
+   we fall back to md2okf's explicit `baseUrl`/`api` form.
+6. **Guard end-to-end** — have Pi run a command against a host that is not on
+   the allowlist. Confirm the result is rewritten with the `sbx policy allow`
+   advice **and** that the next tool call is blocked and the turn ends. No
+   reference implementation exists for this anywhere, so test it deliberately.
+7. **Routing failure is loud** — temporarily pin a provider that cannot serve
+   the model and confirm Pi surfaces the OpenRouter
+   `404 "No allowed providers are available"` as a non-zero exit or error
+   event. Several other harnesses have shipped bugs misclassifying that 404 as
+   success; verify Pi does not.
+8. **BYOK actually applied** — after one real call, read the OpenRouter
+   generation record (`GET /api/v1/generation?id=<id>`) and confirm the
+   serving provider is DeepInfra on the user's own key, not pooled credits.
+   Routing config alone cannot prove this.
+9. **Package pre-install** — confirm no package is fetched at first launch
+   (watch for `registry.npmjs.org` traffic on a cold start), and that
+   `settings.json` still carries our `extensions` array after `pi install`
+   rewrote it.
+10. **Ownership** — `sbxpi exec ls -la ~/.pi/agent`; `auth.json` must be 0600
+    and everything owned by the agent user. Add the sibling `chown` entrypoint
+    wrapper if anything lands root-owned.
+11. **Headless footgun** — if any test drives `pi -p --mode json`, pipe an
+    empty string rather than letting stdin be `/dev/null`; Pi hangs forever
+    otherwise (upstream issue #4303).
