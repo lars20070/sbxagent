@@ -288,7 +288,7 @@ assert_log "$(printf 'policy\tcheck\tnetwork\t--sandbox\t%s\tgithub.com' \
 	"${SANDBOX}")" "policy check"
 pass "policy check is scoped to the sandbox"
 
-# Basename dispatch is the whole point of one script under three names: each
+# Basename dispatch is the whole point of one script under four names: each
 # must select its own kit directory and its own sandbox, so two agents can run
 # against the same project at once without colliding.
 run_codex() {

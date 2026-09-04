@@ -8,17 +8,17 @@
 
 - `kits/<command>/spec.yaml` — one Docker Sandbox Kit spec per wrapper command:
   agent, resources, network policy, and setup commands baked into that sandbox.
-  There are three — `kits/sbxclaude/`, `kits/sbxcodex/`, `kits/sbxcursor/` —
-  and the directory name is the single source of identity: it equals `name:` in
-  the spec, the `sbx` positional operand, the sandbox-name prefix, and the
-  command you type.
+  There are four — `kits/sbxclaude/`, `kits/sbxcodex/`, `kits/sbxcursor/`,
+  `kits/sbxpi/` — and the directory name is the single source of identity: it
+  equals `name:` in the spec, the `sbx` positional operand, the sandbox-name
+  prefix, and the command you type.
 - `kits/<command>/files/` — files copied into that sandbox at kit-build time.
 - `scripts/sbxagent` — wrapper CLI around `sbx` that creates, rebuilds, and
   re-attaches the per-project sandbox. It dispatches on `basename "$0"`, so it
-  is invoked through the `scripts/sbxclaude`, `scripts/sbxcodex` and
-  `scripts/sbxcursor` symlinks, never under its own name. Run
-  `./scripts/sbxclaude -h` for the current command list rather than relying on
-  this doc, which won't track it.
+  is invoked through the `scripts/sbxclaude`, `scripts/sbxcodex`,
+  `scripts/sbxcursor` and `scripts/sbxpi` symlinks, never under its own name.
+  Run `./scripts/sbxclaude -h` for the current command list rather than relying
+  on this doc, which won't track it.
 
 ## Commands
 
@@ -37,7 +37,7 @@ Unknown-but-correct words go in `.cspell.json`.
 ## Critical Requirement
 
 Before finishing any task that touches any `kits/*/spec.yaml` or `kits/*/files/`,
-run `make validate` — it validates all three kits, and it's a static schema
+run `make validate` — it validates every kit, and it's a static schema
 check with no Docker, no `sbx login`, and no network, so there's no reason to
 skip it. Before finishing any task that touches `scripts/sbxagent` or any other
 shell script, run `make lint` — it runs `shellcheck` and `bash -n` over every

@@ -8,8 +8,40 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-04
+
 ### Added
 
+- `sbxpi`, a fourth kit and command, running the
+  [Pi](https://pi.dev) coding agent. It is the first kit with **no parent
+  kit** — `sbx` ships no Pi agent, so it builds on the bare `shell-docker`
+  template and installs the whole sibling toolchain itself, including the
+  `sbx` CLI, Playwright and mermaid-cli.
+- `sbxpi` calls **OpenRouter**, with model calls pinned to the **DeepInfra**
+  backend for `qwen/qwen3-coder` and `allow_fallbacks: false`, so an
+  unavailable DeepInfra fails loudly instead of rerouting to another provider.
+  `openrouter.ai` is the only provider host on its allowlist; the key is
+  proxy-managed through a new `openrouter` credential.
+- A network-block escalation guard for `sbxpi`, sharing the same filter
+  `sbxclaude` and `sbxcodex` use. It ships as a Pi extension that runs in two
+  phases, because a Pi `tool_result` handler can patch a result but not stop a
+  run: the blocked command's output is replaced with the remedy, then the next
+  tool call is refused and the run ends. **It is weaker than the `sbxclaude`
+  guard in one way**: Pi has no managed-settings tier, so the extension is
+  registered in `~/.pi/agent/settings.json`, which the agent can edit, and a
+  trusted project's own `.pi/settings.json` can displace it. The extension
+  file is root-owned and outside `$HOME`, so it can be unregistered but not
+  rewritten.
+- `kits/network-block.ts`, a dev-only mirror of that extension, alongside the
+  existing `kits/network-block.jq`. `make lint` type-strips it with `esbuild`
+  and fails if it disagrees with the heredoc any kit ships.
+- **No MCP on `sbxpi`.** Pi has no built-in MCP support, so the kit registers
+  no MCP servers: Context7 is installed as a native Pi package, and GitHub
+  work goes through `git` and `gh`. `github-mcp-server` is still installed, to
+  keep the toolchain identical across kits.
+- `fd-find` on `sbxpi`, because Pi's file-search tool otherwise downloads an
+  unpinned `fd` binary from GitHub releases at first launch. Ubuntu names the
+  binary `fdfind`, which Pi accepts natively.
 - `github.githubassets.com:443` on every kit's network allowlist, so github.com
   pages render with their CSS and JavaScript in the sandbox's Playwright
   browser instead of loading as unstyled HTML.
@@ -20,8 +52,8 @@ and this project adheres to
   replaces the blocked tool's result with the stop notice and lets the model
   continue, rather than ending the turn, because no Codex hook output ends a
   turn. The agent is told the host to allow and instructed to stop; nothing
-  forces it to. Both guards match shell commands only, so a block surfacing
-  solely in an MCP response is not caught.
+  forces it to. All three guards match shell commands only, so a block
+  surfacing solely in an MCP response is not caught.
 - `sbxcodex` now sets `allow_managed_hooks_only`, so Codex ignores all user,
   project, session and plugin hooks in that sandbox and only the managed guard
   runs. This is stricter than `sbxclaude`, which leaves user hooks alone.
