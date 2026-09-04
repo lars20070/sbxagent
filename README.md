@@ -22,7 +22,7 @@ flowchart LR
     direction TB
     PROJ["your project<br/>(host working tree)"]
     DRV["scripts/sbxclaude<br/>scripts/sbxcodex<br/>scripts/sbxcursor<br/>scripts/sbxpi"]
-    KIT["kits/&lt;command&gt;/spec.yaml<br/>kits/&lt;command&gt;/files/"]
+    KIT["kits/*/spec.yaml<br/>kits/*/files/"]
   end
 
   subgraph VM["sbx sandbox"]
