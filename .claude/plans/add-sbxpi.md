@@ -28,13 +28,14 @@ design, and make `sbxpi` structurally different from the other three kits:
 A real, working reference exists for the Pi+OpenRouter+DeepInfra part: a
 sibling repo, `md2okf` (github.com/lars20070/md2okf), has a `pi/` kit doing
 exactly this shape of thing (different end task — it's a Markdown→wiki
-compiler — but the kit mechanics are directly reusable). It's cloned
-read-only at
-`/tmp/claude-1000/-Users-lars-Code-sbxagent/2cf20ce7-a4fb-4475-aa7d-5bab736c4d1f/scratchpad/md2okf/pi/`.
-Its `skills/` folder and its `AGENTS.md` content are 100% specific to that
-repo's own wiki-compiling task — **do not carry those over**. Everything
-else (install mechanics, provider config shape, credential wiring, network
-allowlist reasoning) is generic and worth reusing.
+compiler — but the kit mechanics are directly reusable). Clone that repo
+into this session's scratchpad directory and keep it there as a read-only
+reference throughout planning and implementation; its `pi/` subdirectory
+is the part that matters. Its `skills/` folder and its `AGENTS.md` content
+are 100% specific to that repo's own wiki-compiling task — **do not carry
+those over**. Everything else (install mechanics, provider config shape,
+credential wiring, network allowlist reasoning) is generic and worth
+reusing.
 
 **Model choice**: you asked for `Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo`
 on DeepInfra, via the routing pin below. On OpenRouter that model's id is
