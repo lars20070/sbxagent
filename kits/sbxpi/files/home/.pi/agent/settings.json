@@ -3,7 +3,7 @@
   "defaultModel": "qwen/qwen3-coder",
   "extensions": ["/usr/local/lib/sbxagent/network-block.ts"],
   "defaultThinkingLevel": "off",
-  "defaultProjectTrust": "always",
+  "defaultProjectTrust": "ask",
   "enableInstallTelemetry": false,
   "retry": {
     "enabled": true,
