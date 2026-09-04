@@ -10,6 +10,15 @@ and this project adheres to
 
 ### Added
 
+- `deepseek/deepseek-v4-pro` on `sbxpi`, pinned through OpenRouter to DeepInfra
+  with `allow_fallbacks: false` (same routing as `qwen/qwen3-coder`). The
+  default model is unchanged.
+- `z-ai/glm-5.2` on `sbxpi`, pinned through OpenRouter to DeepInfra with
+  `allow_fallbacks: false` (same routing as `qwen/qwen3-coder`). The default
+  model is unchanged.
+- `moonshotai/kimi-k2.6` on `sbxpi`, pinned through OpenRouter to DeepInfra
+  with `allow_fallbacks: false` (same routing as `qwen/qwen3-coder`). The
+  default model is unchanged.
 - `qwen/qwen3-coder-next` on `sbxpi`, now the default model over OpenRouter.
   It is not available on DeepInfra, so its `openRouterRouting.ignore` in
   `models.json` excludes DeepInfra from routing instead of BYOK-forwarding a

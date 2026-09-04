@@ -490,6 +490,21 @@ jq -e '.providers.openrouter.modelOverrides["qwen/qwen3-coder"].compat.openRoute
 	fail "openrouter provider is missing the DeepInfra routing pin in ${PI_MODELS_JSON}"
 pass "openrouter is pinned to DeepInfra for qwen/qwen3-coder"
 
+jq -e '.providers.openrouter.modelOverrides["moonshotai/kimi-k2.6"].compat.openRouterRouting.only == ["deepinfra"]' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "openrouter provider is missing the DeepInfra routing pin for kimi-k2.6 in ${PI_MODELS_JSON}"
+pass "openrouter is pinned to DeepInfra for moonshotai/kimi-k2.6"
+
+jq -e '.providers.openrouter.modelOverrides["z-ai/glm-5.2"].compat.openRouterRouting.only == ["deepinfra"]' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "openrouter provider is missing the DeepInfra routing pin for glm-5.2 in ${PI_MODELS_JSON}"
+pass "openrouter is pinned to DeepInfra for z-ai/glm-5.2"
+
+jq -e '.providers.openrouter.modelOverrides["deepseek/deepseek-v4-pro"].compat.openRouterRouting.only == ["deepinfra"]' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "openrouter provider is missing the DeepInfra routing pin for deepseek-v4-pro in ${PI_MODELS_JSON}"
+pass "openrouter is pinned to DeepInfra for deepseek/deepseek-v4-pro"
+
 # Ollama runs on the host, so the provider must point at host.docker.internal:
 # the sandbox has its own localhost, and Pi's own docs use `localhost` in their
 # example, which is the easy mistake to copy in here.

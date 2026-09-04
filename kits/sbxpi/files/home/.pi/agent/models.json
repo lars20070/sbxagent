@@ -17,6 +17,30 @@
               "ignore": ["deepinfra"]
             }
           }
+        },
+        "moonshotai/kimi-k2.6": {
+          "compat": {
+            "openRouterRouting": {
+              "only": ["deepinfra"],
+              "allow_fallbacks": false
+            }
+          }
+        },
+        "z-ai/glm-5.2": {
+          "compat": {
+            "openRouterRouting": {
+              "only": ["deepinfra"],
+              "allow_fallbacks": false
+            }
+          }
+        },
+        "deepseek/deepseek-v4-pro": {
+          "compat": {
+            "openRouterRouting": {
+              "only": ["deepinfra"],
+              "allow_fallbacks": false
+            }
+          }
         }
       }
     },

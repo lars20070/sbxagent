@@ -26,14 +26,14 @@ flowchart LR
   end
 
   subgraph VM["sbx sandbox"]
-    AGENT["Claude Code / Codex /<br/>Cursor CLI / Pi"]
+    AGENT["Claude Code, Codex,<br/>Cursor, Pi CLI"]
     TOOLS["git, docker, rg, jq,<br/>ruff, playwright, ..."]
     PROXY["credential + network<br/>allowlist proxy"]
   end
 
   subgraph NET[" "]
     direction TB
-    LLM("Anthropic / OpenAI /<br/>OpenRouter / other LLM APIs")
+    LLM("Anthropic, OpenAI, <br/>OpenRouter, Ollama, ...")
     GH("GitHub")
   end
 
@@ -338,13 +338,14 @@ The default model is `qwen/qwen3-coder-next`. It is not available on DeepInfra,
 so its `openRouterRouting.ignore` in
 [`kits/sbxpi/files/home/.pi/agent/models.json`](kits/sbxpi/files/home/.pi/agent/models.json)
 excludes DeepInfra from routing — OpenRouter picks another backend instead of
-BYOK-forwarding a request DeepInfra cannot serve. `qwen/qwen3-coder` is also
-still defined there, pinned to the DeepInfra backend with
+BYOK-forwarding a request DeepInfra cannot serve. `qwen/qwen3-coder`,
+`moonshotai/kimi-k2.6`, `z-ai/glm-5.2`, and `deepseek/deepseek-v4-pro` are also
+defined there, all pinned to the DeepInfra backend with
 `allow_fallbacks: false`: an unavailable DeepInfra returns a hard 404 instead
 of silently rerouting to another provider at another price. Every upstream
 provider is reached through OpenRouter and never contacted directly, so
 `openrouter.ai` is the only provider host on the allowlist. Change the default
-model or either model's routing in `models.json` rather than on the command
+model or any model's routing in `models.json` rather than on the command
 line — the kit passes no `--provider`/`--model` flags, so `settings.json` is
 what decides.
 
