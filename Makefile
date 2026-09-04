@@ -5,8 +5,10 @@ YAMLLINT ?= yamllint
 CSPELL ?= cspell
 # Syntax-checks TypeScript by type-stripping it. Pinned and fetched through
 # npx by default because no kit installs esbuild, so unlike markdownlint and
-# cspell there is no local binary to fall back on; npx caches after the first
-# run. Syntax only — it neither resolves imports nor checks types.
+# cspell there is no local binary to fall back on. The first fetch on a cold
+# npm cache is slow — a minute or more — and every run after it is instant;
+# CI sidesteps that by installing esbuild itself and overriding this. Syntax
+# only — it neither resolves imports nor checks types.
 ESBUILD ?= npx --yes esbuild@0.28.2
 
 .PHONY: lint validate test test-unit test-toolchain

@@ -17,11 +17,14 @@ concurrency:
 jobs:
   # Lint Markdown, JSON, jq, TypeScript, YAML, and shell, and spell-check.
   # Reuses `make lint` so the lint definition lives in one place (the
-  # Makefile). markdownlint and cspell run via pinned npx packages, overridden
-  # below because the runners lack them; esbuild needs no override, since the
-  # Makefile already defaults it to a pinned npx invocation for want of any
-  # local install. The runners differ: ubuntu-latest ships shellcheck, jq, and
-  # yamllint, while the macOS image ships only jq and Node.
+  # Makefile). The three Node lint tools are installed once, from pins kept on
+  # the install step below, with npm's own cache restored first — previously
+  # each ran through its own `npx --yes`, which re-resolved and re-downloaded
+  # all three on every run of every leg. `ESBUILD` is the one override still
+  # needed: its Makefile default is a pinned `npx` invocation, deliberately,
+  # so that a local `make lint` works with nothing installed. The runners
+  # differ: ubuntu-latest ships shellcheck, jq, and yamllint, while the macOS
+  # image ships only jq and Node.
   lint:
     strategy:
       fail-fast: false
@@ -41,11 +44,22 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install shellcheck yamllint
 
+      # Keyed on this file, which holds every pin the install step below uses.
+      # Not keyed on the Makefile: CI overrides its ESBUILD pin, so a Makefile
+      # edit would evict this cache for no reason. restore-keys means a pin
+      # bump re-downloads only the delta instead of starting cold.
+      - name: Cache npm downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: ${{ runner.os }}-npm-
+
+      - name: Install lint tools
+        run: npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1 esbuild@0.28.2
+
       - name: Lint (markdownlint, jq, esbuild, yamllint, shellcheck, cspell)
-        run: |
-          make lint \
-            MARKDOWNLINT='npx --yes markdownlint-cli2@0.23.2' \
-            CSPELL='npx --yes cspell@10.0.1'
+        run: make lint ESBUILD=esbuild
 
   # Test the wrapper's dispatch against a fake sbx CLI on PATH — no real
   # sandbox, no Docker, no network.
