@@ -334,15 +334,19 @@ sbx secret set-custom --sandbox "$(sbxpi name)" \
 `--sandbox` wants that project's real sandbox name, which is why it is read
 from `sbxpi name` rather than written out.
 
-The model is `qwen/qwen3-coder`, pinned to the DeepInfra backend with
-`allow_fallbacks: false` in
-[`kits/sbxpi/files/home/.pi/agent/models.json`](kits/sbxpi/files/home/.pi/agent/models.json).
-DeepInfra is reached through OpenRouter and never contacted directly, so
-`openrouter.ai` is the only provider host on the allowlist. The `false` matters:
-an unavailable DeepInfra returns a hard 404 instead of silently rerouting to
-another provider at another price. Change the model or the routing there rather
-than on the command line — the kit passes no `--provider`/`--model` flags, so
-`settings.json` is what decides.
+The default model is `qwen/qwen3-coder-next`. It is not available on DeepInfra,
+so its `openRouterRouting.ignore` in
+[`kits/sbxpi/files/home/.pi/agent/models.json`](kits/sbxpi/files/home/.pi/agent/models.json)
+excludes DeepInfra from routing — OpenRouter picks another backend instead of
+BYOK-forwarding a request DeepInfra cannot serve. `qwen/qwen3-coder` is also
+still defined there, pinned to the DeepInfra backend with
+`allow_fallbacks: false`: an unavailable DeepInfra returns a hard 404 instead
+of silently rerouting to another provider at another price. Every upstream
+provider is reached through OpenRouter and never contacted directly, so
+`openrouter.ai` is the only provider host on the allowlist. Change the default
+model or either model's routing in `models.json` rather than on the command
+line — the kit passes no `--provider`/`--model` flags, so `settings.json` is
+what decides.
 
 One thing to be aware of rather than to act on: if a bring-your-own-key request
 fails, OpenRouter may complete it through its own shared capacity and bill

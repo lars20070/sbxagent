@@ -10,6 +10,11 @@ and this project adheres to
 
 ### Added
 
+- `qwen/qwen3-coder-next` on `sbxpi`, now the default model over OpenRouter.
+  It is not available on DeepInfra, so its `openRouterRouting.ignore` in
+  `models.json` excludes DeepInfra from routing instead of BYOK-forwarding a
+  request DeepInfra cannot serve. `qwen/qwen3-coder`, still pinned to
+  DeepInfra, remains available as a non-default model.
 - Local [Ollama](https://ollama.com) models on `sbxpi`, alongside OpenRouter.
   Ollama is declared as a custom provider in `models.json` — it has no built-in
   catalogue in Pi, so each model id is listed explicitly; `qwen2.5-coder:7b`,

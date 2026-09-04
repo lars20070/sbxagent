@@ -81,8 +81,9 @@ agentInstructions:
 permissions:
   network:
     allow:
-      # Model API. DeepInfra sits upstream of OpenRouter and is never
-      # contacted directly — pinned via models.json's openRouterRouting.only.
+      # Model API. Every upstream provider (DeepInfra included) sits behind
+      # OpenRouter and is never contacted directly — routing per model is
+      # pinned via models.json's openRouterRouting.
       - "openrouter.ai:443"
       # No entry for Ollama here, deliberately — it cannot be expressed in a
       # kit. models.json reaches the host's Ollama at host.docker.internal,

@@ -10,6 +10,13 @@
               "allow_fallbacks": false
             }
           }
+        },
+        "qwen/qwen3-coder-next": {
+          "compat": {
+            "openRouterRouting": {
+              "ignore": ["deepinfra"]
+            }
+          }
         }
       }
     },

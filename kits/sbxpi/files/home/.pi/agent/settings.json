@@ -1,6 +1,6 @@
 {
   "defaultProvider": "openrouter",
-  "defaultModel": "qwen/qwen3-coder",
+  "defaultModel": "qwen/qwen3-coder-next",
   "extensions": ["/usr/local/lib/sbxagent/network-block.ts"],
   "defaultThinkingLevel": "off",
   "defaultProjectTrust": "ask",
