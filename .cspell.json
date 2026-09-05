@@ -120,6 +120,7 @@
     "recognisable",
     "subshell",
     "Sigstore",
-    "SLSA"
+    "SLSA",
+    "sbxprobe"
   ]
 }
