@@ -39,6 +39,17 @@ REPO_NAME="${REPO_NAME:-}"
 SIGN="${SIGN-1}"
 DRY_RUN="${DRY_RUN:-}"
 
+# Who the signature must belong to. Keyless signing binds the certificate to the
+# workflow that made it, so this is derived from the Actions environment rather
+# than hardcoded — a fork then verifies against its own workflow instead of
+# against ours, which is the correct answer for a fork.
+VERIFY_OIDC_ISSUER="${VERIFY_OIDC_ISSUER:-https://token.actions.githubusercontent.com}"
+if [[ -z "${VERIFY_IDENTITY_REGEXP:-}" ]] &&
+	[[ -n "${GITHUB_SERVER_URL:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+	VERIFY_IDENTITY_REGEXP="^${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/"
+fi
+VERIFY_IDENTITY_REGEXP="${VERIFY_IDENTITY_REGEXP:-}"
+
 die() {
 	echo "${SELF}: $*" >&2
 	exit 1
@@ -224,26 +235,46 @@ digest_ref="${repo_ref}@${digest}"
 oras tag "${digest_ref}" "${LATEST_TAG}"
 
 # Sign as its own step, and run it even on the reuse path above — that is the
-# whole point of separating it from the push.
+# whole point of separating it from the push. Never `sbx kit push --sign`,
+# which would fold signing back into the push and make a signing failure
+# indistinguishable from a push failure.
 #
-# Never `sbx kit push --sign`: upstream documents that attaching a signature is
-# an OCI-referrer write resolving credentials from sbx's own session rather than
-# the Docker credential store, and that it therefore fails AFTER the unsigned
-# manifest has already been pushed. Combined with the skip-if-present branch
-# above, that would leave a kit published-but-unsigned and every re-run
-# reporting "reused" — unsigned forever, silently. Split apart, a signing
-# failure leaves a correctly published artifact that a re-run signs in place,
-# with no version bump.
+# `sbx kit sign` is NOT allowed to fail the release, and that is deliberate.
+# GHCR does not implement the OCI 1.1 referrers API, so the referrers list is
+# kept in an index under a fallback `sha256-<digest>` tag. Adding a second
+# referrer replaces that index, and oras-go then garbage-collects the old one
+# with a manifest DELETE — which GHCR rejects with 405, because it implements no
+# manifest deletion at all. The distribution spec does not require that delete:
+# the new index, already carrying the signature, was pushed before it ran. So
+# the error says nothing about whether the kit is signed.
 #
-# Signed by digest so the target is unambiguous. Two things the Stage 4 probe
-# settles and this cannot: whether `sbx kit sign` accepts a @sha256: reference
-# (fall back to "${version_ref}" if not), and whether re-signing an
-# already-signed kit attaches a duplicate referrer (gate this behind
-# `sbx kit verify` if it does).
+# `sbx kit verify` is therefore the real gate. It asks the only question that
+# matters — can a consumer verify this artifact against our workflow identity —
+# and its answer, not sign's exit code, sets `signed` and decides the job.
 signed=no
+verify_failed=
 if [[ -n "${SIGN}" ]]; then
-	sbx kit sign "${digest_ref}"
-	signed=yes
+	if sbx kit sign "${digest_ref}"; then
+		note "sign reported success for ${digest_ref}"
+	else
+		note "NOTICE: sbx kit sign returned an error. On GHCR this is expected:"
+		note "NOTICE: the referrers-index cleanup DELETE is refused with 405."
+		note "NOTICE: verifying whether the signature was attached regardless."
+	fi
+
+	[[ -n "${VERIFY_IDENTITY_REGEXP}" ]] ||
+		die "signing was requested but no signer identity is known; set VERIFY_IDENTITY_REGEXP"
+
+	if sbx kit verify "${digest_ref}" \
+		--certificate-oidc-issuer "${VERIFY_OIDC_ISSUER}" \
+		--certificate-identity-regexp "${VERIFY_IDENTITY_REGEXP}"; then
+		signed=yes
+	else
+		# Published and usable, but nobody can prove where it came from — so do
+		# not let the release claim otherwise. Failure is deferred to the end so
+		# the outputs and job summary below still record what happened.
+		verify_failed=1
+	fi
 fi
 
 {
@@ -277,3 +308,8 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
 fi
 
 note "${kit}: ${version_ref} -> ${digest} (pushed=${pushed} reused=${reused} signed=${signed})"
+
+# Deferred to here so the outputs and summary above still record the run.
+if [[ -n "${verify_failed}" ]]; then
+	die "${version_ref} is published but its signature could not be verified"
+fi
