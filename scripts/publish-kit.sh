@@ -12,6 +12,13 @@ set -euo pipefail
 #   REPO_NAME   override the package name; probe use only (default: the kit name)
 #   SIGN        non-empty to sign after pushing          (default 1)
 #   DRY_RUN     non-empty to validate and print only     (default empty)
+#   VERIFY_IDENTITY_REGEXP  accepted keyless signer      (default: this repo,
+#                           from GITHUB_SERVER_URL and GITHUB_REPOSITORY)
+#   VERIFY_OIDC_ISSUER      accepted OIDC issuer         (default: GitHub Actions)
+#
+# When SIGN is set, the signature must verify against those two or the run
+# fails — see the signing block below for why sign's own exit code is not
+# trusted to decide that.
 #
 # All the logic lives here rather than in workflow YAML so that `make lint`
 # covers it with shellcheck, and so `make publish-dry-run` rehearses the whole
@@ -138,7 +145,8 @@ if [[ -n "${DRY_RUN}" ]]; then
 	note "  would push  ${version_ref}"
 	note "  would tag   ${repo_ref}:${LATEST_TAG} at the same digest"
 	if [[ -n "${SIGN}" ]]; then
-		note "  would sign  the pushed digest"
+		note "  would sign  the pushed digest, then require sbx kit verify"
+		note "              to accept it as ${VERIFY_IDENTITY_REGEXP:-<no identity set>}"
 	else
 		note "  would NOT sign (SIGN is empty)"
 	fi
@@ -147,6 +155,15 @@ fi
 
 require oras
 require jq
+
+# Checked here, before anything is pushed, rather than at the signing step far
+# below: signing is requested but unverifiable is a configuration error, and
+# discovering it after the push would leave the kit published and tagged with
+# the run reported as failed. CI always supplies these; a local publish outside
+# Actions is what this catches.
+if [[ -n "${SIGN}" && -z "${VERIFY_IDENTITY_REGEXP}" ]]; then
+	die "signing was requested but no signer identity is known; set VERIFY_IDENTITY_REGEXP or SIGN="
+fi
 
 # Sets PROBE_DIGEST to the tag's digest, or to the empty string when the tag
 # definitively does not exist. Returns non-zero when the registry could not be
@@ -261,9 +278,6 @@ if [[ -n "${SIGN}" ]]; then
 		note "NOTICE: the referrers-index cleanup DELETE is refused with 405."
 		note "NOTICE: verifying whether the signature was attached regardless."
 	fi
-
-	[[ -n "${VERIFY_IDENTITY_REGEXP}" ]] ||
-		die "signing was requested but no signer identity is known; set VERIFY_IDENTITY_REGEXP"
 
 	if sbx kit verify "${digest_ref}" \
 		--certificate-oidc-issuer "${VERIFY_OIDC_ISSUER}" \
