@@ -11,7 +11,7 @@ CSPELL ?= cspell
 # only — it neither resolves imports nor checks types.
 ESBUILD ?= npx --yes esbuild@0.28.2
 
-.PHONY: lint validate test test-unit test-toolchain
+.PHONY: lint validate test test-unit test-toolchain publish-dry-run
 
 # Lint tracked files: Markdown (skip plan drafts), JSON, jq filters (parsed
 # against null input, so a syntax error fails the build), TypeScript
@@ -117,6 +117,17 @@ validate:
 	./scripts/sbxcodex kit validate
 	./scripts/sbxcursor kit validate
 	./scripts/sbxpi kit validate
+
+# Rehearse the release publish path for every kit: stage a tracked-files-only
+# copy, validate and inspect it, and print what would be pushed. No network, no
+# registry, no credentials. There is deliberately no target that publishes for
+# real — that is the release workflow's job, and a foot-gun next to `make lint`
+# is how accidental releases happen.
+publish-dry-run:
+	for kit in kits/*/; do \
+		DRY_RUN=1 ./scripts/publish-kit.sh "$$(basename "$${kit%/}")" \
+			"$$(cat VERSION)"; \
+	done
 
 # Run every test
 test: test-unit test-toolchain

@@ -114,6 +114,10 @@
     "materialises",
     "materialised",
     "esbuild",
-    "BYOK"
+    "BYOK",
+    "oras",
+    "opencontainers",
+    "recognisable",
+    "subshell"
   ]
 }
