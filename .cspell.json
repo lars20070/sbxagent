@@ -118,6 +118,7 @@
     "oras",
     "opencontainers",
     "recognisable",
-    "subshell"
+    "subshell",
+    "Sigstore"
   ]
 }
