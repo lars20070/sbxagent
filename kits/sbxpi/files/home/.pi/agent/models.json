@@ -1,0 +1,62 @@
+{
+  "providers": {
+    "openrouter": {
+      "apiKey": "$OPENROUTER_API_KEY",
+      "modelOverrides": {
+        "qwen/qwen3-coder": {
+          "compat": {
+            "openRouterRouting": {
+              "only": ["deepinfra"],
+              "allow_fallbacks": false
+            }
+          }
+        },
+        "qwen/qwen3-coder-next": {
+          "compat": {
+            "openRouterRouting": {
+              "ignore": ["deepinfra"]
+            }
+          }
+        },
+        "moonshotai/kimi-k2.6": {
+          "compat": {
+            "openRouterRouting": {
+              "only": ["deepinfra"],
+              "allow_fallbacks": false
+            }
+          }
+        },
+        "z-ai/glm-5.2": {
+          "compat": {
+            "openRouterRouting": {
+              "only": ["deepinfra"],
+              "allow_fallbacks": false
+            }
+          }
+        },
+        "deepseek/deepseek-v4-pro": {
+          "compat": {
+            "openRouterRouting": {
+              "only": ["deepinfra"],
+              "allow_fallbacks": false
+            }
+          }
+        }
+      }
+    },
+    "ollama": {
+      "baseUrl": "http://host.docker.internal:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "qwen2.5-coder:7b", "contextWindow": 32768 },
+        { "id": "qwen3-coder:30b", "contextWindow": 262144 },
+        { "id": "gpt-oss:20b", "reasoning": true, "contextWindow": 131072 }
+      ]
+    }
+  }
+}

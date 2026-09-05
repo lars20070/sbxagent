@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxclaude
-version: "0.2.0"
+version: "0.3.0"
 displayName: Claude Code with custom toolchain
 description: Claude Code with custom toolchain
 
@@ -51,11 +51,12 @@ agentInstructions:
     passwordless, and a sandbox-local Docker daemon is available.
 
     Network egress is allowlisted. If a network request fails because its host
-    is blocked, stop and ask the user to run this on the host:
-    `sbx policy allow network "<host>"`. Do not run `sbx policy` inside the
+    is blocked, stop and report it — do not run `sbx policy` inside the
     sandbox, and do not work around a block by mirroring, vendoring, retrying
     against a different host, or dropping the step. A managed hook enforces
-    this: on a block it ends the turn and tells the user which host to allow.
+    this: on a block it ends the turn and prints the remedy that fits —
+    `sbx policy allow` for a default-deny, `sbx policy rm` for a local deny
+    (deny beats allow), or contact IT for organisation policy.
 
     The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
     `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
@@ -110,6 +111,8 @@ permissions:
       - "files.pythonhosted.org:443"
       # Pi agent development
       - "pi.dev"
+      # OpenRouter model API, for agents configured against it.
+      - "openrouter.ai:443"
 
 setup:
   install:
@@ -193,18 +196,38 @@ setup:
         # Guard filter. Reads a Claude Code hook payload on stdin and writes
         # hook JSON on stdout. Root-owned and outside $HOME so the agent does
         # not disable its own escalation with an ordinary file edit.
+        # Kept in sync with kits/network-block.jq — make lint checks this.
         cat > /usr/local/lib/sbxagent/network-block.jq <<'JQFILTER'
         # Every string in the payload except the tool's own input. Field names
         # differ per event (.tool_response on PostToolUse, .error on
         # PostToolUseFailure), so match the whole payload rather than a field.
         def haystack: [ del(.tool_input) | .. | strings ] | join("\n");
 
+        # Commands that can reach the network. Used to disqualify the
+        # self-reference exemption below, so a real block is never masked.
+        # Local git readers stay eligible; only git's network subcommands count.
+        def reaches_network:
+          (.tool_input.command // "")
+          | test("https?://"
+               + "|\\b(curl|wget|nc|telnet|ssh|scp|rsync)\\b"
+               + "|\\b(npm|npx|pnpm|yarn|pip|pip3|uv|uvx)\\b"
+               + "|\\b(apt|apt-get|brew|gh)\\b"
+               + "|\\bdocker\\s+(pull|push|run|build)\\b"
+               + "|\\bgit\\s+(fetch|pull|push|clone|remote|ls-remote|submodule)\\b");
+
         # These block strings appear verbatim in this project's own docs, spec,
         # and tests, so a Bash read of one of those files must not trip the
         # guard. Scoped to Bash's own command field so a blocked WebFetch URL
         # that merely contains one of these filenames is never exempted.
+        #
+        # The command must also show no sign of network egress. Without that,
+        # `curl https://blocked # spec.yaml` would suppress a genuine block
+        # behind a filename mention — the exact outcome this guard exists to
+        # prevent. When a command both reads such a file and reaches out, fail
+        # safe and let the guard fire.
         def self_reference:
           .tool_name == "Bash"
+          and (reaches_network | not)
           and ((.tool_input.command // "")
                | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"));
 
@@ -215,38 +238,40 @@ setup:
               + "around this. Report it to the user and wait."),
             systemMessage: $tell };
 
+        # `capture` yields nothing on miss; without `// null` the pipeline would
+        # emit no output at all (fail open). Bind hosts up front so each branch
+        # below can use them — jq does not keep `as` bindings from an `if` condition.
         haystack as $out
-        | if self_reference
-            or ($out | test("Blocked by (network policy|local rule for|org policy)") | not)
-          then
+        | (($out | capture("Blocked by local rule for (?<h>[^\\s]+)").h) // null) as $denied
+        | (($out | capture("Blocked by network policy: domain (?<h>[^\\s]+)").h) // null) as $host
+        | if self_reference then
             {}
-
-          # Centralised org policy. Deliberately does not suggest
-          # `sbx policy allow`: the user cannot lift this one themselves.
+          # Org policy: user cannot lift this; do not suggest `sbx policy allow`.
           elif $out | test("Blocked by org policy") then
             stop("A network request was blocked by your organisation's policy.";
                  "Blocked by org policy.\n"
                  + "Your company policy is blocking this request — contact IT if you need access.")
-
+          # Local deny: deny beats allow, so the rule must be removed.
+          elif $denied != null then
+            stop("A local deny rule blocks \($denied); `sbx policy allow` cannot override it.";
+                 "Blocked host: \($denied) — by a local deny rule.\n"
+                 + "Deny beats allow, so allowing it will not help. Find and remove the rule:\n"
+                 + "  sbx policy ls --wide\n"
+                 + "  sbx policy rm network --resource \"\($denied)\"                      # global\n"
+                 + "  sbx policy rm network --sandbox <sandbox> --resource \"\($denied)\"  # one sandbox")
+          # Default-deny: allow the host on the host machine.
+          elif $host != null then
+            stop("The sandbox network policy blocked \($host).";
+                 "Blocked host: \($host)\n"
+                 + "Run on your host:  sbx policy allow network \"\($host)\"")
+          # Block string present but host not parseable.
+          elif $out | test("Blocked by (network policy|local rule for)") then
+            stop("A network request was blocked by the sandbox network policy.";
+                 "A network request was blocked by the sandbox network policy.\n"
+                 + "See the tool output above for the host, then allow it with:\n"
+                 + "  sbx policy allow network \"<host>\"")
           else
-            # `capture` yields nothing when it does not match, and
-            # `empty // empty` is still empty — that would bind no $host and
-            # emit no output at all, i.e. fail open. `// null` guarantees
-            # exactly one value.
-            ( ($out | capture("Blocked by network policy: domain (?<h>[^\\s]+)").h)
-              // ($out | capture("Blocked by local rule for (?<h>[^\\s]+)").h)
-              // null
-            ) as $host
-            | if $host == null then
-                stop("A network request was blocked by the sandbox network policy.";
-                     "A network request was blocked by the sandbox network policy.\n"
-                     + "See the tool output above for the host, then allow it with:\n"
-                     + "  sbx policy allow network \"<host>\"")
-              else
-                stop("The sandbox network policy blocked \($host).";
-                     "Blocked host: \($host)\n"
-                     + "Run on your host:  sbx policy allow network \"\($host)\"")
-              end
+            {}
           end
         JQFILTER
 
@@ -288,6 +313,30 @@ setup:
         jq -n '{tool_name:"Bash",tool_input:{command:"curl https://probe.test"},error:"Blocked by local rule for probe.test"}' \
           | jq -e -f /usr/local/lib/sbxagent/network-block.jq >/dev/null
       description: Network-block escalation hook
+    - command: |
+        set -eu
+
+        # Flip to "false" and rebuild the kit to deny WebSearch and WebFetch
+        # in this sandbox. Merged into the same admin-tier
+        # managed-settings.json as the network-block hook above, so it also
+        # survives whatever the agent or Claude Code itself writes to
+        # ~/.claude/settings.json at runtime.
+        ALLOW_WEB=true
+
+        if [ "$ALLOW_WEB" = "false" ]; then
+          jq '.permissions.deny = ((.permissions.deny // []) + ["WebSearch", "WebFetch"] | unique)' \
+            /etc/claude-code/managed-settings.json \
+            > /etc/claude-code/managed-settings.json.tmp
+          mv /etc/claude-code/managed-settings.json.tmp /etc/claude-code/managed-settings.json
+          chmod 0644 /etc/claude-code/managed-settings.json
+
+          # Fail the build rather than ship a switch that silently does nothing.
+          jq -e '.permissions.deny | index("WebSearch")' \
+            /etc/claude-code/managed-settings.json >/dev/null
+          jq -e '.permissions.deny | index("WebFetch")' \
+            /etc/claude-code/managed-settings.json >/dev/null
+        fi
+      description: Web access toggle (WebSearch + WebFetch)
     - command: "uv tool install ruff@0.16.2"
       user: "1000"
       description: Ruff

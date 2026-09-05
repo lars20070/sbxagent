@@ -10,9 +10,144 @@ and this project adheres to
 
 ### Added
 
+- Every kit is now published to GitHub Container Registry on release, as an OCI
+  artifact per kit: `ghcr.io/lars20070/sbxclaude`, `.../sbxcodex`,
+  `.../sbxcursor` and `.../sbxpi`. Pushing a `vX.Y.Z` tag publishes all four at
+  `X.Y.Z` and re-points `latest` at the same digest — one push and an `oras`
+  re-tag, never a second push, so both tags share one digest, one signature and
+  one provenance attestation. This makes a kit usable without cloning the repo:
+  `sbx run --kit ghcr.io/lars20070/sbxclaude:X.Y.Z sbxclaude`. See
+  "Using a published kit" in `README.md`, including the `kit.allowedSources`
+  setting a consumer may need and the `sbx kit verify` invocation.
+  Artifacts are signed keyless through the workflow's GitHub OIDC identity and
+  carry a SLSA provenance attestation. Signing is a step of its own after the
+  push rather than `sbx kit push --sign`, so a signing failure leaves a
+  correctly published artifact that a re-run signs in place.
+  The packages are **public only after a one-time visibility flip** per package
+  in GHCR, which creates every new package private; until then a consumer gets
+  a 404 rather than an authentication error.
+- `deepseek/deepseek-v4-pro` on `sbxpi`, pinned through OpenRouter to DeepInfra
+  with `allow_fallbacks: false` (same routing as `qwen/qwen3-coder`). The
+  default model is unchanged.
+- `z-ai/glm-5.2` on `sbxpi`, pinned through OpenRouter to DeepInfra with
+  `allow_fallbacks: false` (same routing as `qwen/qwen3-coder`). The default
+  model is unchanged.
+- `moonshotai/kimi-k2.6` on `sbxpi`, pinned through OpenRouter to DeepInfra
+  with `allow_fallbacks: false` (same routing as `qwen/qwen3-coder`). The
+  default model is unchanged.
+- `qwen/qwen3-coder-next` on `sbxpi`, now the default model over OpenRouter.
+  It is not available on DeepInfra, so its `openRouterRouting.ignore` in
+  `models.json` excludes DeepInfra from routing instead of BYOK-forwarding a
+  request DeepInfra cannot serve. `qwen/qwen3-coder`, still pinned to
+  DeepInfra, remains available as a non-default model.
+- Local [Ollama](https://ollama.com) models on `sbxpi`, alongside OpenRouter.
+  Ollama is declared as a custom provider in `models.json` — it has no built-in
+  catalogue in Pi, so each model id is listed explicitly; `qwen2.5-coder:7b`,
+  `qwen3-coder:30b` and `gpt-oss:20b` ship. OpenRouter remains the default provider, so this is opt-in
+  per run (`pi --provider ollama --model <id>`) and a stopped Ollama cannot
+  break a session.
+  Reaching Ollama needs two host-side steps that the kit deliberately does not
+  bake in: `OLLAMA_HOST=0.0.0.0`, so Ollama listens where the microVM can see
+  it, and a network rule,
+  `sbx policy allow network --sandbox <sbxpi-sandbox> localhost:11434`. The
+  rule cannot live in the kit: the sandbox reaches the host at
+  `host.docker.internal`, but the proxy resolves that back to the host's own
+  loopback and checks `localhost:11434`, a form a kit allowlist rejects. Note
+  that `OLLAMA_HOST=0.0.0.0` exposes Ollama to the local network, and that this
+  is the first path in any kit pointing inward at the user's own machine.
+
+## [0.3.0] - 2026-09-04
+
+### Added
+
+- `sbxpi`, a fourth kit and command, running the
+  [Pi](https://pi.dev) coding agent. It is the first kit with **no parent
+  kit** — `sbx` ships no Pi agent, so it builds on the bare `shell-docker`
+  template and installs the whole sibling toolchain itself, including the
+  `sbx` CLI, Playwright and mermaid-cli.
+- `sbxpi` calls **OpenRouter**, with model calls pinned to the **DeepInfra**
+  backend for `qwen/qwen3-coder` and `allow_fallbacks: false`, so an
+  unavailable DeepInfra fails loudly instead of rerouting to another provider.
+  `openrouter.ai` is the only provider host on its allowlist; the key is
+  proxy-managed through a new `openrouter` credential.
+- A network-block escalation guard for `sbxpi`, sharing the same filter
+  `sbxclaude` and `sbxcodex` use. It ships as a Pi extension that runs in two
+  phases, because a Pi `tool_result` handler can patch a result but not stop a
+  run: the blocked command's output is replaced with the remedy, then the next
+  tool call is refused and the run ends. **It is weaker than the `sbxclaude`
+  guard in one way**: Pi has no managed-settings tier, so the extension is
+  registered in `~/.pi/agent/settings.json`, which the agent can edit, and a
+  trusted project's own `.pi/settings.json` can displace it. The extension
+  file is root-owned and outside `$HOME`, so it can be unregistered but not
+  rewritten.
+- `kits/network-block.ts`, a dev-only mirror of that extension, alongside the
+  existing `kits/network-block.jq`. `make lint` type-strips it with `esbuild`
+  and fails if it disagrees with the heredoc any kit ships.
+- **No MCP on `sbxpi`.** Pi has no built-in MCP support, so the kit registers
+  no MCP servers: Context7 is installed as a native Pi package, and GitHub
+  work goes through `git` and `gh`. `github-mcp-server` is still installed, to
+  keep the toolchain identical across kits.
+- `fd-find` on `sbxpi`, because Pi's file-search tool otherwise downloads an
+  unpinned `fd` binary from GitHub releases at first launch. Ubuntu names the
+  binary `fdfind`, which Pi accepts natively.
 - `github.githubassets.com:443` on every kit's network allowlist, so github.com
   pages render with their CSS and JavaScript in the sandbox's Playwright
   browser instead of loading as unstyled HTML.
+- A network-block escalation hook for `sbxcodex`, sharing the filter
+  `sbxclaude` already uses. It is registered as a managed Codex `PostToolUse`
+  hook in root-owned `/etc/codex/requirements.toml`, which user and project
+  config cannot override. **It is weaker than the `sbxclaude` guard**: Codex
+  replaces the blocked tool's result with the stop notice and lets the model
+  continue, rather than ending the turn, because no Codex hook output ends a
+  turn. The agent is told the host to allow and instructed to stop; nothing
+  forces it to. All three guards match shell commands only, so a block
+  surfacing solely in an MCP response is not caught.
+- `sbxcodex` now sets `allow_managed_hooks_only`, so Codex ignores all user,
+  project, session and plugin hooks in that sandbox and only the managed guard
+  runs. This is stricter than `sbxclaude`, which leaves user hooks alone.
+
+### Changed
+
+- `sbxclaude` gains an `ALLOW_WEB` switch (default `true`) in its own setup
+  step, which merges `permissions.deny` for the built-in `WebSearch` and
+  `WebFetch` tools into the same admin-tier
+  `/etc/claude-code/managed-settings.json` as the network-block escalation
+  hook when flipped to `false`. Flip it in `kits/sbxclaude/spec.yaml` and
+  rebuild the kit to deny both tools — they call out from Anthropic's
+  servers, not the sandbox, so they would otherwise side-step the sbx
+  network allow list.
+- `sbxcodex` gains a matching `ALLOW_WEB` switch (default `true`). Codex has
+  only one hosted internet tool, `web_search` (no separate fetch tool); when
+  flipped to `false` the setup step prepends `web_search = "disabled"` to
+  `~/.codex/config.toml`, before any `[table]` header, so the key stays top
+  level regardless of `SBX_CRED_OPENAI_MODE`. Flip it in
+  `kits/sbxcodex/spec.yaml` and rebuild the kit to deny it.
+- `sbxcursor` now launches Cursor's CLI as `agent` rather than `cursor-agent`.
+  Cursor made `agent` the primary entrypoint on 2026-01-08 and kept
+  `cursor-agent` only as a backward-compatible alias, which it now prints a
+  deprecation tip for. The sbx kit name is unaffected — `sbx run cursor` and
+  `extends: cursor` are a different layer and unchanged. The Cursor CLI stays
+  deliberately unpinned; it auto-updates in place, so a pin would not hold.
+
+### Fixed
+
+- The network-block guard's `self_reference` exemption no longer lets a network
+  command suppress a real block. It matched any Bash command mentioning
+  `AGENTS.md`, `CLAUDE.md`, `spec.yaml`, `network-block` or `toolchain_test`,
+  so `curl https://blocked  # see spec.yaml` returned "no action" and the agent
+  never saw the stop notice — the one outcome the guard exists to prevent. The
+  exemption now also requires the command to show no sign of network egress, so
+  a command that both reads one of those files and reaches out fails safe and
+  fires. Local readers, including `git diff` and `git show`, stay exempt.
+  Applies to `sbxclaude` and `sbxcodex`.
+- The guard no longer tells the user to run `sbx policy allow` for a block
+  caused by a local **deny** rule. Deny rules take precedence over allow rules,
+  so that advice could never work; the message now points at `sbx policy ls
+  --wide` and `sbx policy rm network --resource "<host>"` (with the `--sandbox`
+  form for a sandbox-scoped rule) instead. Default-deny blocks still get
+  `sbx policy allow`, and organisation-policy blocks still say to contact IT.
+  The README and each kit's agent instructions were overstating this too, and
+  now name all three remedies.
 
 ## [0.2.0] - 2026-09-01
 

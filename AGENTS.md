@@ -8,22 +8,22 @@
 
 - `kits/<command>/spec.yaml` — one Docker Sandbox Kit spec per wrapper command:
   agent, resources, network policy, and setup commands baked into that sandbox.
-  There are three — `kits/sbxclaude/`, `kits/sbxcodex/`, `kits/sbxcursor/` —
-  and the directory name is the single source of identity: it equals `name:` in
-  the spec, the `sbx` positional operand, the sandbox-name prefix, and the
-  command you type.
+  There are four — `kits/sbxclaude/`, `kits/sbxcodex/`, `kits/sbxcursor/`,
+  `kits/sbxpi/` — and the directory name is the single source of identity: it
+  equals `name:` in the spec, the `sbx` positional operand, the sandbox-name
+  prefix, and the command you type.
 - `kits/<command>/files/` — files copied into that sandbox at kit-build time.
 - `scripts/sbxagent` — wrapper CLI around `sbx` that creates, rebuilds, and
   re-attaches the per-project sandbox. It dispatches on `basename "$0"`, so it
-  is invoked through the `scripts/sbxclaude`, `scripts/sbxcodex` and
-  `scripts/sbxcursor` symlinks, never under its own name. Run
-  `./scripts/sbxclaude -h` for the current command list rather than relying on
-  this doc, which won't track it.
+  is invoked through the `scripts/sbxclaude`, `scripts/sbxcodex`,
+  `scripts/sbxcursor` and `scripts/sbxpi` symlinks, never under its own name.
+  Run `./scripts/sbxclaude -h` for the current command list rather than relying
+  on this doc, which won't track it.
 
 ## Commands
 
 ```bash
-make lint           # markdownlint, jq, yamllint, shellcheck, bash -n, cspell
+make lint           # markdownlint, jq, esbuild, yamllint, shellcheck, bash -n, cspell
 make test           # run all tests
 make test-unit      # test wrapper dispatch with a fake sbx CLI
 make test-toolchain # test helper tools inside the live sandbox
@@ -37,7 +37,7 @@ Unknown-but-correct words go in `.cspell.json`.
 ## Critical Requirement
 
 Before finishing any task that touches any `kits/*/spec.yaml` or `kits/*/files/`,
-run `make validate` — it validates all three kits, and it's a static schema
+run `make validate` — it validates every kit, and it's a static schema
 check with no Docker, no `sbx login`, and no network, so there's no reason to
 skip it. Before finishing any task that touches `scripts/sbxagent` or any other
 shell script, run `make lint` — it runs `shellcheck` and `bash -n` over every
@@ -79,9 +79,29 @@ The wrapper has to run unchanged on macOS and Linux hosts.
   changelog.
 - Restore an empty `## [Unreleased]` heading above the new release heading.
 - Tag that commit `vX.Y.Z` once `VERSION`, all kit specs, and `CHANGELOG.md`
-  agree.
-  Pushing the tag and publishing the kit itself are separate steps this
-  repo does not yet define; confirm before pushing a tag anywhere.
+  agree. **Pushing that tag publishes**, so confirm before pushing a tag
+  anywhere.
+
+## Releasing
+
+Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which publishes
+every kit to `ghcr.io/lars20070/<kit>:X.Y.Z` and re-points `latest` at the same
+digest. There is no other publish trigger.
+
+- Rehearse with `make publish-dry-run` first. It stages, validates and inspects
+  each kit and prints what would be pushed, without a registry or credentials.
+- The workflow re-runs `make lint`, and refuses a tag whose version disagrees
+  with `VERSION` (`scripts/check-release-tag.sh`). A release cannot publish a
+  repo that disagrees with itself.
+- `workflow_dispatch` is for rehearsals, not releases: it defaults to a dry run,
+  and `probe_repo`/`probe_kit` aim one kit at a throwaway package so the real
+  publish path can be exercised without touching the four real packages.
+- Re-running a release is safe. A version tag that already exists is reused, not
+  overwritten — which also means **re-cutting a published version publishes
+  nothing**. Change the version instead.
+- **Load-bearing invariant:** `latest` means "newest release" only because
+  nothing publishes from `main`. Adding a main-branch publish would silently
+  change what `latest` means for everyone who pinned it.
 
 ## Skills
 

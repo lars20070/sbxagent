@@ -9,6 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLAUDE_SCRIPT="${ROOT}/scripts/sbxclaude"
 CODEX_SCRIPT="${ROOT}/scripts/sbxcodex"
 CURSOR_SCRIPT="${ROOT}/scripts/sbxcursor"
+PI_SCRIPT="${ROOT}/scripts/sbxpi"
 # The real script, which must refuse to run under its own name.
 AGENT_SCRIPT="${ROOT}/scripts/sbxagent"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sbxagent-test.XXXXXX")"
@@ -130,7 +131,7 @@ reject_wrong_name() {
 	status=$?
 	set -e
 	[[ "${status}" -ne 0 ]] || fail "'${label}' unexpectedly succeeded"
-	for expected in sbxclaude sbxcodex sbxcursor "ln -s"; do
+	for expected in sbxclaude sbxcodex sbxcursor sbxpi "ln -s"; do
 		[[ "${output}" == *"${expected}"* ]] ||
 			fail "'${label}' did not mention '${expected}': ${output}"
 	done
@@ -287,7 +288,7 @@ assert_log "$(printf 'policy\tcheck\tnetwork\t--sandbox\t%s\tgithub.com' \
 	"${SANDBOX}")" "policy check"
 pass "policy check is scoped to the sandbox"
 
-# Basename dispatch is the whole point of one script under three names: each
+# Basename dispatch is the whole point of one script under four names: each
 # must select its own kit directory and its own sandbox, so two agents can run
 # against the same project at once without colliding.
 run_codex() {
@@ -361,20 +362,58 @@ pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
 clear_log
 CURSOR_HELP="$(run_cursor "${WORK_A}" help)"
 assert_no_log "cursor help"
-[[ "${CURSOR_HELP}" == *"Use sbx or cursor-agent directly"* ]] ||
-	fail "cursor help did not name the cursor-agent CLI: ${CURSOR_HELP}"
+[[ "${CURSOR_HELP}" == *"Use sbx or agent directly"* ]] ||
+	fail "cursor help did not name the agent CLI: ${CURSOR_HELP}"
 [[ "${CURSOR_HELP}" == *"sbxcursor name"* ]] ||
 	fail "cursor help did not use the invoked name"
 [[ "${CURSOR_HELP}" != *"sbxagent"* ]] ||
 	fail "cursor help leaked the real script name"
 pass "cursor help names the invoked command and its underlying CLI"
 
-# The whole point of basename dispatch: one directory, three commands, three
-# separate sandboxes, so all three agents can run against a project at once.
-[[ "${NAME_A}" != "${CODEX_NAME}" && "${NAME_A}" != "${CURSOR_NAME}" &&
-	"${CODEX_NAME}" != "${CURSOR_NAME}" ]] ||
-	fail "the three names collide: ${NAME_A} ${CODEX_NAME} ${CURSOR_NAME}"
-pass "the three commands yield three distinct sandbox names for one directory"
+run_pi() {
+	local directory="$1"
+	shift
+	(cd "${directory}" && "${PI_SCRIPT}" "$@")
+}
+
+clear_log
+PI_NAME="$(run_pi "${WORK_A}" name)"
+assert_match "^sbxpi-$(expected_slug "${WORK_A}")-[0-9a-f]{6}$" "${PI_NAME}" "pi derived name"
+assert_eq "sbxpi-${NAME_A#sbxclaude-}" "${PI_NAME}" "pi name differs only by prefix"
+assert_no_log "pi name"
+
+PI_VERSION_OUT="$(run_pi "${WORK_A}" version)"
+assert_eq "sbxpi ${EXPECTED_VERSION}" "${PI_VERSION_OUT}" "pi version output"
+
+PI_KIT="${ROOT}/kits/sbxpi"
+clear_log
+run_pi "${WORK_A}" kit validate >/dev/null
+assert_log "$(printf 'kit\tvalidate\t%s' "${PI_KIT}")" "pi kit path"
+
+clear_log
+run_pi "${WORK_A}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t--kit\t%s\tsbxpi\t.' \
+	"${PI_NAME}" "${PI_KIT}")" "pi create"
+pass "sbxpi dispatches to its own kit, sandbox name and kit operand"
+
+clear_log
+PI_HELP="$(run_pi "${WORK_A}" help)"
+assert_no_log "pi help"
+[[ "${PI_HELP}" == *"Use sbx or pi directly"* ]] ||
+	fail "pi help did not name the pi CLI: ${PI_HELP}"
+[[ "${PI_HELP}" == *"sbxpi name"* ]] ||
+	fail "pi help did not use the invoked name"
+[[ "${PI_HELP}" != *"sbxagent"* ]] ||
+	fail "pi help leaked the real script name"
+pass "pi help names the invoked command and its underlying CLI"
+
+# The whole point of basename dispatch: one directory, four commands, four
+# separate sandboxes, so all four agents can run against a project at once.
+[[ "${NAME_A}" != "${CODEX_NAME}" && "${NAME_A}" != "${CURSOR_NAME}" && "${NAME_A}" != "${PI_NAME}" &&
+	"${CODEX_NAME}" != "${CURSOR_NAME}" && "${CODEX_NAME}" != "${PI_NAME}" &&
+	"${CURSOR_NAME}" != "${PI_NAME}" ]] ||
+	fail "the four names collide: ${NAME_A} ${CODEX_NAME} ${CURSOR_NAME} ${PI_NAME}"
+pass "the four commands yield four distinct sandbox names for one directory"
 
 # The README installs the wrapper as a symlink, so it has to resolve its own
 # path through the chain to locate the kit. Two extra hops, the second one

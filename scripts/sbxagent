@@ -8,9 +8,9 @@ set -euo pipefail
 # version; remove this export once #526 is fixed in that release.
 export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
 
-# One script, three commands. It is installed as a symlink named sbxclaude,
-# sbxcodex or sbxcursor, and dispatches on the name it was invoked as. See the
-# SELF block below.
+# One script, four commands. It is installed as a symlink named sbxclaude,
+# sbxcodex, sbxcursor or sbxpi, and dispatches on the name it was invoked as.
+# See the SELF block below.
 SELF="$(basename "$0")"
 
 die() {
@@ -88,7 +88,8 @@ REPO="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 case "${SELF}" in
 sbxclaude) CLI="claude" ;;
 sbxcodex) CLI="codex" ;;
-sbxcursor) CLI="cursor-agent" ;;
+sbxcursor) CLI="agent" ;;
+sbxpi) CLI="pi" ;;
 *)
 	# Covers a direct `./scripts/sbxagent` run and any copy under another name.
 	# Deliberately no default agent: silently picking one is worse than failing.
@@ -97,7 +98,8 @@ sbxcursor) CLI="cursor-agent" ;;
 	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxclaude   # Claude Code" >&2
 	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxcodex    # Codex" >&2
 	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxcursor   # Cursor" >&2
-	echo "Then run sbxclaude, sbxcodex or sbxcursor." >&2
+	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxpi       # Pi" >&2
+	echo "Then run sbxclaude, sbxcodex, sbxcursor or sbxpi." >&2
 	exit 1
 	;;
 esac

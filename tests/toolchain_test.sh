@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Smoke-tests the helper toolchain from inside a live sbxagent sandbox
-# (sbxclaude, sbxcodex or sbxcursor).
+# (sbxclaude, sbxcodex, sbxcursor or sbxpi).
 # Keep EXPECTED_* in sync with the pinned installs in kits/*/spec.yaml.
 set -euo pipefail
 
@@ -19,6 +19,8 @@ EXPECTED_PLAYWRIGHT_VERSION="1.62.1"
 EXPECTED_MERMAID_VERSION="11.16.0"
 EXPECTED_CONTEXT7_MCP_VERSION="4.0.0"
 EXPECTED_GITHUB_MCP_VERSION="1.11.0"
+EXPECTED_PI_VERSION="0.84.4"
+EXPECTED_CONTEXT7_PI_VERSION="0.1.2"
 
 TESTS=0
 
@@ -127,38 +129,25 @@ pass "GitHub SSH remotes rewrite to HTTPS"
 REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
 # ---------------------------------------------------------------------------
-# sbxclaude only. The network-block guard is Claude Code specific (it installs
-# Claude Code hook JSON in /etc/claude-code/managed-settings.json) and
-# ~/.claude.json is Claude Code's MCP config. Neither exists in the sbxcodex
-# kit, which registers its MCP servers in ~/.codex/config.toml instead and
-# ships no guard — see kits/sbxcodex/spec.yaml.
+# sbxclaude, sbxcodex and sbxpi. All three kits install the same guard filter
+# at the same path, so its behaviour is tested once, here. What each host CLI
+# *does* with the verdict differs (Claude Code ends the turn; Codex replaces
+# the tool result and lets the model continue; Pi rewrites the result and then
+# refuses the next tool call), and each registers it its own way — those live
+# in the per-kit blocks below.
 # ---------------------------------------------------------------------------
-if [[ "${KIT_NAME}" == "sbxclaude" ]]; then
+if [[ "${KIT_NAME}" == "sbxclaude" || "${KIT_NAME}" == "sbxcodex" ||
+	"${KIT_NAME}" == "sbxpi" ]]; then
 
-# Network-block escalation hook. A blocked request must end the turn and tell
-# the user which host to allow, rather than leaving the agent free to work
-# around it. Keep these in sync with the `Network-block escalation hook` setup
-# command in kits/sbxclaude/spec.yaml.
+# Network-block escalation hook. A blocked request must produce a stop verdict
+# with the remedy that fits the block type, rather than leaving the agent free
+# to work around it. Keep these in sync with kits/network-block.jq and the
+# `Network-block escalation hook` setup command in each kit's spec.yaml.
 GUARD_FILTER="/usr/local/lib/sbxagent/network-block.jq"
-MANAGED_SETTINGS="/etc/claude-code/managed-settings.json"
 
 [[ -s "${GUARD_FILTER}" ]] ||
 	fail "guard filter is missing: ${GUARD_FILTER} (${REBUILD_HINT})"
 pass "guard filter is installed"
-
-jq -e . "${MANAGED_SETTINGS}" >/dev/null 2>&1 ||
-	fail "managed settings are missing or not valid JSON: ${MANAGED_SETTINGS} (${REBUILD_HINT})"
-pass "managed settings are valid JSON"
-
-# The failure event matters as much as the success one: a blocked `curl -f` or
-# `npm install` exits non-zero and only fires PostToolUseFailure.
-for event in PostToolUse PostToolUseFailure; do
-	jq -e --arg e "${event}" \
-		'.hooks[$e][0].hooks[0].command | test("network-block\\.jq")' \
-		"${MANAGED_SETTINGS}" >/dev/null ||
-		fail "managed settings do not run the guard on ${event}"
-	pass "guard is registered on ${event}"
-done
 
 # Feed a payload through the installed filter and echo its verdict.
 guard() {
@@ -191,9 +180,18 @@ check_guard_blocks "a PostToolUse block" \
 	'{"tool_name":"Bash","tool_input":{"command":"curl -sS https://example.org"},"tool_response":{"stderr":"Blocked by network policy: domain example.org"}}' \
 	'sbx policy allow network "example.org"'
 
+# A local deny needs the opposite remedy to a default-deny: deny rules take
+# precedence over allow rules, so the rule has to be removed, not allowed round.
 check_guard_blocks "a PostToolUseFailure block" \
 	'{"tool_name":"Bash","tool_input":{"command":"curl -f https://blocked.test"},"error":"Blocked by local rule for blocked.test"}' \
-	'sbx policy allow network "blocked.test"'
+	'sbx policy rm network --resource "blocked.test"'
+
+LOCAL_VERDICT="$(guard '{"tool_name":"Bash","tool_input":{"command":"curl -f https://blocked.test"},"error":"Blocked by local rule for blocked.test"}')" ||
+	fail "guard failed on the local-rule payload"
+if jq -r '.systemMessage' <<<"${LOCAL_VERDICT}" | grep -Fq 'sbx policy allow'; then
+	fail "local-rule message must not suggest 'sbx policy allow': ${LOCAL_VERDICT}"
+fi
+pass "local-rule message removes the deny instead of allowing round it"
 
 # Org policy is not liftable with `sbx policy allow`, so it must not be offered.
 check_guard_blocks "an org-policy block" \
@@ -215,20 +213,67 @@ check_guard_ignores "ordinary output" \
 check_guard_ignores "a Bash read of CLAUDE.md" \
 	'{"tool_name":"Bash","tool_input":{"command":"cat CLAUDE.md"},"tool_response":{"stdout":"Blocked by network policy: domain foo.test"}}'
 
+# Local readers stay exempt, including git's read-only subcommands — a
+# `git diff` of the spec prints the block strings the filter itself contains.
+check_guard_ignores "a git diff of the spec" \
+	'{"tool_name":"Bash","tool_input":{"command":"git diff kits/sbxcodex/spec.yaml"},"tool_response":{"stdout":"Blocked by network policy: domain foo.test"}}'
+
+# ...but mentioning one of those filenames must never buy a network command an
+# exemption. Without this, `curl https://blocked # spec.yaml` silently suppresses
+# the notice and the agent is free to do exactly what the guard forbids.
+check_guard_blocks "a blocked curl whose command mentions spec.yaml" \
+	'{"tool_name":"Bash","tool_input":{"command":"curl -sS https://evil.test  # see spec.yaml"},"tool_response":{"stderr":"Blocked by network policy: domain evil.test"}}' \
+	'sbx policy allow network "evil.test"'
+
+check_guard_blocks "a blocked download writing to spec.yaml" \
+	'{"tool_name":"Bash","tool_input":{"command":"wget -O kits/sbxcodex/spec.yaml https://x.test/s"},"tool_response":{"stderr":"Blocked by network policy: domain x.test"}}' \
+	'sbx policy allow network "x.test"'
+
+# A local read chained to a network call is still a network call.
+check_guard_blocks "a blocked curl chained after a CLAUDE.md read" \
+	'{"tool_name":"Bash","tool_input":{"command":"cat CLAUDE.md && curl https://y.test"},"error":"Blocked by local rule for y.test"}' \
+	'sbx policy rm network --resource "y.test"'
+
 # A blocked WebFetch must never be exempted just because its URL happens to
 # contain one of the self-reference filenames — only a Bash read of the
-# actual file is exempt.
+# actual file is exempt. These run under sbxcodex too: Codex has no WebFetch
+# tool, so there they prove the filter is byte-identical, not tool coverage.
 check_guard_blocks "a blocked WebFetch of a URL containing AGENTS.md" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/AGENTS.md"},"tool_response":{"content":"Blocked by local rule for x.test"}}' \
-	'sbx policy allow network "x.test"'
+	'sbx policy rm network --resource "x.test"'
 
 check_guard_blocks "a blocked WebFetch of a URL containing CLAUDE.md" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/CLAUDE.md"},"tool_response":{"content":"Blocked by local rule for y.test"}}' \
-	'sbx policy allow network "y.test"'
+	'sbx policy rm network --resource "y.test"'
 
 check_guard_blocks "a blocked WebFetch of a URL containing spec.yaml" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/spec.yaml"},"tool_response":{"content":"Blocked by local rule for z.test"}}' \
-	'sbx policy allow network "z.test"'
+	'sbx policy rm network --resource "z.test"'
+
+fi # end guard-filter tests
+
+# ---------------------------------------------------------------------------
+# sbxclaude only. The guard is registered as Claude Code hook JSON in
+# /etc/claude-code/managed-settings.json, and ~/.claude.json is Claude Code's
+# MCP config. sbxcodex registers both differently — see its block below.
+# ---------------------------------------------------------------------------
+if [[ "${KIT_NAME}" == "sbxclaude" ]]; then
+
+MANAGED_SETTINGS="/etc/claude-code/managed-settings.json"
+
+jq -e . "${MANAGED_SETTINGS}" >/dev/null 2>&1 ||
+	fail "managed settings are missing or not valid JSON: ${MANAGED_SETTINGS} (${REBUILD_HINT})"
+pass "managed settings are valid JSON"
+
+# The failure event matters as much as the success one: a blocked `curl -f` or
+# `npm install` exits non-zero and only fires PostToolUseFailure.
+for event in PostToolUse PostToolUseFailure; do
+	jq -e --arg e "${event}" \
+		'.hooks[$e][0].hooks[0].command | test("network-block\\.jq")' \
+		"${MANAGED_SETTINGS}" >/dev/null ||
+		fail "managed settings do not run the guard on ${event}"
+	pass "guard is registered on ${event}"
+done
 
 # User-scope MCP servers baked into every sandbox via
 # kits/sbxclaude/files/home/.claude.json, so Context7 and GitHub MCP tools are
@@ -268,9 +313,40 @@ fi # end sbxclaude-only
 # ---------------------------------------------------------------------------
 # sbxcodex only. MCP servers live in ~/.codex/config.toml (TOML, appended by
 # `setup:`) rather than in a JSON file shipped under files/home/, because the
-# codex parent kit rewrites that file on every create.
+# codex parent kit rewrites that file on every create. The guard is registered
+# separately, in admin-tier /etc/codex/requirements.toml.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxcodex" ]]; then
+
+# Admin-tier hook registration. Asserted structurally rather than by grep:
+# `allow_managed_hooks_only` only works as a top-level key, and a copy that
+# drifted under [hooks] would still grep clean while doing nothing.
+REQUIREMENTS_TOML="/etc/codex/requirements.toml"
+
+[[ -s "${REQUIREMENTS_TOML}" ]] ||
+	fail "${REQUIREMENTS_TOML} is missing (${REBUILD_HINT})"
+pass "${REQUIREMENTS_TOML} exists"
+
+python3 - "${REQUIREMENTS_TOML}" <<'PYTOML' ||
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as fh:
+    req = tomllib.load(fh)
+
+if req.get("allow_managed_hooks_only") is not True:
+    sys.exit("allow_managed_hooks_only is not a top-level key set to true")
+if req.get("features", {}).get("hooks") is not True:
+    sys.exit("the hooks feature is not pinned on")
+try:
+    command = req["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+except (KeyError, IndexError):
+    sys.exit("no PostToolUse hook is registered")
+if "network-block.jq" not in command:
+    sys.exit("PostToolUse does not run the guard: " + command)
+PYTOML
+	fail "${REQUIREMENTS_TOML} does not register the guard as a managed hook (${REBUILD_HINT})"
+pass "guard is registered as a managed PostToolUse hook"
 
 CODEX_TOML="${HOME}/.codex/config.toml"
 
@@ -378,5 +454,118 @@ done
 pass "context7 and github are pre-approved, so the TUI does not prompt for them"
 
 fi # end sbxcursor-only
+
+# ---------------------------------------------------------------------------
+# sbxpi only. Pi has no parent kit and no MCP support at all — there is no MCP
+# config file to check here. Its config lives directly under
+# files/home/.pi/agent/ (models.json, settings.json), and GitHub operations go
+# through `git`/`gh` on PATH instead of a registered MCP server.
+# ---------------------------------------------------------------------------
+if [[ "${KIT_NAME}" == "sbxpi" ]]; then
+
+check_tool_version pi "${EXPECTED_PI_VERSION}" pi --version
+# Pi has no MCP, so GitHub work goes through the `gh` CLI instead.
+check_tool gh gh --version
+
+# Pi's file-search tool downloads `fd` from GitHub releases at first launch
+# unless it finds `fd` or `fdfind` on PATH — unpinned, and network traffic on
+# a cold start. The apt-installed `fdfind` is what suppresses that.
+command -v fdfind >/dev/null 2>&1 || command -v fd >/dev/null 2>&1 ||
+	fail "neither fd nor fdfind is on PATH, so Pi will download fd at launch (${REBUILD_HINT})"
+pass "fd is preinstalled, so Pi fetches nothing at first launch"
+
+PI_MODELS_JSON="${HOME}/.pi/agent/models.json"
+PI_SETTINGS_JSON="${HOME}/.pi/agent/settings.json"
+
+[[ -s "${PI_MODELS_JSON}" ]] || fail "${PI_MODELS_JSON} is missing (${REBUILD_HINT})"
+jq -e . "${PI_MODELS_JSON}" >/dev/null 2>&1 ||
+	fail "${PI_MODELS_JSON} is not valid JSON"
+pass "${PI_MODELS_JSON} is valid JSON"
+
+[[ -O "${PI_MODELS_JSON}" ]] || fail "${PI_MODELS_JSON} is not owned by the sandbox user"
+pass "${PI_MODELS_JSON} is owned by the sandbox user"
+
+jq -e '.providers.openrouter.modelOverrides["qwen/qwen3-coder"].compat.openRouterRouting.only == ["deepinfra"]' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "openrouter provider is missing the DeepInfra routing pin in ${PI_MODELS_JSON}"
+pass "openrouter is pinned to DeepInfra for qwen/qwen3-coder"
+
+jq -e '.providers.openrouter.modelOverrides["moonshotai/kimi-k2.6"].compat.openRouterRouting.only == ["deepinfra"]' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "openrouter provider is missing the DeepInfra routing pin for kimi-k2.6 in ${PI_MODELS_JSON}"
+pass "openrouter is pinned to DeepInfra for moonshotai/kimi-k2.6"
+
+jq -e '.providers.openrouter.modelOverrides["z-ai/glm-5.2"].compat.openRouterRouting.only == ["deepinfra"]' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "openrouter provider is missing the DeepInfra routing pin for glm-5.2 in ${PI_MODELS_JSON}"
+pass "openrouter is pinned to DeepInfra for z-ai/glm-5.2"
+
+jq -e '.providers.openrouter.modelOverrides["deepseek/deepseek-v4-pro"].compat.openRouterRouting.only == ["deepinfra"]' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "openrouter provider is missing the DeepInfra routing pin for deepseek-v4-pro in ${PI_MODELS_JSON}"
+pass "openrouter is pinned to DeepInfra for deepseek/deepseek-v4-pro"
+
+# Ollama runs on the host, so the provider must point at host.docker.internal:
+# the sandbox has its own localhost, and Pi's own docs use `localhost` in their
+# example, which is the easy mistake to copy in here.
+jq -e '.providers.ollama.baseUrl | startswith("http://host.docker.internal:")' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "ollama provider missing, or its baseUrl is not host.docker.internal, in ${PI_MODELS_JSON}"
+pass "ollama provider points at the host, not the sandbox's own localhost"
+
+[[ -s "${PI_SETTINGS_JSON}" ]] || fail "${PI_SETTINGS_JSON} is missing (${REBUILD_HINT})"
+jq -e . "${PI_SETTINGS_JSON}" >/dev/null 2>&1 ||
+	fail "${PI_SETTINGS_JSON} is not valid JSON"
+pass "${PI_SETTINGS_JSON} is valid JSON"
+
+[[ -O "${PI_SETTINGS_JSON}" ]] || fail "${PI_SETTINGS_JSON} is not owned by the sandbox user"
+pass "${PI_SETTINGS_JSON} is owned by the sandbox user"
+
+jq -e '.defaultProvider == "openrouter" and .defaultModel == "qwen/qwen3-coder"' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "defaultProvider/defaultModel are not set to openrouter/qwen3-coder in ${PI_SETTINGS_JSON}"
+pass "settings.json defaults to openrouter / qwen/qwen3-coder"
+
+# `pi install` merges this key into the shipped settings.json at build time —
+# the kit does not hand-write it, so this is what proves that step ran and its
+# result survived. Without the entry Pi loads no Context7 tools at all.
+jq -e --arg v "npm:@upstash/context7-pi@${EXPECTED_CONTEXT7_PI_VERSION}" \
+	'.packages | index($v) != null' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "context7 package missing or wrong pinned version in ${PI_SETTINGS_JSON} (${REBUILD_HINT})"
+pass "context7 Pi package is pinned to ${EXPECTED_CONTEXT7_PI_VERSION}"
+
+# Pre-installed at build time, so first launch fetches nothing from the network.
+[[ -d "${HOME}/.pi/agent/npm/node_modules" ]] ||
+	fail "context7 package was not materialised under ~/.pi/agent/npm (${REBUILD_HINT})"
+pass "context7 package is materialised on disk, not fetched at first launch"
+
+# The Pi half of the network-block guard. sbxclaude registers the filter as an
+# admin-tier hook Claude Code cannot be talked out of; Pi has no equivalent
+# tier, so the binding is this settings.json entry plus a root-owned file.
+GUARD_EXTENSION="/usr/local/lib/sbxagent/network-block.ts"
+
+[[ -s "${GUARD_EXTENSION}" ]] ||
+	fail "guard extension is missing: ${GUARD_EXTENSION} (${REBUILD_HINT})"
+pass "guard extension is installed"
+
+# Root-owned and outside $HOME is the whole tamper-resistance story here, so
+# assert it rather than assume the setup step ran as root.
+[[ ! -O "${GUARD_EXTENSION}" && ! -w "${GUARD_EXTENSION}" ]] ||
+	fail "${GUARD_EXTENSION} is owned or writable by the agent, so the agent can disable its own guard"
+pass "guard extension is not writable by the agent"
+
+jq -e --arg p "${GUARD_EXTENSION}" '.extensions | index($p) != null' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "guard extension is not registered in ${PI_SETTINGS_JSON}"
+pass "guard extension is registered in settings.json"
+
+# Belt and braces: the system prompt restates the rule at higher authority
+# than AGENTS.md, in case the extension is ever overridden.
+[[ -s "${HOME}/.pi/agent/APPEND_SYSTEM.md" ]] ||
+	fail "APPEND_SYSTEM.md is missing (${REBUILD_HINT})"
+pass "APPEND_SYSTEM.md restates the no-workaround rule"
+
+fi # end sbxpi-only
 
 echo "All ${TESTS} toolchain tests passed."

@@ -1,0 +1,211 @@
+name: Release
+
+# Publish every kit to GHCR as an OCI artifact.
+#
+# A tag push is the release: pushing vX.Y.Z publishes all four kits as
+# ghcr.io/<namespace>/<kit>:X.Y.Z and re-points :latest at the same digest. So
+# `latest` here means "newest release", which holds only because nothing
+# publishes from main — adding a main-branch publish would silently change what
+# it means.
+#
+# workflow_dispatch is for rehearsals, not releases. It defaults to a dry run,
+# and probe_repo/probe_kit let one throwaway package exercise the real publish
+# path without touching the four real packages.
+#
+# All the actual logic lives in scripts/publish-kit.sh, so `make lint`
+# shellchecks it and `make publish-dry-run` rehearses it locally.
+
+on:
+  push:
+    # Digit-only, so vX.Y.Z-rc1 and other shapes cannot trigger a release.
+    # Matches the pattern scripts/check-release-tag.sh enforces.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate and print the plan; publish nothing.
+        type: boolean
+        default: true
+      sign:
+        description: Attach a keyless Sigstore signature to each push.
+        type: boolean
+        default: true
+      probe_repo:
+        description: "Publish under this package name instead of the kit name (probe only; requires probe_kit)."
+        type: string
+        default: ""
+      probe_kit:
+        description: "Publish only this one kit (probe only)."
+        type: string
+        default: ""
+
+# Narrowed further per job. The publish job needs more; verify does not.
+permissions:
+  contents: read
+
+# Never cancel a release in flight: a half-cancelled run can leave some kits
+# published and others not. Queue instead.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Gate the release on the repo agreeing with itself before anything is
+  # pushed. `make lint` is the substance here: it already fails when VERSION,
+  # any kits/*/spec.yaml version, or CHANGELOG.md's latest release heading
+  # disagree, so a tag whose version is inconsistent cannot publish.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      kits: ${{ steps.kits.outputs.kits }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No git operations after checkout, so don't leave the job token in
+          # .git/config where a later third-party step could read it.
+          persist-credentials: false
+
+      # On a tag push the tag is authoritative and must agree with VERSION. On
+      # a dispatch GITHUB_REF_NAME is a branch, which would fail that shape
+      # check, so the version comes from VERSION itself. check-release-tag.sh
+      # writes version= on fd 3, which is why it is redirected rather than
+      # piped: its human output must not reach $GITHUB_OUTPUT.
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == push ]]; then
+            ./scripts/check-release-tag.sh "${GITHUB_REF_NAME}" 3>>"$GITHUB_OUTPUT"
+          else
+            grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' VERSION \
+              | sed 's/^/version=/' >> "$GITHUB_OUTPUT"
+          fi
+
+      # Discovered, not hardcoded, so a fifth kit needs no edit here — matching
+      # `make lint`, `make validate` and `make publish-dry-run`, which all
+      # iterate kits/*/. Inputs are read through env rather than interpolated
+      # into the script body, so a crafted dispatch input cannot inject shell.
+      - name: Discover kits
+        id: kits
+        env:
+          PROBE_KIT: ${{ inputs.probe_kit }}
+          PROBE_REPO: ${{ inputs.probe_repo }}
+        run: |
+          set -euo pipefail
+          # probe_repo renames the package for every kit in the matrix, so
+          # without probe_kit all four would push to one package and overwrite
+          # each other. Refuse rather than publish nonsense.
+          if [[ -n "${PROBE_REPO}" && -z "${PROBE_KIT}" ]]; then
+            echo "probe_repo requires probe_kit, or all kits collide in one package" >&2
+            exit 1
+          fi
+          if [[ -n "${PROBE_KIT}" ]]; then
+            if [[ ! -f "kits/${PROBE_KIT}/spec.yaml" ]]; then
+              echo "no kit at kits/${PROBE_KIT}/spec.yaml" >&2
+              exit 1
+            fi
+            jq -nc --arg k "${PROBE_KIT}" '[$k]' | sed 's/^/kits=/' >> "$GITHUB_OUTPUT"
+          else
+            for d in kits/*/; do basename "${d}"; done \
+              | jq -R . | jq -sc . | sed 's/^/kits=/' >> "$GITHUB_OUTPUT"
+          fi
+
+      # Same npm-cache and pinned-install path as ci.yml's lint job, because a
+      # bare ubuntu-latest has none of these three. Its macOS leg is skipped:
+      # this job is Linux only. shellcheck, jq and yamllint are already there.
+      - name: Cache npm downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: ${{ runner.os }}-npm-
+
+      - name: Install lint tools
+        run: npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1 esbuild@0.28.2
+
+      - name: Lint (includes the version-agreement check)
+        run: make lint ESBUILD=esbuild
+
+  # One job per kit so they publish in parallel and fail independently.
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Push to GHCR with GITHUB_TOKEN. This also grants read, which `oras tag`
+      # needs: it fetches the manifest before re-PUTting it under the new tag,
+      # so a push-only credential would fail there — after the immutable tag is
+      # already published.
+      packages: write
+      # Keyless signing mints its OIDC token from the ambient CI provider.
+      id-token: write
+    strategy:
+      # One kit's failure must not cancel its siblings mid-release. The
+      # skip-if-already-published branch in publish-kit.sh is what makes the
+      # re-run clean afterwards.
+      fail-fast: false
+      matrix:
+        kit: ${{ fromJSON(needs.verify.outputs.kits) }}
+    # Job-level so the step conditions below can read them from the env
+    # context. A tag push always publishes and always signs; a dispatch only
+    # publishes when dry_run is cleared.
+    #
+    # Empty string is the off switch for both, which is why publish-kit.sh
+    # reads ${SIGN-1} and not ${SIGN:-1} — the latter would treat an empty
+    # SIGN as unset and sign anyway.
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+      SIGN: ${{ (github.event_name != 'workflow_dispatch' || inputs.sign) && '1' || '' }}
+      REPO_NAME: ${{ inputs.probe_repo }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # publish-kit.sh stages with `git archive HEAD`, which reads the
+          # repository but needs no credentials.
+          persist-credentials: false
+
+      # Install the latest sbx CLI. "latest" is intentional, as in ci.yml: the
+      # schema is bundled in the binary, so this surfaces schema drift as soon
+      # as it ships.
+      - name: Install sbx CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/docker/sbx-releases/releases/latest/download/DockerSandboxes-linux.tar.gz" \
+            -o /tmp/DockerSandboxes-linux.tar.gz
+          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
+          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
+          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
+
+      - name: Verify sbx
+        run: sbx version
+
+      # oras probes whether the version tag already exists and re-points the
+      # rolling tag by digest. A dry run reaches neither, so both this and the
+      # login below are skipped and a rehearsal needs no credentials at all.
+      - name: Install oras
+        if: env.DRY_RUN == ''
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      # `sbx kit push` authenticates through the Docker credential store, so a
+      # plain docker login is what it reads.
+      - name: Log in to GHCR
+        if: env.DRY_RUN == ''
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # fd 3 carries the script's machine-readable key=value output, keeping
+      # `sbx kit validate`/`inspect` and oras chatter out of $GITHUB_OUTPUT.
+      - name: Publish
+        env:
+          KIT: ${{ matrix.kit }}
+          KIT_VERSION: ${{ needs.verify.outputs.version }}
+        run: ./scripts/publish-kit.sh "${KIT}" "${KIT_VERSION}" 3>>"$GITHUB_OUTPUT"

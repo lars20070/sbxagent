@@ -1,0 +1,16 @@
+{
+  "defaultProvider": "openrouter",
+  "defaultModel": "qwen/qwen3-coder-next",
+  "extensions": ["/usr/local/lib/sbxagent/network-block.ts"],
+  "defaultThinkingLevel": "off",
+  "defaultProjectTrust": "ask",
+  "enableInstallTelemetry": false,
+  "retry": {
+    "enabled": true,
+    "maxRetries": 3,
+    "provider": {
+      "maxRetries": 0,
+      "timeoutMs": 3600000
+    }
+  }
+}

@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxcursor
-version: "0.2.0"
+version: "0.3.0"
 displayName: Cursor with custom toolchain
 description: Cursor with custom toolchain
 
@@ -9,11 +9,11 @@ extends: cursor
 
 sandbox:
   # OLD CODE:
-  # entrypoint: [cursor-agent] # Runs with --yolo !!
+  # entrypoint: [agent] # Runs with --yolo !!
   #
   # TEMPORARY: works around sbx dropping the parent cursor kit's setup when
   # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
-  # Revert to `entrypoint: [cursor-agent]` once sbx merges parent and child setup instead of replacing.
+  # Revert to `entrypoint: [agent]` once sbx merges parent and child setup instead of replacing.
   entrypoint:
     - sh
     - -c
@@ -34,13 +34,12 @@ sandbox:
       # all, so it names the variable via env_vars instead). GH_TOKEN here is
       # the proxy-managed `github` service sentinel, which the credential proxy
       # swaps for the real token on requests to api.github.com.
-      # This only covers the agent session this entrypoint starts; a
-      # `cursor-agent` launched by hand from `sbxcursor exec bash` does not
-      # inherit it.
+      # This only covers the agent session this entrypoint starts; an `agent`
+      # launched by hand from `sbxcursor exec bash` does not inherit it.
       if [ -n "${GH_TOKEN:-}" ]; then
         export GITHUB_TOKEN="$GH_TOKEN"
       fi
-      exec cursor-agent "$@"
+      exec agent "$@"
     - sbxcursor-entrypoint
 # resources:
 #   cpu: 8
@@ -54,11 +53,13 @@ agentInstructions:
     passwordless, and a sandbox-local Docker daemon is available.
 
     Network egress is allowlisted. If a network request fails because its host
-    is blocked, stop and ask the user to run this on the host:
-    `sbx policy allow network "<host>"`. Do not run `sbx policy` inside the
-    sandbox, and do not work around a block by mirroring, vendoring, retrying
-    against a different host, or dropping the step. Nothing enforces this for
-    you here, so it is on you: end the turn and report the blocked host.
+    is blocked, stop and ask the user to lift it on the host — the response
+    body says which: `sbx policy allow network "<host>"` for a default-deny,
+    `sbx policy rm network --resource "<host>"` for a local deny (deny beats
+    allow), or contact IT for organisation policy. Do not run `sbx policy`
+    inside the sandbox, and do not work around a block by mirroring, vendoring,
+    retrying against a different host, or dropping the step. Nothing enforces
+    this for you here, so it is on you: end the turn and report the blocked host.
 
     The in-sandbox `sbx` supports only `sbx version`, `sbx kit validate`,
     `sbx kit inspect`, and `sbx kit pack`. All sandbox management commands,
@@ -113,6 +114,8 @@ permissions:
       - "files.pythonhosted.org:443"
       # Pi agent development
       - "pi.dev"
+      # OpenRouter model API, for agents configured against it.
+      - "openrouter.ai:443"
       # No Cursor hosts here on purpose: api2.cursor.sh, api3.cursor.sh,
       # repo42.cursor.sh and cursor.com are already allowed by the base preset.
       # Verified with `sbxcursor policy check`.
@@ -132,7 +135,7 @@ setup:
     - command: mkdir -p /home/agent/.cursor && chown agent:agent /home/agent/.cursor
       user: "0"
       description: Ensure .cursor is owned by agent before bind mounts and initFiles run (replicated parent step)
-    # Pre-trust the workspace so the interactive cursor-agent TUI skips its
+    # Pre-trust the workspace so the interactive `agent` TUI skips its
     # "Workspace Trust Required" prompt on every run. `--yolo` bypasses tool
     # approvals but NOT this trust gate, and `--trust` only works in headless
     # (-p) mode, so without this every interactive session starts with a prompt.
@@ -146,7 +149,7 @@ setup:
         esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
         [ -f "$dir/.workspace-trusted" ] || printf '{"trustedAt":"%s","workspacePath":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$esc" > "$dir/.workspace-trusted"
       user: "agent"
-      description: Pre-trust the workspace so cursor-agent skips the interactive Workspace Trust prompt (replicated parent step)
+      description: Pre-trust the workspace so `agent` skips the interactive Workspace Trust prompt (replicated parent step)
     # The parent ships this as a `setup.files:` entry with onlyIfMissing: true.
     # That whole node is dropped along with the rest, and a child `setup.files:`
     # would be a second unverified path, so it is written from a command here
@@ -278,8 +281,8 @@ setup:
       user: "root"
       description: Update apt package cache in background (replicated parent step)
     # Cursor gates MCP servers behind a separate approval from the workspace
-    # trust gate, and `--yolo` bypasses neither: without this, `cursor-agent mcp
-    # list` reports both servers as "not loaded (needs approval)". `mcp enable`
+    # trust gate, and `--yolo` bypasses neither: without this, `agent mcp list`
+    # reports both servers as "not loaded (needs approval)". `mcp enable`
     # records them in ~/.cursor/projects/<slug>/mcp-approvals.json, alongside the
     # .workspace-trusted file the parent seeds.
     #
@@ -288,9 +291,9 @@ setup:
     # `mcp enable` reads to resolve the names — does not exist yet at that point.
     #
     # HOME and PATH are set explicitly because a startup step runs with a
-    # minimal environment: PATH lacks ~/.local/bin, where the cursor-agent
-    # binary lives, and cursor-agent aborts outright on an unset HOME. Both were
-    # observed — the first version of this step failed silently on PATH alone.
+    # minimal environment: PATH lacks ~/.local/bin, where the `agent` binary
+    # lives, and `agent` aborts outright on an unset HOME. Both were observed —
+    # the first version of this step failed silently on PATH alone.
     #
     # Soft-failing so a Cursor CLI change cannot make the sandbox unstartable
     # over a convenience feature; tests/toolchain_test.sh asserts the result, so
@@ -306,7 +309,7 @@ setup:
           export HOME PATH
           cd "$WORKSPACE_DIR"
           for server in context7 github; do
-            cursor-agent mcp enable "$server" >/dev/null 2>&1 || true
+            agent mcp enable "$server" >/dev/null 2>&1 || true
           done
       user: "agent"
       description: Pre-approve the kit's MCP servers so the TUI does not prompt
