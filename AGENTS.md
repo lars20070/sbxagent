@@ -79,9 +79,29 @@ The wrapper has to run unchanged on macOS and Linux hosts.
   changelog.
 - Restore an empty `## [Unreleased]` heading above the new release heading.
 - Tag that commit `vX.Y.Z` once `VERSION`, all kit specs, and `CHANGELOG.md`
-  agree.
-  Pushing the tag and publishing the kit itself are separate steps this
-  repo does not yet define; confirm before pushing a tag anywhere.
+  agree. **Pushing that tag publishes**, so confirm before pushing a tag
+  anywhere.
+
+## Releasing
+
+Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which publishes
+every kit to `ghcr.io/lars20070/<kit>:X.Y.Z` and re-points `latest` at the same
+digest. There is no other publish trigger.
+
+- Rehearse with `make publish-dry-run` first. It stages, validates and inspects
+  each kit and prints what would be pushed, without a registry or credentials.
+- The workflow re-runs `make lint`, and refuses a tag whose version disagrees
+  with `VERSION` (`scripts/check-release-tag.sh`). A release cannot publish a
+  repo that disagrees with itself.
+- `workflow_dispatch` is for rehearsals, not releases: it defaults to a dry run,
+  and `probe_repo`/`probe_kit` aim one kit at a throwaway package so the real
+  publish path can be exercised without touching the four real packages.
+- Re-running a release is safe. A version tag that already exists is reused, not
+  overwritten — which also means **re-cutting a published version publishes
+  nothing**. Change the version instead.
+- **Load-bearing invariant:** `latest` means "newest release" only because
+  nothing publishes from `main`. Adding a main-branch publish would silently
+  change what `latest` means for everyone who pinned it.
 
 ## Skills
 

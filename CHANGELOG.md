@@ -10,6 +10,22 @@ and this project adheres to
 
 ### Added
 
+- Every kit is now published to GitHub Container Registry on release, as an OCI
+  artifact per kit: `ghcr.io/lars20070/sbxclaude`, `.../sbxcodex`,
+  `.../sbxcursor` and `.../sbxpi`. Pushing a `vX.Y.Z` tag publishes all four at
+  `X.Y.Z` and re-points `latest` at the same digest — one push and an `oras`
+  re-tag, never a second push, so both tags share one digest, one signature and
+  one provenance attestation. This makes a kit usable without cloning the repo:
+  `sbx run --kit ghcr.io/lars20070/sbxclaude:X.Y.Z sbxclaude`. See
+  "Using a published kit" in `README.md`, including the `kit.allowedSources`
+  setting a consumer may need and the `sbx kit verify` invocation.
+  Artifacts are signed keyless through the workflow's GitHub OIDC identity and
+  carry a SLSA provenance attestation. Signing is a step of its own after the
+  push rather than `sbx kit push --sign`, so a signing failure leaves a
+  correctly published artifact that a re-run signs in place.
+  The packages are **public only after a one-time visibility flip** per package
+  in GHCR, which creates every new package private; until then a consumer gets
+  a 404 rather than an authentication error.
 - `deepseek/deepseek-v4-pro` on `sbxpi`, pinned through OpenRouter to DeepInfra
   with `allow_fallbacks: false` (same routing as `qwen/qwen3-coder`). The
   default model is unchanged.

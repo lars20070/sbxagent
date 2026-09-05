@@ -119,6 +119,7 @@
     "opencontainers",
     "recognisable",
     "subshell",
-    "Sigstore"
+    "Sigstore",
+    "SLSA"
   ]
 }

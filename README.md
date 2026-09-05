@@ -192,6 +192,60 @@ Link only the agents you want; each is independent. `sbxagent` deliberately has
 no default agent — run it under its own name and it refuses, rather than
 silently picking one for you.
 
+## Using a published kit
+
+Every release publishes the four kits to GitHub Container Registry as OCI
+artifacts, one package per kit, named after the command it corresponds to:
+
+| Package | Equivalent to |
+| --- | --- |
+| `ghcr.io/lars20070/sbxclaude` | `sbxclaude` |
+| `ghcr.io/lars20070/sbxcodex` | `sbxcodex` |
+| `ghcr.io/lars20070/sbxcursor` | `sbxcursor` |
+| `ghcr.io/lars20070/sbxpi` | `sbxpi` |
+
+This is the way to use a kit **without cloning this repository**. You get the
+kit — the toolchain, network policy, credentials and agent instructions — but
+not the wrapper, so there is no per-project sandbox naming and no `sbx<agent>`
+subcommands. Pass the reference to `sbx run` yourself. The kit's name is the
+agent operand, exactly as the wrapper passes it:
+
+```bash
+sbx run --kit ghcr.io/lars20070/sbxclaude:0.4.0 sbxclaude
+```
+
+Each release publishes two tags: the version, which never moves, and `latest`,
+re-pointed at the same digest. `latest` means "newest release" here rather than
+"tip of main", because nothing publishes outside a release. Pin the version for
+anything repeatable, or pin the digest to be certain:
+
+```bash
+sbx run --kit ghcr.io/lars20070/sbxclaude@sha256:<digest> sbxclaude
+```
+
+**If loading fails with a kit-source error rather than a registry error**, `sbx`
+is refusing the source rather than failing to reach it. Kit sources are
+allow-listed by prefix, so add this one:
+
+```bash
+sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'
+```
+
+Every artifact is signed keyless through GitHub Actions and carries a SLSA
+provenance attestation. Both are worth checking before you run someone else's
+kit:
+
+```bash
+sbx kit inspect     ghcr.io/lars20070/sbxclaude:0.4.0
+sbx kit provenance  ghcr.io/lars20070/sbxclaude:0.4.0
+sbx kit verify      ghcr.io/lars20070/sbxclaude:0.4.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github.com/lars20070/sbxagent/'
+```
+
+The identity is what matters: it proves the artifact was built by this
+repository's release workflow, not merely that someone signed it.
+
 ## Use
 
 Run the command for the agent you want, from any project directory:
