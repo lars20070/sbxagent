@@ -85,11 +85,17 @@ The wrapper has to run unchanged on macOS and Linux hosts.
 ## Releasing
 
 Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which publishes
-every kit to `ghcr.io/lars20070/<kit>:X.Y.Z` and re-points `latest` at the same
-digest. There is no other publish trigger.
+every kit to `ghcr.io/lars20070/<kit>:X.Y.Z`, re-points `latest` at the same
+digest, and creates the GitHub Release. There is no other publish trigger.
 
 - Rehearse with `make publish-dry-run` first. It stages, validates and inspects
   each kit and prints what would be pushed, without a registry or credentials.
+- **The `CHANGELOG.md` section must have a body, not just a heading.** The
+  Release notes are that section (`scripts/release-notes.sh`), and `verify`
+  runs the same script before anything is published, so a version cut with
+  nothing to say about it fails the release early rather than halfway through.
+  `make lint` does not catch this — it only checks the heading exists and
+  agrees with `VERSION`. Run `./scripts/release-notes.sh X.Y.Z` before tagging.
 - The workflow re-runs `make lint`, and refuses a tag whose version disagrees
   with `VERSION` (`scripts/check-release-tag.sh`). A release cannot publish a
   repo that disagrees with itself.

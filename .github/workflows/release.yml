@@ -84,6 +84,16 @@ jobs:
               | sed 's/^/version=/' >> "$GITHUB_OUTPUT"
           fi
 
+      # Fail an empty changelog section here, before a single kit is published.
+      # `make lint` cannot catch this: it checks only that the latest
+      # `## [X.Y.Z]` heading exists and agrees with VERSION, and a heading with
+      # no body passes that. The github-release job runs the same script again
+      # for the notes themselves, so there is one definition of "non-empty".
+      - name: Check the release notes are not empty
+        env:
+          KIT_VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/release-notes.sh "${KIT_VERSION}" >/dev/null
+
       # Discovered, not hardcoded, so a fifth kit needs no edit here — matching
       # `make lint`, `make validate` and `make publish-dry-run`, which all
       # iterate kits/*/. Inputs are read through env rather than interpolated
@@ -225,3 +235,58 @@ jobs:
           KIT: ${{ matrix.kit }}
           KIT_VERSION: ${{ needs.verify.outputs.version }}
         run: ./scripts/publish-kit.sh "${KIT}" "${KIT_VERSION}" 3>>"$GITHUB_OUTPUT"
+
+  # Create the GitHub Release. A tag and a Release are different objects and
+  # pushing a tag never creates one, so without this the Releases page stays
+  # empty however many versions ship. The notes are the changelog's own section,
+  # so there is no second description of a release to drift.
+  github-release:
+    # Both are required. A matrix failure leaves `publish` failed, which skips
+    # this job — never announce a release in which a kit did not publish. And
+    # Actions only exposes outputs from jobs named here, so dropping `verify`
+    # would silently empty needs.verify.outputs.version.
+    needs: [verify, publish]
+    # A dispatch is a rehearsal or a probe, and must never create a Release.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # The only job in this workflow that writes to the repository.
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Needed for CHANGELOG.md and the script. gh authenticates with
+          # GH_TOKEN below, not with the checkout credential.
+          persist-credentials: false
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          KIT_VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The kits are already published by this point, so say that first: a
+          # failure here leaves GHCR intact and only the Releases page missing,
+          # and a red run must not be read as a failed publish.
+          echo "NOTICE: creating GitHub Release ${TAG} (kits already published)"
+          # Skip rather than fail if it exists, matching the reuse-on-collision
+          # behaviour in publish-kit.sh — re-running a release is normal here.
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "NOTICE: release ${TAG} already exists — not modifying it"
+            exit 0
+          fi
+          # Read the notes first and only then create, rather than piping one
+          # into the other. In a pipeline both sides start together, so a
+          # failing extractor would hand gh an empty stdin and the Release
+          # would be created empty before pipefail reported the failure — and
+          # the existing-release check above would then skip it forever. The
+          # verify job makes that unreachable in practice; this makes it
+          # impossible.
+          notes="$(./scripts/release-notes.sh "${KIT_VERSION}")"
+          # --verify-tag refuses to invent a tag that does not exist, turning a
+          # typo into a failure instead of a stray tag.
+          printf '%s\n' "${notes}" |
+            gh release create "${TAG}" --title "${TAG}" --verify-tag --notes-file -
