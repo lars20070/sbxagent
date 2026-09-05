@@ -93,8 +93,19 @@ jobs:
         env:
           PROBE_KIT: ${{ inputs.probe_kit }}
           PROBE_REPO: ${{ inputs.probe_repo }}
+          PUBLISHING_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && '1' || '' }}
         run: |
           set -euo pipefail
+          # A dispatch is a rehearsal; only a tag push releases. Enforced here
+          # rather than left to the dry_run default, because an accidental
+          # dispatch publish would occupy the version tag — and the eventual
+          # real release would then find it present, reuse it, and publish
+          # nothing at all.
+          if [[ -n "${PUBLISHING_DISPATCH}" && -z "${PROBE_REPO}" ]]; then
+            echo "a publishing dispatch must set probe_repo (and probe_kit)" >&2
+            echo "the four real packages are published by pushing a vX.Y.Z tag" >&2
+            exit 1
+          fi
           # probe_repo renames the package for every kit in the matrix, so
           # without probe_kit all four would push to one package and overwrite
           # each other. Refuse rather than publish nonsense.
@@ -169,14 +180,19 @@ jobs:
           # repository but needs no credentials.
           persist-credentials: false
 
-      # Install the latest sbx CLI. "latest" is intentional, as in ci.yml: the
-      # schema is bundled in the binary, so this surfaces schema drift as soon
-      # as it ships.
+      # Pinned, unlike ci.yml. There the point is to surface schema drift the
+      # day it ships, and a red PR is a cheap way to learn that. Here the same
+      # drift would land mid-release, changing how artifacts are published
+      # after the tag is already public. `sbx kit` is marked EXPERIMENTAL and
+      # its publishing behaviour has moved between releases, so a release
+      # pins what it was tested against. Bump deliberately.
       - name: Install sbx CLI
+        env:
+          SBX_VERSION: v0.39.0
         run: |
           set -euo pipefail
           curl -fsSL \
-            "https://github.com/docker/sbx-releases/releases/latest/download/DockerSandboxes-linux.tar.gz" \
+            "https://github.com/docker/sbx-releases/releases/download/${SBX_VERSION}/DockerSandboxes-linux.tar.gz" \
             -o /tmp/DockerSandboxes-linux.tar.gz
           tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
           sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh

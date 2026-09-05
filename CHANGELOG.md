@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-05
+
 ### Added
 
 - Every kit is now published to GitHub Container Registry on release, as an OCI

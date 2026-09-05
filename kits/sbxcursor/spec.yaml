@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxcursor
-version: "0.3.0"
+version: "0.4.0"
 displayName: Cursor with custom toolchain
 description: Cursor with custom toolchain
 

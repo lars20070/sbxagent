@@ -102,6 +102,41 @@ digest. There is no other publish trigger.
 - **Load-bearing invariant:** `latest` means "newest release" only because
   nothing publishes from `main`. Adding a main-branch publish would silently
   change what `latest` means for everyone who pinned it.
+- The release workflow pins the `sbx` version, unlike `ci.yml`. There, tracking
+  `latest` surfaces schema drift on a PR, which is cheap to learn about. Here
+  the same drift would change how artifacts are published after the tag is
+  already public, and `sbx kit` is marked EXPERIMENTAL. Bump it deliberately.
+
+### A red `sbx kit sign` does not mean the release is unsigned
+
+Every release logs this, and it is expected:
+
+```text
+ERROR: pack signature manifest: failed to push manifest: failed to delete
+dangling referrers index sha256:... : DELETE ".../manifests/sha256:..."
+response status code 405: unsupported: The operation is unsupported.
+```
+
+GHCR does not implement the OCI 1.1 referrers API, so the referrers list lives
+in an index under a fallback `sha256-<digest>` tag. Attaching a second referrer
+replaces that index, and oras-go then garbage-collects the old one with a
+manifest `DELETE` — which GHCR refuses, because it implements no manifest
+deletion at all. The distribution spec does not require that delete: the new
+index, already carrying the signature, was pushed before the cleanup ran.
+
+So `sbx kit sign`'s exit code says nothing about whether the kit is signed.
+`scripts/publish-kit.sh` therefore treats it as a notice and runs `sbx kit
+verify` as the real gate — the job passes only if a consumer could verify the
+artifact against this repository's workflow identity. **Confirmed empirically**
+on 2026-09-05 against a throwaway `sbxprobe` package: `sign` failed with the
+405 above and `verify` then reported
+`VERIFIED: ghcr.io/lars20070/sbxprobe@sha256:25ba7b1e… (oci)`.
+
+Do not "fix" this by deleting the signing step. If the verify step ever starts
+failing, that is a real problem and the artifacts genuinely are unsigned.
+The underlying bug is upstream — oras-go exposes both a `SkipReferrersGC`
+option and an `IsReferrersIndexDelete()` check precisely so callers can ignore
+this — and it is worth removing this workaround once `sbx` handles it.
 
 ## Skills
 
