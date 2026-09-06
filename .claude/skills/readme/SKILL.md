@@ -142,9 +142,9 @@ artefact, no section:
   a badge. Copyleft, source-available or commercial goes in the first screen —
   an incompatible license is the fastest possible disqualifier.
 - **Length.** Not a word count. The README owns evaluation, first success, and
-  where to go next. A section serving none of those three moves to `docs/` and
-  gets a link. Most single-purpose libraries need 60–150 rendered lines, not
-  400.
+  where to go next. A section serving none of those three moves out of the
+  file — see Scope for where it goes. Most single-purpose libraries need
+  60–150 rendered lines, not 400.
 
 ## What not to produce
 
@@ -176,7 +176,26 @@ have to check.
 
 ## Scope
 
-`README.md` is for humans evaluating or onboarding. Build incantations, test
-invocations and lint rules belong in `AGENTS.md`; contribution detail belongs
-in `CONTRIBUTING.md`. If that material starts accumulating in the README, say
-so and suggest the move.
+`README.md` is for humans evaluating or onboarding. Content that serves none
+of evaluation, first success, or where-to-go-next moves out of the file. It
+does not get deleted, and it does not get compressed into a stub:
+
+- **`docs/<topic>.md`** — the default destination for whatever the README
+  outgrew: the full configuration reference, deployment and setup guides,
+  troubleshooting, architecture notes, migration guides. Create `docs/` in the
+  repository root if it does not exist yet. Name each file for its topic —
+  `docs/configuration.md`, `docs/deployment.md` — and never `docs/README.md`,
+  which the platform treats as a README candidate and which can shadow the
+  real one.
+- **`CONTRIBUTING.md`** — build steps, test invocations, the release process,
+  and anything else aimed at people changing the code.
+- **`AGENTS.md`** — operational instructions for coding agents: setup
+  commands, lint rules, project constraints.
+- **`CHANGELOG.md`** — version history. Never inline it.
+
+A move is a two-part edit and both halves are mandatory: write the content
+into the new file intact, then replace the README section with a one-line
+pointer that links to it. Content that leaves the README without landing
+somewhere has been deleted rather than moved, and deletion is a change the
+user did not ask for. Name every file you created and every section you
+relocated in your report.

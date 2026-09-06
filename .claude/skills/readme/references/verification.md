@@ -54,6 +54,8 @@ Checking everything is expensive. Tier it:
 - [ ] The license section matches the `LICENSE` file and the SPDX identifier
       is valid
 - [ ] No linked file is missing and no badge points at a deleted workflow
+- [ ] Anything moved out of the README exists in its new file and is linked
+      from the README — nothing was dropped in the name of shortening
 
 ### Structure
 
