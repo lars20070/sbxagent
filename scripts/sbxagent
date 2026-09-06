@@ -27,7 +27,7 @@ no_args() {
 usage() {
 	cat <<EOF
 Usage:
-  ${SELF}                    Attach; create first if missing
+  ${SELF}                    Attach to the sandbox, creating it if missing
   ${SELF} name               Print the sandbox name
   ${SELF} version            Print the kit name and version
   ${SELF} exec CMD...        Run a command in the sandbox

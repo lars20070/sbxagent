@@ -129,7 +129,7 @@ All four commands take the same signatures. `sbx<agent>` below is any of
 
 | Command | Effect |
 | --- | --- |
-| `sbx<agent>` | Attach; create the sandbox first if missing |
+| `sbx<agent>` | Attach to the sandbox, creating it if missing |
 | `sbx<agent> create` | Build the sandbox without attaching |
 | `sbx<agent> rm` | Remove the sandbox after confirmation |
 | `sbx<agent> name` | Print the derived sandbox name |
