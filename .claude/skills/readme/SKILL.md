@@ -49,7 +49,9 @@ These are constraints, not suggestions.
    none of the author's existing prose. Only then consider wording.
 4. **Draft the first screen first**, and iterate the one-line description
    explicitly. It is the highest-leverage sentence in the repository and the
-   one most worth spending tokens on.
+   one most worth spending tokens on. Read `references/prose.md` before
+   writing sentences — structure decides whether a README is usable, prose
+   decides whether it is trusted.
 5. **Select sections by applicability**, not by template completeness. Prefer
    omitting a section to stubbing it. An empty heading is worse than no
    heading — it signals abandonment.
@@ -157,7 +159,9 @@ These read as unreviewed generated output and cost the maintainer trust:
 - Feature tables generated from the directory listing, describing files rather
   than capabilities.
 - "Blazingly fast", "production-ready", "enterprise-grade", "seamlessly" —
-  where no benchmark, no deployment and no enterprise exist.
+  where no benchmark, no deployment and no enterprise exist. Everybody claims
+  these, so none of them carries information. Cut them and let the facts do
+  the work.
 - A Contributing section on a repo with no `CONTRIBUTING.md`, no issue
   templates and no history of accepted pull requests.
 - Sections of uniform length regardless of whether there is anything to say.
@@ -169,7 +173,7 @@ These read as unreviewed generated output and cost the maintainer trust:
 None of this calls for flat, opinion-free prose. A README may carry a point of
 view, an argument, even a joke. What it may not carry is marketing filler and
 superlatives nobody checked. Aim for prose that reads as though a person who
-understands the project wrote it.
+understands the project wrote it — `references/prose.md` is how.
 
 The goal is not output that *looks* good. It is output a maintainer would not
 have to check.

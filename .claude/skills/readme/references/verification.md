@@ -64,7 +64,8 @@ Checking everything is expensive. Tier it:
 - [ ] The status is present when the project is not stable — the second most
       commonly missing
 - [ ] The first screen alone supports a keep-or-leave decision
-- [ ] Every piece of project jargon is glossed or linked on first use
+- [ ] Every piece of project jargon is glossed or linked on first use, and
+      each concept keeps one name throughout
 - [ ] Exactly one H1, and no skipped heading levels below it
 - [ ] A table of contents exists above about 100 lines, and every anchor
       resolves
@@ -81,7 +82,8 @@ Checking everything is expensive. Tier it:
 
 ### Honesty
 
-- [ ] No superlative without a benchmark or citation behind it
+- [ ] No superlative without a benchmark or citation behind it, and no
+      hedge softening a claim you actually believe
 - [ ] Known limitations are stated — the ones you actually found, never
       invented to fill the section
 - [ ] A Contributing section appears only if contributions are actually
