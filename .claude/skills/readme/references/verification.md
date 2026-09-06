@@ -43,10 +43,11 @@ Checking everything is expensive. Tier it:
 
 - [ ] Title matches the repository, directory and package name, or the
       mismatch is explained
-- [ ] One-liner is under 120 characters and identical in the README, the
-      manifest and the repository description
+- [ ] One-liner is under 120 characters; any mismatch with the manifest or
+      the repository description is reported, not silently edited
 - [ ] The install command matches the real package name and publication state
-- [ ] Every code snippet is valid and runnable as written
+- [ ] Every code snippet is either run, or explicitly marked unverified in
+      your report
 - [ ] Every claimed feature, CLI flag, config key and function signature
       exists in the code
 - [ ] Version numbers and runtime ranges match the manifest and the CI matrix
@@ -76,14 +77,16 @@ Checking everything is expensive. Tier it:
 ### Honesty
 
 - [ ] No superlative without a benchmark or citation behind it
-- [ ] Limitations and known gaps are stated
+- [ ] Known limitations are stated — the ones you actually found, never
+      invented to fill the section
 - [ ] A Contributing section appears only if contributions are actually
       accepted
 - [ ] Nothing planned is described in the present tense
 
 ## Platform mechanics
 
-Deterministic rendering facts, not style opinions — the cheapest quality wins.
+Rules. These are documented platform behaviour, and getting one wrong is a
+visible defect:
 
 - **Resolution order.** If several READMEs exist, the platform shows
   `.github/README.md`, then the repository root, then `docs/`. Adding a root
@@ -91,20 +94,22 @@ Deterministic rendering facts, not style opinions — the cheapest quality wins.
   sees.
 - **Truncation.** Content beyond 500 KiB is not rendered. Prose never hits
   this; embedded base64 images and generated tables do.
-- **Headings are navigation.** The outline menu is generated from them, so
-  skipping a level degrades it.
-- **Relative links** resolve against the current file, and often break when
-  the README is reused as a package landing page. Use absolute URLs for
-  anything a package audience needs.
+- **Headings are navigation.** The outline menu is generated from them, so a
+  skipped level degrades it.
+- **Relative links** resolve against the current file. Use absolute URLs for
+  anything a package-registry audience needs, since the README is reused as
+  the package landing page.
 - **HTML is sanitised** to a subset: `<div align>`, `<img>`, `<details>`,
-  `<summary>`, `<picture>`, `<kbd>`. No `<style>`, no `<script>`. Use
-  `<details>` to keep long content available without making the page harder to skim.
-- **Dark mode** — `<picture>` with a `prefers-color-scheme: dark` source. A
-  logo with a baked-in white background is a visible defect for roughly half
-  of viewers.
-- **Mermaid renders natively**, and beats a committed PNG for architecture
-  diagrams because it stays readable as text and reviewable in a diff.
-- **Badge images are proxied and cached**, so badge state can lag.
-- **Emoji in headings survive into the generated anchors**, which makes
-  hand-written table-of-contents links fragile. One more reason to keep
-  decorative emoji out of headings.
+  `<summary>`, `<picture>`, `<kbd>`. No `<style>`, no `<script>`.
+- **Dark mode** needs `<picture>` with a `prefers-color-scheme: dark` source.
+  A logo with a baked-in white background is a defect for half of viewers.
+
+Defaults. Sensible unless the repo has a reason otherwise:
+
+- Mermaid renders natively and beats a committed PNG for architecture
+  diagrams, because it stays readable as text and reviewable in a diff.
+- `<details>` keeps long content available without making the page harder to
+  skim.
+- Badge images are proxied and cached, so badge state can lag.
+- Keep decorative emoji out of headings — they survive into the generated
+  anchors and make hand-written table-of-contents links fragile.

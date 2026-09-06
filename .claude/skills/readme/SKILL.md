@@ -67,8 +67,10 @@ it for me, is it alive, can I use it legally.
    name exactly. Explain any mismatch.
 2. **One-line description** — under 120 characters, no heading, plain
    sentence. Name the *category* of thing it is ("a CLI for…", "a Rust library
-   that…") and its distinguishing property. Use the same string in the README,
-   the manifest `description` field and the repository description.
+   that…") and its distinguishing property. It should ideally match the
+   manifest `description` and the repository description. Where it does not,
+   report the mismatch — do not silently rewrite the manifest or the
+   repository metadata, which is the user's call to make.
 3. **Badges** — three to five, one line, each answering a question a user
    actually has at decision time. Never stack rows.
 4. **Two to four sentences of context** — the *why*. What problem, for whom,
@@ -86,28 +88,39 @@ way.
 
 ## Body and tail
 
-Order by decreasing generality. Include only what applies.
+A menu, not an outline. Below are the sections that *can* exist, in the order
+they go when they are present. **Most repos need fewer than half of them.**
+Pick by what the repository actually supports. An empty heading is worse than
+a missing one — it signals abandonment.
 
-1. Table of contents, if the file exceeds about 100 lines.
-2. Features — short list, each item verifiable in the code. Cut anything
-   aspirational.
-3. Installation, expanded — prerequisites with version ranges, platform notes,
-   alternative channels, and a verification step.
-4. Usage — progressively fuller examples, each runnable as written, each
-   showing expected output.
-5. Configuration — options, environment variables, config schema.
-6. API reference, or a link to one. Never paste generated API docs in.
-7. How it works — a paragraph or a Mermaid diagram, for anything non-obvious.
-8. Limitations and caveats. Rare, high-trust, cheap to write.
-9. Comparison with alternatives — say honestly when to prefer them.
-10. Roadmap or project status, if there is one.
-11. Contributing — where to ask questions, whether pull requests are accepted,
-    what is required. Only if contributions are genuinely accepted.
-12. Support — the issue tracker, discussions or chat, with honest response
-    expectations ("side project, replies may be slow").
-13. Maintainers — who to ping, one contact route each.
-14. Acknowledgements.
-15. License — SPDX identifier, holder, link to the file. Last section.
+- Table of contents — only above about 100 lines.
+- Features — a short list, each item verifiable in the code. Cut anything
+  aspirational.
+- Installation, expanded — prerequisites with version ranges, platform notes,
+  alternative channels, and a verification step.
+- Usage — progressively fuller examples, each runnable as written, each
+  showing expected output.
+- Configuration — options, environment variables, config schema.
+- API reference, or a link to one. Never paste generated API docs in.
+- How it works — a paragraph or a Mermaid diagram, for anything non-obvious.
+- Limitations and caveats — when you know of real ones. Never invent them to
+  fill the section.
+- Comparison with alternatives — say honestly when to prefer them.
+- Roadmap or project status — only if one already exists in writing.
+
+Every tail section is gated on an artefact that already exists in the repo. No
+artefact, no section:
+
+- Contributing — needs `CONTRIBUTING.md`, issue templates, or a history of
+  accepted pull requests.
+- Security — needs `SECURITY.md`. Link it; do not restate it.
+- Support — needs a real channel: issue tracker, discussions, chat. State
+  response expectations honestly ("side project, replies may be slow").
+- Maintainers — needs `CODEOWNERS`, `MAINTAINERS.md` or manifest `authors`.
+  Who to ping, one contact route each. Skip it when the repo has one obvious
+  owner the title already makes clear.
+- Acknowledgements — only when there is something specific to credit.
+- License — SPDX identifier, holder, link to the file. Last section.
 
 ## Settled questions
 
@@ -139,6 +152,11 @@ These read as unreviewed generated output and cost the maintainer trust:
 - Confident specifics that were never checked: version numbers, function
   signatures, config keys, CLI flags.
 - Critical information carried only by a screenshot or GIF.
+
+None of this calls for flat, opinion-free prose. A README may carry a point of
+view, an argument, even a joke. What it may not carry is marketing filler and
+superlatives nobody checked. Aim for prose that reads as though a person who
+understands the project wrote it.
 
 The goal is not output that *looks* good. It is output a maintainer would not
 have to check.

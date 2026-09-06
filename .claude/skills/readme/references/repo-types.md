@@ -22,8 +22,8 @@ text the reader can copy and paste.
 ## Application or self-hosted service
 
 The reader is asking "can I run this, and what will it cost me". Needs a
-screenshot — this is the one type where the visual is load-bearing —
-deployment options (a Compose file, a chart, a managed alternative), system
+screenshot — the one type where the visual is load-bearing, though whatever it
+shows must still be stated in text — deployment options (a Compose file, a chart, a managed alternative), system
 requirements, configuration and secrets handling, the backup and upgrade path,
 and a security note. A working deployment file matters more than usage
 examples.
