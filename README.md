@@ -11,8 +11,6 @@ already installed. Think of it as a customized version of
 sandbox and its own credentials, so all four can run against the same project
 at once.
 
-## How it works
-
 ```mermaid
 flowchart LR
   subgraph IN[" "]
@@ -59,26 +57,15 @@ flowchart LR
 
 <br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) uses the pinned toolchain (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place.*
 
-## Supported agents
+## Contents
 
-| Command | Agent | Parent kit | Entrypoint | Instruction file | MCP config | Network-block guard |
-| --- | --- | --- | --- | --- | --- | --- |
-| `sbxclaude` | Claude Code | `claude` | `claude` | `CLAUDE.md` | `~/.claude.json` | **yes** |
-| `sbxcodex` | Codex | `codex` | `codex` | `AGENTS.md` | `~/.codex/config.toml` | yes (soft) |
-| `sbxcursor` | Cursor | `cursor` | `agent` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
-| `sbxpi` | Pi | *none* | `pi` | `AGENTS.md` | *none* | yes (overridable) |
-
-`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` ships
-no Pi agent, so the kit builds on the bare `shell-docker` template and installs
-everything itself. And Pi has **no MCP support at all**, so the kit lists no
-MCP config; its model and provider settings live in
-`~/.pi/agent/models.json` and `~/.pi/agent/settings.json` instead.
-
-The **network-block guard is not equally strong in each sandbox**, because the
-four CLIs offer different hook outputs. `sbxclaude` ends the turn, `sbxpi` ends
-the run one tool call later, `sbxcodex` can only advise the agent to stop, and
-`sbxcursor` has no guard at all. [docs/agents.md](docs/agents.md) gives the
-reasoning, and the one coverage gap they all share.
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+- [Supported agents](#supported-agents)
+- [Further documentation](#further-documentation)
+- [Support](#support)
+- [License](#license)
 
 ## Install
 
@@ -161,7 +148,28 @@ S="$(sbxclaude name)"
 sbx inspect "${S}"
 ```
 
-## Documentation
+## Supported agents
+
+| Command | Agent | Parent kit | Entrypoint | Instruction file | MCP config | Network-block guard |
+| --- | --- | --- | --- | --- | --- | --- |
+| `sbxclaude` | Claude Code | `claude` | `claude` | `CLAUDE.md` | `~/.claude.json` | **yes** |
+| `sbxcodex` | Codex | `codex` | `codex` | `AGENTS.md` | `~/.codex/config.toml` | yes (soft) |
+| `sbxcursor` | Cursor | `cursor` | `agent` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
+| `sbxpi` | Pi | *none* | `pi` | `AGENTS.md` | *none* | yes (overridable) |
+
+`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` ships
+no Pi agent, so the kit builds on the bare `shell-docker` template and installs
+everything itself. And Pi has **no MCP support at all**, so the kit lists no
+MCP config; its model and provider settings live in
+`~/.pi/agent/models.json` and `~/.pi/agent/settings.json` instead.
+
+The **network-block guard is not equally strong in each sandbox**, because the
+four CLIs offer different hook outputs. `sbxclaude` ends the turn, `sbxpi` ends
+the run one tool call later, `sbxcodex` can only advise the agent to stop, and
+`sbxcursor` has no guard at all. [docs/agents.md](docs/agents.md) gives the
+reasoning, and the one coverage gap they all share.
+
+## Further documentation
 
 | Guide | Covers |
 | --- | --- |
