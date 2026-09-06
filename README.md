@@ -6,16 +6,10 @@
 
 `sbxagent` runs a coding agent in an isolated sandbox, with a fixed toolchain
 already installed. Think of it as a customized version of
-[`sbx run claude`](https://docs.docker.com/ai/sandboxes/agents/claude-code/), [`sbx run codex`](https://docs.docker.com/ai/sandboxes/agents/codex/) and [`sbx run cursor`](https://docs.docker.com/ai/sandboxes/agents/cursor/),
-plus [Pi](https://pi.dev), which `sbx` ships no agent for at all.
-
-One script serves four commands — `sbxclaude`, `sbxcodex`, `sbxcursor` and
+[`sbx run claude`](https://docs.docker.com/ai/sandboxes/agents/claude-code/), [`sbx run codex`](https://docs.docker.com/ai/sandboxes/agents/codex/) and so on. A single script `sbxagent` serves four different commands — `sbxclaude`, `sbxcodex`, `sbxcursor` and
 `sbxpi` — by dispatching on the name it was invoked as. Each gets its own
 sandbox and its own credentials, so all four can run against the same project
 at once.
-
-**Status: 0.4.0, pre-1.0.** The four commands and their signatures are settled;
-kit internals and pinned tool versions move between releases.
 
 ## How it works
 
@@ -63,7 +57,7 @@ flowchart LR
   style NET fill:none,stroke:none
 ```
 
-<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (pink) uses the pinned toolchain (lavender) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (teal) is mounted straight into the sandbox and edited in place.*
+<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) uses the pinned toolchain (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place.*
 
 ## Supported agents
 
