@@ -8,6 +8,33 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-06
+
+### Added
+
+- Pushing a `vX.Y.Z` tag now also creates the **GitHub Release**, alongside
+  publishing the kits. The notes are that version's own `CHANGELOG.md` section,
+  printed by `scripts/release-notes.sh`. The `verify` job runs the same script
+  before anything is published, so a version whose changelog section is empty
+  fails the run early rather than halfway through. Re-running a release reuses
+  an existing Release instead of creating a second one.
+
+### Changed
+
+- `README.md` is now a front page rather than a manual: 525 lines down to 190.
+  It keeps what you need to evaluate the project and reach a first successful
+  run — the diagram, the agent table, install, quick start and the command
+  table — and links out for the rest. Nothing was deleted; the depth moved into
+  a new `docs/` folder:
+  - [`docs/agents.md`](docs/agents.md) — how strongly each agent enforces a
+    blocked network request, and how each wires up the GitHub MCP server.
+  - [`docs/toolchain.md`](docs/toolchain.md) — what is installed in every
+    sandbox, which versions are pinned, and how to rebuild after a change.
+  - [`docs/setup.md`](docs/setup.md) — host-side credentials: a GitHub token,
+    an OpenRouter key, and optional local models through Ollama.
+  - [`docs/published-kits.md`](docs/published-kits.md) — running a kit from the
+    registry without cloning this repository.
+
 ## [0.4.0] - 2026-09-05
 
 ### Added
