@@ -95,10 +95,15 @@ meanings somebody will check. Where you mean *fast*, write *fast*.
 ## Verbs and agents
 
 Move the action into the verb. Abstract nouns made from verbs — *validation*,
-*configuration*, *initialisation* — pair with dead verbs and drain a sentence.
+*configuration*, *initialisation* — attract empty verbs, so finding one is the
+fastest way to find the other.
 
 - Not: *Validation of the input is performed by the parser.*
 - But: *The parser validates the input.*
+
+A precise verb also saves an adverb, because it carries the how as well as the
+what. *The daemon retries* beats *the daemon tries again automatically*, and
+*truncates* beats *shortens by cutting off the end*.
 
 Prefer the active voice for the same reason. The passive earns its place in
 three cases: the agent is unknown, the agent is genuinely uninteresting (*the
@@ -202,6 +207,10 @@ that mixes forms reads as careless: *installs the binary, configuration of the
 daemon, and to start the service* should be *installs the binary, configures
 the daemon, and starts the service*. The same applies to section headings.
 
+Check that an opening clause attaches to the subject that follows it. *Once
+installed, you can run the tests* says that you were installed; write *once
+the package is installed, run the tests*.
+
 Watch the noun and verb forms of the same compound. *Setup* is a noun and *set
 up* is a verb, so a heading reads **Setup** while an instruction reads *set up
 the database*. The same split governs *login* and *log in*, *backup* and *back
@@ -239,3 +248,7 @@ wearing a fact's clothes.
 - When editing somebody else's README, the aim is not to turn it into what you
   would have written. Fix what is unclear or untrue; leave what is merely
   different.
+
+Finally: break any rule here sooner than write something clumsy. These are
+aids to clear prose, not a compliance checklist. A sentence twisted to satisfy
+a rule is worse than the plain sentence the rule was meant to prevent.
