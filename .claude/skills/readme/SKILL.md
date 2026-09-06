@@ -25,7 +25,9 @@ These are constraints, not suggestions.
    cannot provide — support channel, roadmap, maintainer contact, the
    motivation behind a design decision — leave a visible `<!-- TODO: … -->`
    marker and say so in your response. Silent invention is the failure;
-   visible gaps are not.
+   visible gaps are not. One gap outranks the others: a repo with no license
+   file cannot legally be reused, so raise that as blocking rather than
+   listing it alongside cosmetic TODOs.
 4. **Preserve the author's voice.** When improving an existing README, make
    the smallest change that fixes the identified defect. Many good READMEs are
    idiosyncratic — humour, opinion, a personal register. Normalising them into
@@ -41,7 +43,10 @@ These are constraints, not suggestions.
    README asserts is derivable from manifests, workflow files and tests.
 3. **Decide the mode.** Creating from scratch, or improving what is there? If
    improving, diagnose specific defects and make targeted edits. Do not
-   rewrite a working README to impose a preferred shape.
+   rewrite a working README to impose a preferred shape. **Reorder before you
+   reword.** Moving setup plumbing and contributor detail below the quick
+   start usually fixes the largest reader problem on its own, and it costs
+   none of the author's existing prose. Only then consider wording.
 4. **Draft the first screen first**, and iterate the one-line description
    explicitly. It is the highest-leverage sentence in the repository and the
    one most worth spending tokens on.
@@ -75,7 +80,10 @@ it for me, is it alive, can I use it legally.
    actually has at decision time. Never stack rows.
 4. **Two to four sentences of context** — the *why*. What problem, for whom,
    and what the alternatives are. This is the most commonly missing element in
-   real READMEs. Write it even when it feels obvious to you.
+   real READMEs. Write it even when it feels obvious to you. Give every piece
+   of project jargon and every named tool, format or concept a short gloss or
+   a link on first use — a niche project's own vocabulary is invisible to its
+   author and opaque to everyone else.
 5. **Status, when the project is not stable** — alpha, beta, experimental,
    maintenance-only, archived — plus supported runtime versions. The second
    most commonly missing element, and the honest thing to do.
@@ -97,9 +105,13 @@ a missing one — it signals abandonment.
 - Features — a short list, each item verifiable in the code. Cut anything
   aspirational.
 - Installation, expanded — prerequisites with version ranges, platform notes,
-  alternative channels, and a verification step.
+  alternative channels, and a verification step. State the prerequisites
+  rather than implying them; ecosystem fluency the author has and the reader
+  lacks is where "run `make install`" goes wrong.
 - Usage — progressively fuller examples, each runnable as written, each
-  showing expected output.
+  showing expected output. Commands go in a fenced block with no leading `$`
+  prompt, so a reader can select and paste the whole block; expected output
+  goes in its own `text` block rather than mixed in with the commands.
 - Configuration — options, environment variables, config schema.
 - API reference, or a link to one. Never paste generated API docs in.
 - How it works — a paragraph or a Mermaid diagram, for anything non-obvious.
@@ -149,6 +161,7 @@ These read as unreviewed generated output and cost the maintainer trust:
 - A Contributing section on a repo with no `CONTRIBUTING.md`, no issue
   templates and no history of accepted pull requests.
 - Sections of uniform length regardless of whether there is anything to say.
+- Project jargon used before it is defined, and prerequisites left implied.
 - Confident specifics that were never checked: version numbers, function
   signatures, config keys, CLI flags.
 - Critical information carried only by a screenshot or GIF.

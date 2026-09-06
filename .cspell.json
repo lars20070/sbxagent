@@ -121,6 +121,13 @@
     "subshell",
     "Sigstore",
     "SLSA",
-    "sbxprobe"
+    "sbxprobe",
+    "disqualifier",
+    "LICENCE",
+    "doctests",
+    "noxfile",
+    "sanitised",
+    "normalising",
+    "unreviewed"
   ]
 }

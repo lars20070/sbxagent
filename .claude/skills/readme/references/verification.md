@@ -62,7 +62,8 @@ Checking everything is expensive. Tier it:
 - [ ] The status is present when the project is not stable — the second most
       commonly missing
 - [ ] The first screen alone supports a keep-or-leave decision
-- [ ] Heading hierarchy is unbroken, with no skipped levels
+- [ ] Every piece of project jargon is glossed or linked on first use
+- [ ] Exactly one H1, and no skipped heading levels below it
 - [ ] A table of contents exists above about 100 lines, and every anchor
       resolves
 - [ ] License is last, or first when restrictive
@@ -72,6 +73,8 @@ Checking everything is expensive. Tier it:
 - [ ] No conflicting README in `.github/` or `docs/`
 - [ ] Every code fence carries a language tag
 - [ ] Every image has alt text, and no information exists only in an image
+- [ ] Links use descriptive text, not bare URLs
+- [ ] Command blocks carry no leading `$` prompt, so they paste as written
 - [ ] Paths that must survive on a package registry are absolute
 
 ### Honesty
