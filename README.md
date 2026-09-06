@@ -6,7 +6,7 @@
 
 `sbxagent` runs a coding agent in an isolated sandbox, with a fixed toolchain
 already installed. Think of it as a customized version of
-[`sbx run claude`](https://docs.docker.com/ai/sandboxes/agents/claude-code/), [`sbx run codex`](https://docs.docker.com/ai/sandboxes/agents/codex/) and so on. 
+[`sbx run claude`](https://docs.docker.com/ai/sandboxes/agents/claude-code/), [`sbx run codex`](https://docs.docker.com/ai/sandboxes/agents/codex/) and so on.
 
 A single script `sbxagent` serves four different commands — `sbxclaude`, `sbxcodex`, `sbxcursor` and
 `sbxpi` — by dispatching on the name it was invoked as. Each gets its own

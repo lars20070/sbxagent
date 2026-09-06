@@ -60,8 +60,6 @@ Checking everything is expensive. Tier it:
 
 - [ ] What, why, how, where to get help and who maintains it are all answered
 - [ ] The purpose is present — the most commonly missing element
-- [ ] The status is present when the project is not stable — the second most
-      commonly missing
 - [ ] The first screen alone supports a keep-or-leave decision
 - [ ] Every piece of project jargon is glossed or linked on first use, and
       each concept keeps one name throughout

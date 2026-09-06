@@ -68,7 +68,7 @@ Interrupting the user twice costs more than it is worth.
 ## The first screen
 
 Everything above roughly 25 rendered lines. It must answer: what is this, is
-it for me, is it alive, can I use it legally.
+it for me, can I use it legally.
 
 1. **Title** — `# project-name`, matching the repository and published package
    name exactly. Explain any mismatch.
@@ -83,10 +83,7 @@ it for me, is it alive, can I use it legally.
    of project jargon and every named tool, format or concept a short gloss or
    a link on first use — a niche project's own vocabulary is invisible to its
    author and opaque to everyone else.
-5. **Status, when the project is not stable** — alpha, beta, experimental,
-   maintenance-only, archived — plus supported runtime versions. The second
-   most commonly missing element, and the honest thing to do.
-6. **Quick start** — the install command and a minimal working example that
+5. **Quick start** — the install command and a minimal working example that
    produces visible output, as one continuous block.
 
 Test: a competent developer in the target ecosystem, reading only this, can
