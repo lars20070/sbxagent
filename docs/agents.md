@@ -6,8 +6,16 @@ request, and how each wires up the GitHub MCP server. See
 
 ## Network-block guard
 
-The **network-block guard is not equally strong in each sandbox**, because the
-four CLIs offer different hook outputs:
+The README table says only whether a guard runs. It does not say how strongly,
+and two of the four carry a qualification:
+
+- **soft** (`sbxcodex`) — the guard reports the blocked host and tells the
+  agent to stop, but nothing makes it stop.
+- **overridable** (`sbxpi`) — the guard stops the run, but the agent can
+  unregister it, though not rewrite it.
+
+The guard is not equally strong in each sandbox because the four CLIs offer
+different hook outputs:
 
 - `sbxclaude` **ends the turn**. Claude Code treats the guard's `continue:
   false` as a hard stop, registered as managed-settings hook JSON.
@@ -28,12 +36,12 @@ four CLIs offer different hook outputs:
 
   Unlike the others, this binding is **overridable**. Pi has no
   managed-settings tier, so the guard is registered in
-  `~/.pi/agent/settings.json`, which the agent can edit; and because the kit
-  sets `defaultProjectTrust: "always"` so mounted projects load without a
-  prompt, a project's own `.pi/settings.json` is trusted and can displace the
-  `extensions` entry. The extension file itself is root-owned and outside
-  `$HOME`, so it can be unregistered but not rewritten. That is the accepted
-  cost of a smooth launch and honoured project config.
+  `~/.pi/agent/settings.json`, which the agent can edit. A mounted project's
+  own `.pi/settings.json` can displace the `extensions` entry too, once you
+  have trusted that project — the kit sets `defaultProjectTrust: "ask"`, so Pi
+  prompts before a project's config applies. The extension file itself is
+  root-owned and outside `$HOME`, so it can be unregistered but not rewritten.
+  That is the accepted cost of honouring project config.
 
 All three guards share one coverage gap: they match shell commands only, so a
 block that surfaces solely in an MCP server's response — or, on `sbxpi`, in an

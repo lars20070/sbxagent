@@ -152,12 +152,12 @@ sbx inspect "${S}"
 
 ## Supported agents
 
-| Command | Agent | Parent kit | Entrypoint | Instruction file | MCP config | Network-block guard |
-| --- | --- | --- | --- | --- | --- | --- |
-| `sbxclaude` | Claude Code | `claude` | `claude` | `CLAUDE.md` | `~/.claude.json` | **yes** |
-| `sbxcodex` | Codex | `codex` | `codex` | `AGENTS.md` | `~/.codex/config.toml` | yes (soft) |
-| `sbxcursor` | Cursor | `cursor` | `agent` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
-| `sbxpi` | Pi | *none* | `pi` | `AGENTS.md` | *none* | yes (overridable) |
+| Agent | Command | Instruction file | MCP config | Network-block guard |
+| --- | --- | --- | --- | --- |
+| Claude Code | `sbxclaude` | `CLAUDE.md` | `~/.claude.json` | yes |
+| Codex | `sbxcodex` | `AGENTS.md` | `~/.codex/config.toml` | yes |
+| Cursor | `sbxcursor` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
+| Pi | `sbxpi` | `AGENTS.md` | none | yes |
 
 `sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` ships
 no Pi agent, so the kit builds on the bare `shell-docker` template and installs
@@ -165,19 +165,17 @@ everything itself. And Pi has **no MCP support at all**, so the kit lists no
 MCP config; its model and provider settings live in
 `~/.pi/agent/models.json` and `~/.pi/agent/settings.json` instead.
 
-The **network-block guard is not equally strong in each sandbox**, because the
-four CLIs offer different hook outputs. `sbxclaude` ends the turn, `sbxpi` ends
-the run one tool call later, `sbxcodex` can only advise the agent to stop, and
-`sbxcursor` has no guard at all. [docs/agents.md](docs/agents.md) gives the
-reasoning, and the one coverage gap they all share.
+A `yes` means a guard runs, not that it cannot be escaped.
+[docs/agents.md](docs/agents.md) says how strong each one is, why the four CLIs
+differ, and what every guard misses.
 
 ## Further documentation
 
 | Guide | Covers |
 | --- | --- |
-| [docs/agents.md](docs/agents.md) | How strictly each agent enforces a blocked request, and how each wires up the GitHub MCP server |
-| [docs/toolchain.md](docs/toolchain.md) | What is installed in every sandbox, which versions are pinned, and how to rebuild after changing one |
 | [docs/setup.md](docs/setup.md) | Host-side credentials: a GitHub token, an OpenRouter key, and optional local models through Ollama |
+| [docs/toolchain.md](docs/toolchain.md) | What is installed in every sandbox, which versions are pinned, and how to rebuild after changing one |
+| [docs/agents.md](docs/agents.md) | How strictly each agent enforces a blocked request, and how each wires up the GitHub MCP server |
 | [docs/published-kits.md](docs/published-kits.md) | Running a kit from the registry without cloning this repository |
 
 ## Support
