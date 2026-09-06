@@ -150,6 +150,13 @@ S="$(sbxclaude name)"
 sbx inspect "${S}"
 ```
 
+You can skip the wrapper altogether. Every release publishes the four kits to a
+registry, so `sbx run --kit` builds the same sandbox — toolchain, network
+policy, credentials and agent instructions — without cloning this repository.
+You give up the per-project sandbox naming and every subcommand in the table
+above. [docs/published-kits.md](docs/published-kits.md) names the packages,
+shows how to verify the signature, and covers stacking your own kit on top.
+
 ## Supported agents
 
 | Agent | Command | Instruction file | MCP config | Network-block guard |
@@ -182,7 +189,3 @@ differ, and what every guard misses.
 
 Bugs and questions go to the
 [issue tracker](https://github.com/lars20070/sbxagent/issues).
-
-## License
-
-MIT, copyright Lars Nilse. See [LICENSE](LICENSE).
