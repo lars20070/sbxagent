@@ -6,42 +6,39 @@ request, and how each wires up the GitHub MCP server. See
 
 ## Network-block guard
 
-The README table says only whether a guard runs. It does not say how strongly,
-and two of the four carry a qualification:
+The README table says only whether a guard runs. It does not say how strongly.
+The same guard ships in every kit, but the four CLIs accept different hook
+outputs, so it lands with different force in each sandbox:
 
-- **soft** (`sbxcodex`) — the guard reports the blocked host and tells the
-  agent to stop, but nothing makes it stop.
-- **overridable** (`sbxpi`) — the guard stops the run, but the agent can
-  unregister it, though not rewrite it.
+| Agent | Registered as | On a blocked request | Agent can switch it off |
+| --- | --- | --- | --- |
+| Claude Code | managed-settings hook JSON | Ends the turn — `continue: false` is a hard stop | No |
+| Codex | managed `PostToolUse` hook | Replaces the tool result and tells the agent to stop. **Soft**: nothing enforces it | No |
+| Cursor | Not registered — its post-execution hooks observe only, and cannot even inject feedback | Nothing. Its instructions still ask for a blocked host to be reported, with nothing enforcing it | No guard to switch off |
+| Pi | Extension listed in `~/.pi/agent/settings.json` | Ends the run, one tool call later | **Yes**, by unregistering the extension |
 
-The guard is not equally strong in each sandbox because the four CLIs offer
-different hook outputs:
+Two rows need more than a cell.
 
-- `sbxclaude` **ends the turn**. Claude Code treats the guard's `continue:
-  false` as a hard stop, registered as managed-settings hook JSON.
-- `sbxcodex` **cannot force a stop**. The same guard runs as a managed
-  `PostToolUse` hook, but Codex's documented behaviour for every hook output —
-  `continue: false` and `decision: "block"` alike — is to replace the tool
-  result and let the model continue. So the agent sees the blocked host and a
-  firm instruction to stop, and the user sees how to lift the block, but
-  nothing prevents the agent from carrying on.
-- `sbxcursor` has **no guard**. Its post-execution hooks are observation-only
-  and cannot even inject feedback. Its instructions still ask for a blocked host
-  to be reported, with nothing enforcing it.
-- `sbxpi` **ends the run, one tool call later**. A Pi extension applies the same
-  filter in two phases, because a Pi `tool_result` handler can patch a result
-  but not stop a run: the blocked command's output is replaced with the remedy,
-  and the agent's *next* tool call is then refused with `terminate`. The
-  practical effect matches `sbxclaude`, one beat behind.
+**Why Codex is soft.** Its documented behaviour for every hook output —
+`continue: false` and `decision: "block"` alike — is to replace the tool result
+and let the model continue. So the agent sees the blocked host and a firm
+instruction to stop, and the user sees how to lift the block, but nothing
+prevents the agent from carrying on.
 
-  Unlike the others, this binding is **overridable**. Pi has no
-  managed-settings tier, so the guard is registered in
-  `~/.pi/agent/settings.json`, which the agent can edit. A mounted project's
-  own `.pi/settings.json` can displace the `extensions` entry too, once you
-  have trusted that project — the kit sets `defaultProjectTrust: "ask"`, so Pi
-  prompts before a project's config applies. The extension file itself is
-  root-owned and outside `$HOME`, so it can be unregistered but not rewritten.
-  That is the accepted cost of honouring project config.
+**Why Pi is overridable, and why it lags by one call.** Pi has no
+managed-settings tier, so the guard is registered in
+`~/.pi/agent/settings.json`, which the agent can edit. A mounted project's own
+`.pi/settings.json` can displace the `extensions` entry too, once you have
+trusted that project — the kit sets `defaultProjectTrust: "ask"`, so Pi prompts
+before a project's config applies. The extension file itself is root-owned and
+outside `$HOME`, so it can be unregistered but not rewritten. That is the
+accepted cost of honouring project config.
+
+The one-call lag is separate. A Pi `tool_result` handler can patch a result but
+not stop a run, so the extension works in two phases: the blocked command's
+output is replaced with the remedy, and the agent's *next* tool call is then
+refused with `terminate`. The practical effect matches `sbxclaude`, one beat
+behind.
 
 All three guards share one coverage gap: they match shell commands only, so a
 block that surfaces solely in an MCP server's response — or, on `sbxpi`, in an
