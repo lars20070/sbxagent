@@ -67,8 +67,8 @@ Interrupting the user twice costs more than it is worth.
 
 ## The first screen
 
-Everything above roughly 25 rendered lines. It must answer: what is this, is
-it for me, can I use it legally.
+Everything above roughly 25 rendered lines. It must answer: what is this, and
+is it for me.
 
 1. **Title** — `# project-name`, matching the repository and published package
    name exactly. Explain any mismatch.
@@ -128,15 +128,11 @@ artefact, no section:
   Who to ping, one contact route each. Skip it when the repo has one obvious
   owner the title already makes clear.
 - Acknowledgements — only when there is something specific to credit.
-- License — SPDX identifier, holder, link to the file. Last section.
 
 ## Settled questions
 
 - **Install before usage, or after?** Neither. Use one combined quick start
   showing install and first successful use as a continuous block.
-- **License placement.** Permissive (MIT, Apache-2.0, BSD, ISC) goes last plus
-  a badge. Copyleft, source-available or commercial goes in the first screen —
-  an incompatible license is the fastest possible disqualifier.
 - **Length.** Not a word count. The README owns evaluation, first success, and
   where to go next. A section serving none of those three moves out of the
   file — see Scope for where it goes. Most single-purpose libraries need

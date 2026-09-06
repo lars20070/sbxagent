@@ -29,9 +29,8 @@ An agent that reads these cannot hallucinate them.
 
 Checking everything is expensive. Tier it:
 
-- **Always** — internal links resolve to files that exist, the license section
-  matches the `LICENSE` file, and the install command matches the actual
-  publication state.
+- **Always** — internal links resolve to files that exist, and the install
+  command matches the actual publication state.
 - **When cheap** — external links, badge targets.
 - **Always state** — which snippets you ran and which you did not. An
   unverified snippet is acceptable; an unverified snippet presented as
@@ -50,8 +49,6 @@ Checking everything is expensive. Tier it:
 - [ ] Every claimed feature, CLI flag, config key and function signature
       exists in the code
 - [ ] Version numbers and runtime ranges match the manifest and the CI matrix
-- [ ] The license section matches the `LICENSE` file and the SPDX identifier
-      is valid
 - [ ] No linked file is missing and no badge points at a deleted workflow
 - [ ] Anything moved out of the README exists in its new file and is linked
       from the README — nothing was dropped in the name of shortening
@@ -66,7 +63,6 @@ Checking everything is expensive. Tier it:
 - [ ] Exactly one H1, and no skipped heading levels below it
 - [ ] A table of contents exists above about 100 lines, and every anchor
       resolves
-- [ ] License is last, or first when restrictive
 
 ### Rendering
 
