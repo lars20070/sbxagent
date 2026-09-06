@@ -77,6 +77,7 @@ Checking everything is expensive. Tier it:
 - [ ] Every code fence carries a language tag
 - [ ] Every image has alt text, and no information exists only in an image
 - [ ] Links use descriptive text, not bare URLs
+- [ ] List items and headings are grammatically parallel
 - [ ] Command blocks carry no leading `$` prompt, so they paste as written
 - [ ] Paths that must survive on a package registry are absolute
 

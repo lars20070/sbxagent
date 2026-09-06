@@ -9,6 +9,12 @@ the reverse holds too. In plain words it is far harder to hide that you are
 unsure what you mean. Jargon is where unverified claims hide, so plain
 language is a verification technique rather than a decoration.
 
+The failure this guards against is writing on automatic pilot — assembling
+the phrases that usually appear around this kind of subject, rather than
+working out what is true of this one. Such prose reads fluently sentence by
+sentence and falls apart the moment somebody checks it. That is the exact
+failure mode of a generated README.
+
 ## The register
 
 Aim for prose that reads less like a lecture and more like a colleague who
@@ -32,7 +38,13 @@ dull in an essay is what makes a README searchable, and a reader who lands
 mid-document has nothing to refer back to.
 
 Acronyms follow the same rule. Expand one on first use in each section that
-uses it, not once at the top of the file.
+uses it, rather than once at the top of the file — a reader who arrives at
+section 8 never saw the expansion in section 1.
+
+Two carve-outs. Leave an acronym alone when it is more familiar than what it
+stands for: *API*, *HTTP*, *JSON*, *CLI*, *URL*. And introduce no acronym you
+use only once — spell the thing out and move on. An initialism used a single
+time clutters the page and the reader's memory for nothing.
 
 ## Plain words
 
@@ -43,6 +55,13 @@ Prefer the short, everyday word. It is not only shorter, it is clearer:
 - *before*, not *prior to*
 - *about*, not *approximately*
 - *enough*, not *sufficient*
+- *show*, not *demonstrate*
+- *set up*, not *establish*
+
+Three questions settle most choices. Is the word short? Would you use it
+talking to a colleague? Does nearly everyone know it? A word that fails all
+three is usually reaching for status: *leverage*, *utilise*, *holistic*,
+*actionable*, *address* (as a verb for *fix*, *answer* or *handle*).
 
 One exception matters. Where a long word is the project's real vocabulary — an
 actual function name, a spec term, a protocol — use it exactly. Precision
@@ -66,6 +85,12 @@ expansion while reading.
 Calibrate against your reader: explaining the obvious insults them, assuming
 too much abandons them. The prerequisite too boring to state is the one that
 blocks somebody for an hour.
+
+Use a technical term only in its exact sense. Your readers know these words,
+so a loose one costs credibility on the spot. *Exponential* describes a rate
+that compounds, not merely a fast one. *Atomic* means indivisible, not quick.
+*Idempotent*, *race condition*, *deadlock* and *linear* all have precise
+meanings somebody will check. Where you mean *fast*, write *fast*.
 
 ## Verbs and agents
 
@@ -103,9 +128,32 @@ Most first drafts lose a fifth of their words with nothing lost.
 - **Padding prepositions** — *freed up*, *headed up by*, *split out into*.
 - **Words the present tense implies** — *currently*, *at present*, *ongoing*.
   Keep one only when contrasting with another time.
+- **`the case that`** — *in cases where this is unnecessary* becomes *where
+  this is unnecessary*; *if it is the case that* becomes *if*.
+- **`process`** — *the build process* is usually *the build*, and *the
+  installation process* is *installation*.
+- **`the former` / `the latter`** — these force the reader to stop and
+  backtrack. Repeat the name instead.
 
 Then ask whether each surviving adjective and adverb earns its keep. The aim
 is not to remove all of them.
+
+## Clichés
+
+A dead metaphor is harmless. Nobody picturing an *iron will* thinks of metal,
+and *under the hood* and *out of the box* pass unnoticed in technical writing.
+
+The problem is the phrase with just enough life left to look vivid while doing
+no work. It lets the writer skip the step of deciding what to say:
+
+- *X does the heavy lifting* — say what X does.
+- *getting started is a breeze* — show the command.
+- *first-class support for Y* — say what is supported, and what is not.
+- *a game-changer* — say what changed.
+
+The test is whether the phrase carries information a reader could act on. If
+cutting it loses nothing, it was filler. If replacing it forces you to work
+out the specifics, it was hiding that you had not.
 
 ## Superlatives and buzzwords
 
@@ -148,6 +196,16 @@ A sentence that has to be read twice is a failure. Trim the words you can, but
 not the small functional words that carry structure — the *that* in *the file
 that the parser writes* earns its place. Hyphenate compound modifiers for the
 same reason: *read-only file*, *command-line tool*, *high-level API*.
+
+Keep list items grammatically parallel. A README is mostly lists, and a list
+that mixes forms reads as careless: *installs the binary, configuration of the
+daemon, and to start the service* should be *installs the binary, configures
+the daemon, and starts the service*. The same applies to section headings.
+
+Watch the noun and verb forms of the same compound. *Setup* is a noun and *set
+up* is a verb, so a heading reads **Setup** while an instruction reads *set up
+the database*. The same split governs *login* and *log in*, *backup* and *back
+up*, *checkout* and *check out*.
 
 One idea per paragraph — a paragraph is a unit of thought, not of length. And
 every section must make sense read alone, by somebody who arrived from a
