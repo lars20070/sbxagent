@@ -2,6 +2,15 @@
 
 Running a kit straight from the registry, without cloning this repository.
 
+Reach for this when you want the sandbox but not this repo's wrapper: to pin
+one kit version across a team, to run a kit on a machine with no checkout, or
+to layer your own kit on top of one of these. You get the kit — the toolchain,
+network policy, credentials and agent instructions — but not the wrapper, so
+you get no per-project sandbox naming and none of the `sbx<agent>` subcommands.
+
+You need the `sbx` CLI installed and signed in. See
+[Install](../README.md#install).
+
 Every release publishes the four kits to GitHub Container Registry as OCI
 artifacts, one package per kit, named after the command it corresponds to:
 
@@ -12,10 +21,8 @@ artifacts, one package per kit, named after the command it corresponds to:
 | `ghcr.io/lars20070/sbxcursor` | `sbxcursor` |
 | `ghcr.io/lars20070/sbxpi` | `sbxpi` |
 
-This is the way to use a kit **without cloning this repository**. You get the
-kit — the toolchain, network policy, credentials and agent instructions — but
-not the wrapper, so there is no per-project sandbox naming and none of the
-`sbx<agent>` subcommands.
+Every command below writes `<version>` for the release you want. The newest is
+on the repository's releases page, and the `latest` tag always points at it.
 
 > **Ignore the `docker pull` command on the GitHub package page.** A kit is an
 > OCI artifact, not a container image, and `sbx` fetches it itself. The page
@@ -26,8 +33,9 @@ not the wrapper, so there is no per-project sandbox naming and none of the
 
 ## 1. Allow the source, then read the kit
 
-Kit sources are allow-listed by prefix, and this one is not on the default
-list — so allow it first, or nothing below will load. Once per host:
+A kit's install commands run as root inside the sandbox, so `sbx` loads kits
+only from sources you have allow-listed by prefix. This one is not on the
+default list, so allow it first or nothing below will load. Once per host:
 
 ```bash
 sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'
@@ -36,7 +44,7 @@ sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'
 Then check the kit is readable:
 
 ```bash
-sbx kit inspect ghcr.io/lars20070/sbxclaude:0.4.0
+sbx kit inspect ghcr.io/lars20070/sbxclaude:<version>
 ```
 
 It should report `Name: sbxclaude`, `Schema: v2`, and the policy counts. The
@@ -45,13 +53,14 @@ error** here means the allow-list step above did not take.
 
 ## 2. Check the signature
 
-Every artifact is signed keyless through GitHub Actions and carries a SLSA
-provenance attestation. Both are worth checking before running anyone's kit —
-a kit's install commands run as root inside the sandbox.
+Allow-listing a source says you trust the publisher. Checking the signature
+says the artifact really came from them. Every artifact is signed keyless
+through GitHub Actions and carries a SLSA provenance attestation, and both are
+worth checking before you run anyone's kit.
 
 ```bash
-sbx kit provenance  ghcr.io/lars20070/sbxclaude:0.4.0
-sbx kit verify      ghcr.io/lars20070/sbxclaude:0.4.0 \
+sbx kit provenance  ghcr.io/lars20070/sbxclaude:<version>
+sbx kit verify      ghcr.io/lars20070/sbxclaude:<version> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/lars20070/sbxagent/'
 ```
@@ -61,10 +70,12 @@ repository's release workflow, not merely that somebody signed it.
 
 ## 3. Run it
 
-The kit's name is the agent operand, exactly as the wrapper passes it:
+`sbx run` takes the agent to launch as its final operand. Each of these kits
+declares an agent with the same name as the kit, so the name appears twice:
+once to say which kit to fetch, once to say what to run.
 
 ```bash
-sbx run --kit ghcr.io/lars20070/sbxclaude:0.4.0 sbxclaude
+sbx run --kit ghcr.io/lars20070/sbxclaude:<version> sbxclaude
 ```
 
 To try one out, use a scratch directory and name the sandbox, so it is obvious
@@ -72,7 +83,7 @@ which is which and easy to remove afterwards:
 
 ```bash
 mkdir -p /tmp/kit-test && cd /tmp/kit-test
-sbx run --name kit-test --kit ghcr.io/lars20070/sbxclaude:0.4.0 sbxclaude
+sbx run --name kit-test --kit ghcr.io/lars20070/sbxclaude:<version> sbxclaude
 sbx rm kit-test
 ```
 
@@ -91,7 +102,7 @@ You can **stack** kits — `--kit` may be given more than once, so your own kit
 layers onto one of these at run time:
 
 ```bash
-sbx run --kit ghcr.io/lars20070/sbxclaude:0.4.0 --kit ./my-extras sbxclaude
+sbx run --kit ghcr.io/lars20070/sbxclaude:<version> --kit ./my-extras sbxclaude
 ```
 
 You cannot yet **derive** a kit from one. The spec has a `mixins:` field for
