@@ -45,9 +45,9 @@ flowchart LR
   PROXY -->|"allowlisted"| LLM & GH
   AGENT ==>|"edits"| PROJ
 
-  classDef data    fill:#E3F2F1,stroke:#0E7C86,stroke-width:2px,color:#0B3D40
+  classDef data    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
   classDef host    fill:#FDF3E0,stroke:#B8860B,stroke-width:2px,color:#4A3405
-  classDef helper  fill:#EDEAF7,stroke:#6A5ACD,stroke-width:2px,color:#2E1D63
+  classDef helper  fill:#E3F2F1,stroke:#0E7C86,stroke-width:2px,color:#0B3D40
   classDef agent   fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
   classDef ext     fill:#F0F0EE,stroke:#7A8482,stroke-width:1.5px,color:#3A4250
   class PROJ data
