@@ -74,10 +74,7 @@ it for me, is it alive, can I use it legally.
    name exactly. Explain any mismatch.
 2. **One-line description** — under 120 characters, no heading, plain
    sentence. Name the *category* of thing it is ("a CLI for…", "a Rust library
-   that…") and its distinguishing property. It should ideally match the
-   manifest `description` and the repository description. Where it does not,
-   report the mismatch — do not silently rewrite the manifest or the
-   repository metadata, which is the user's call to make.
+   that…") and its distinguishing property.
 3. **Badges** — three to five, one line, each answering a question a user
    actually has at decision time. Never stack rows.
 4. **Two to four sentences of context** — the *why*. What problem, for whom,

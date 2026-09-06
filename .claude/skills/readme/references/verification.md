@@ -11,7 +11,7 @@ An agent that reads these cannot hallucinate them.
 | Fact | Source of truth |
 | --- | --- |
 | Project name | `package.json` `name`, `pyproject.toml` `[project].name`, `Cargo.toml`, `go.mod` module path, directory name |
-| One-line description | Manifest `description`, plus the repository description (`gh repo view --json description`) — reconcile all three |
+| One-line description | Manifest `description`, where the repo has a manifest |
 | License | `LICENSE` / `LICENCE` / `COPYING` plus the manifest `license` field; they must agree; emit the SPDX identifier |
 | Runtime support | `engines`, `requires-python`, `rust-version`, the `go` directive, and the CI matrix in `.github/workflows/*.yml` |
 | Install command | Whether the package is actually published; if not, install-from-source instructions instead |
@@ -43,8 +43,7 @@ Checking everything is expensive. Tier it:
 
 - [ ] Title matches the repository, directory and package name, or the
       mismatch is explained
-- [ ] One-liner is under 120 characters; any mismatch with the manifest or
-      the repository description is reported, not silently edited
+- [ ] One-liner is under 120 characters
 - [ ] The install command matches the real package name and publication state
 - [ ] Every code snippet is either run, or explicitly marked unverified in
       your report
