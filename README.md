@@ -67,7 +67,6 @@ flowchart LR
 - [Supported agents](#supported-agents)
 - [Further documentation](#further-documentation)
 - [Support](#support)
-- [License](#license)
 
 ## Install
 
