@@ -5,43 +5,46 @@ change them. See [README.md](../README.md) to get a sandbox running first.
 
 ## What each sandbox gets
 
-Each sandbox gets:
+Every kit installs the same tools:
 
-- The agent itself, running with approvals bypassed inside the sandbox
-- `jq`, `ripgrep`, `curl`, Python 3, and ShellCheck
-- `ruff` and `yamllint` as Python development tools
-- `markdownlint-cli2` and `cspell` for documentation checks
-- Playwright, with headless Chromium, so the agent can load pages and
-  screenshot UI changes itself
-- mermaid-cli (`mmdc`), reusing that same Chromium, so the agent can render
-  Mermaid diagrams to PNG/SVG from the terminal
-- An `sbx` CLI for daemon-free kit commands (`version`, `kit validate`,
-  `kit inspect`, `kit pack`) so `make validate` works inside the sandbox
-- Passwordless `sudo`, and Docker, inside the sandbox
-- A network allowlist, not open internet access
-- `sbxclaude`, `sbxcodex` and `sbxpi`: a root-owned guard that catches a
-  blocked request and prints the remedy that actually fits it — `sbx policy
-  allow` for a default-deny, `sbx policy rm` for a local deny rule (deny beats
-  allow, so allowing round it does nothing), or contact IT for an organisation
-  policy the user cannot lift — ending the turn on `sbxclaude`, ending the run
-  one tool call later on `sbxpi`, and advising the agent to stop on `sbxcodex`
-- Your project mounted as the workspace — edits land on your real files
-- GitHub SSH remotes rewritten to HTTPS inside the sandbox, so `git fetch`
-  works on the allowlisted port 443 without changing the host checkout
-- Context7 and GitHub MCP servers, so the agent can pull current library docs
-  and use GitHub's MCP tools regardless of the project's own MCP configuration
-  — except on `sbxpi`, where Pi supports no MCP at all: Context7 ships there as
-  a native Pi package instead, and GitHub work goes through `git` and `gh`
+| Tool | For | Version |
+| --- | --- | --- |
+| `curl`, `jq`, `python3`, `ripgrep`, `shellcheck` | shell and script work | tracks the distribution |
+| `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below |
+| `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below |
+| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below |
+| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below |
+| `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below |
+| `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution |
 
-Each kit spec lives in `kits/<command>/spec.yaml`, and `scripts/sbxagent` is a
-wrapper around the `sbx` CLI that builds (or re-attaches to) one sandbox per
-project, named `<command>-<project_directory>-<hash>`. The hash comes from the
+The environment is the same in every sandbox. Your project is mounted as the
+workspace, so edits land on your real files. Inside you get passwordless
+`sudo` and Docker, every host CPU, and half the host memory capped at 32 GiB.
+
+Network access is an allowlist, not the open internet. Every kit rewrites
+GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
+allowlisted port 443 without changing the host checkout. On `sbxclaude`,
+`sbxcodex` and `sbxpi`, a root-owned guard catches a blocked request and prints
+the remedy that fits it. A default-deny needs `sbx policy allow`. A local deny
+rule needs `sbx policy rm`, because an allow rule cannot override a deny. An
+organisation policy needs IT, because the user cannot lift it. See
+[agents.md](agents.md) for how strongly each agent enforces it.
+
+The agent itself runs with approvals bypassed on `sbxclaude`, `sbxcodex` and
+`sbxcursor`. Context7 and GitHub MCP servers are registered whatever the
+project's own MCP config says — except on `sbxpi`, where Pi supports no MCP at
+all: Context7 ships as a native Pi package, and GitHub work goes through `git`
+and `gh`.
+
+Each kit spec lives in `kits/<command>/spec.yaml`. `scripts/sbxagent` wraps the
+`sbx` CLI and builds, or re-attaches to, one sandbox per project, named
+`<command>-<project_directory>-<hash>`. The hash comes from the
 canonical absolute path, so same-named directories do not share a sandbox, and
 the command name is the prefix, so the four agents never collide.
 
-Sandbox size follows the host: every host CPU, and half the host memory capped
-at 32 GiB. To pin a fixed size instead, uncomment the `resources:` block in
-that kit's `spec.yaml` and rebuild.
+To give a sandbox a fixed CPU and memory size instead of the host-derived
+default above, uncomment the `resources:` block in that kit's `spec.yaml` and
+rebuild.
 
 ## Pinned versions
 
@@ -75,13 +78,17 @@ Intentional exceptions that stay on latest:
   in-sandbox copy is pinned, so the two can drift a version apart
 - `sbxpi` has no parent kit to float, but its base image
   `docker/sandbox-templates:shell-docker` is a moving tag, and its apt packages
-  — including `fd-find`, which Pi would otherwise download unpinned at first
-  launch — track the distribution
+  track the distribution. That includes `fd-find`, which Pi would otherwise
+  download unpinned at first launch
 
-To bump a pin: update the version (and sbx checksums) in **all four**
-`kits/*/spec.yaml`, keep `tests/toolchain_test.sh` expectations in sync, then
-rebuild the sandboxes and run `make lint`, `make test-unit`, `make validate`,
-and `make test-toolchain AGENT=<agent>` for each.
+To bump a pin:
+
+1. Update the version, and the `sbx` checksums, in **all four**
+   `kits/*/spec.yaml`.
+2. Keep the `tests/toolchain_test.sh` expectations in sync.
+3. Rebuild the sandboxes.
+4. Run `make lint`, `make test-unit` and `make validate`, then
+   `make test-toolchain AGENT=<agent>` once per agent.
 
 ## Rebuild after kit changes
 
