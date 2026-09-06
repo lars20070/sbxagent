@@ -7,14 +7,15 @@ request, and how each wires up the GitHub MCP server. See
 ## Network-block guard
 
 The README table says only whether a guard runs. It does not say how strongly.
-The same guard ships in every kit, but the four CLIs accept different hook
-outputs, so it lands with different force in each sandbox:
+The same guard ships in three of the four kits — the Cursor kit carries none —
+and the CLIs accept different hook outputs, so it lands with different force in
+each sandbox:
 
 | Agent | Registered as | On a blocked request | Agent can switch it off |
 | --- | --- | --- | --- |
 | Claude Code | managed-settings hook JSON | Ends the turn — `continue: false` is a hard stop | No |
 | Codex | managed `PostToolUse` hook | Replaces the tool result and tells the agent to stop. **Soft**: nothing enforces it | No |
-| Cursor | Not registered — its post-execution hooks observe only, and cannot even inject feedback | Nothing. Its instructions still ask for a blocked host to be reported, with nothing enforcing it | No guard to switch off |
+| Cursor | Not registered — Cursor exposes no verified equivalent of the Claude Code hook JSON | Nothing. Its instructions still ask for a blocked host to be reported, with nothing enforcing it | No guard to switch off |
 | Pi | Extension listed in `~/.pi/agent/settings.json` | Ends the run, one tool call later | **Yes**, by unregistering the extension |
 
 Two rows need more than a cell.
@@ -40,9 +41,11 @@ output is replaced with the remedy, and the agent's *next* tool call is then
 refused with `terminate`. The practical effect matches `sbxclaude`, one beat
 behind.
 
-All three guards share one coverage gap: they match shell commands only, so a
-block that surfaces solely in an MCP server's response — or, on `sbxpi`, in an
-extension tool's response — is not caught.
+All three guards match on the tool name: `Bash|WebFetch` on `sbxclaude`,
+`^Bash$` on `sbxcodex`, and `bash` on `sbxpi`. They share one coverage gap as a
+result. A block that surfaces solely in an MCP server's response — those tool
+names start `mcp__` — is not caught, and neither is one that surfaces in a
+`sbxpi` extension tool's response.
 
 `sbxcodex` is also the strictest sandbox in one respect: its admin-tier
 `requirements.toml` sets `allow_managed_hooks_only`, so Codex ignores *all*
@@ -56,17 +59,20 @@ Every kit installs [`github-mcp-server`](https://github.com/github/github-mcp-se
 and this repo and every kit but `sbxpi` run it locally over stdio. `sbxpi` is
 the exception: Pi has no built-in MCP, so that kit registers no MCP servers at
 all — the binary is installed there only to keep the toolchain identical across
-kits, and Pi uses `git` and `gh` for GitHub work instead. The definition has to agree across MCP configs, because the
-sandbox mounts the project, so the repo's project-scope entry sits alongside the
-kit's user-scope one and the agent warns about conflicting endpoints if the two
-disagree. `make lint` enforces the Cursor pair.
+kits, and Pi uses `git` and `gh` for GitHub work instead.
+
+One definition has to work on the host and inside the sandbox alike. The
+sandbox mounts the project, so the repo's project-scope entry sits alongside
+the kit's user-scope one, and the agent reports conflicting endpoints if the
+two disagree. `make lint` enforces the Cursor pair.
 
 Each agent reads the token differently, and the syntax is not interchangeable:
 
 | Config | Form | Read by |
 | --- | --- | --- |
-| [`.mcp.json`](../.mcp.json), [`.vscode/mcp.json`](../.vscode/mcp.json), [`kits/sbxclaude/files/home/.claude.json`](../kits/sbxclaude/files/home/.claude.json) | `"${GITHUB_TOKEN}"` | Claude Code |
+| [`.mcp.json`](../.mcp.json), [`kits/sbxclaude/files/home/.claude.json`](../kits/sbxclaude/files/home/.claude.json) | `"${GITHUB_TOKEN}"` | Claude Code |
 | [`.cursor/mcp.json`](../.cursor/mcp.json), [`kits/sbxcursor/files/home/.cursor/mcp.json`](../kits/sbxcursor/files/home/.cursor/mcp.json) | `"${env:GITHUB_TOKEN}"` | Cursor |
+| [`.vscode/mcp.json`](../.vscode/mcp.json) | `"${env:GITHUB_TOKEN}"` | VS Code |
 | `~/.codex/config.toml`, written by `kits/sbxcodex/spec.yaml` | `env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]` | Codex |
 
 Codex is the odd one out: its `env` table is a static map with no `${VAR}`
@@ -81,8 +87,11 @@ definition serve both:
 | Host | your own PAT | itself |
 | Sandbox | a proxy-managed sentinel, exported by the entrypoint | the real token, swapped in by the proxy |
 
-So `sbx secret set github` above stays the only credential the sandbox needs,
-and the real token never enters it.
+So the `sbx secret set github` step in [Host setup](setup.md) stays the only
+credential the sandbox needs, and the real token never enters it.
+
+The export covers only the session the entrypoint starts. A `claude` you launch
+by hand from `sbxclaude exec bash` does not inherit it.
 
 The GitHub-hosted server at `https://api.githubcopilot.com/mcp/` is
 deliberately **not** used. That endpoint is a Copilot endpoint and needs a
