@@ -21,6 +21,10 @@ and this project adheres to
 
 - Bump the pinned in-sandbox `sbx` CLI (and its release-workflow install)
   from `v0.39.0` to `v0.42.0`, with updated SHA-256 digests.
+- The wrapper now passes the kit as `sbx run`/`sbx create`'s first positional
+  operand instead of through `--kit`, which `sbx` v0.42.0 deprecated for that
+  purpose and warns about on every invocation. `--kit` remains the way to
+  stack a mixin on top of a kit.
 
 ## [0.4.1] - 2026-09-06
 

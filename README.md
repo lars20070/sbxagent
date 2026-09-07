@@ -150,7 +150,7 @@ sbx inspect "${S}"
 ```
 
 You can skip the wrapper altogether. Every release publishes the four kits to a
-registry, so `sbx run --kit` builds the same sandbox — toolchain, network
+registry, so `sbx run <kit-ref>` builds the same sandbox — toolchain, network
 policy, credentials and agent instructions — without cloning this repository.
 You give up the per-project sandbox naming and every subcommand in the table
 above. [docs/published-kits.md](docs/published-kits.md) names the packages,

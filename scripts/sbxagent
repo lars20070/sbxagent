@@ -133,7 +133,7 @@ case "${1:-}" in
 		exec sbx run --name "${SANDBOX}"
 	fi
 	sbx kit validate "${KIT}" >/dev/null
-	exec sbx run --name "${SANDBOX}" --kit "${KIT}" "${KIT_NAME}"
+	exec sbx run --name "${SANDBOX}" "${KIT}"
 	;;
 name)
 	shift
@@ -168,7 +168,7 @@ create)
 	shift
 	no_args create "$@"
 	require_sbx
-	exec sbx create --name "${SANDBOX}" --kit "${KIT}" "${KIT_NAME}" .
+	exec sbx create --name "${SANDBOX}" "${KIT}" .
 	;;
 rm)
 	shift

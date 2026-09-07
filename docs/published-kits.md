@@ -70,12 +70,11 @@ repository's release workflow, not merely that somebody signed it.
 
 ## 3. Run it
 
-`sbx run` takes the agent to launch as its final operand. Each of these kits
-declares an agent with the same name as the kit, so the name appears twice:
-once to say which kit to fetch, once to say what to run.
+`sbx run` takes the kit reference as its first positional operand, and reads
+the agent to launch from the kit's own spec.
 
 ```bash
-sbx run --kit ghcr.io/lars20070/sbxclaude:<version> sbxclaude
+sbx run ghcr.io/lars20070/sbxclaude:<version>
 ```
 
 To try one out, use a scratch directory and name the sandbox, so it is obvious
@@ -83,7 +82,7 @@ which is which and easy to remove afterwards:
 
 ```bash
 mkdir -p /tmp/kit-test && cd /tmp/kit-test
-sbx run --name kit-test --kit ghcr.io/lars20070/sbxclaude:<version> sbxclaude
+sbx run --name kit-test ghcr.io/lars20070/sbxclaude:<version>
 sbx rm kit-test
 ```
 
@@ -93,16 +92,16 @@ re-pointed at the same digest. `latest` means "newest release" here rather than
 anything repeatable, or pin the digest to be certain:
 
 ```bash
-sbx run --kit ghcr.io/lars20070/sbxclaude@sha256:<digest> sbxclaude
+sbx run ghcr.io/lars20070/sbxclaude@sha256:<digest>
 ```
 
 ## Building on a published kit
 
-You can **stack** kits — `--kit` may be given more than once, so your own kit
-layers onto one of these at run time:
+You can **stack** kits — `--kit` is now the mixin flag, and may be given more
+than once, so your own kit layers onto one of these at run time:
 
 ```bash
-sbx run --kit ghcr.io/lars20070/sbxclaude:<version> --kit ./my-extras sbxclaude
+sbx run ghcr.io/lars20070/sbxclaude:<version> --kit ./my-extras
 ```
 
 You cannot yet **derive** a kit from one. The spec has a `mixins:` field for

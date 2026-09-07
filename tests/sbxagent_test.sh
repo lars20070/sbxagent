@@ -200,7 +200,7 @@ CLAUDE_KIT="${ROOT}/kits/sbxclaude"
 # since the wrapper never forwards agent arguments.
 clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_A}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t--kit\t%s\tsbxclaude' \
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t%s' \
 	"${CLAUDE_KIT}" "${SANDBOX}" "${CLAUDE_KIT}")" "new sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "new attach passed --"
 
@@ -237,7 +237,7 @@ assert_log "$(printf 'inspect\t%s' "${SANDBOX}")" "inspect"
 
 clear_log
 run_claude "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--kit\t%s\tsbxclaude\t.' \
+assert_log "$(printf 'create\t--name\t%s\t%s\t.' \
 	"${SANDBOX}" "${CLAUDE_KIT}")" "create"
 
 clear_log
@@ -317,7 +317,7 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${CODEX_KIT}")" "codex kit path"
 
 clear_log
 run_codex "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--kit\t%s\tsbxcodex\t.' \
+assert_log "$(printf 'create\t--name\t%s\t%s\t.' \
 	"${CODEX_NAME}" "${CODEX_KIT}")" "codex create"
 pass "sbxcodex dispatches to its own kit, sandbox name and kit operand"
 
@@ -355,7 +355,7 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${CURSOR_KIT}")" "cursor kit path"
 
 clear_log
 run_cursor "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--kit\t%s\tsbxcursor\t.' \
+assert_log "$(printf 'create\t--name\t%s\t%s\t.' \
 	"${CURSOR_NAME}" "${CURSOR_KIT}")" "cursor create"
 pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
 
@@ -392,7 +392,7 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${PI_KIT}")" "pi kit path"
 
 clear_log
 run_pi "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--kit\t%s\tsbxpi\t.' \
+assert_log "$(printf 'create\t--name\t%s\t%s\t.' \
 	"${PI_NAME}" "${PI_KIT}")" "pi create"
 pass "sbxpi dispatches to its own kit, sandbox name and kit operand"
 
