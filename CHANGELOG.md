@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-07
+
 ### Added
 
 - `tree` is preinstalled in all four sandboxes, for viewing directory
