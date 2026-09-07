@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `tree` is preinstalled in all four sandboxes, for viewing directory
+  structure at a glance. It tracks the distribution like the other apt tools,
+  so it is not pinned.
+
 ## [0.4.1] - 2026-09-06
 
 ### Added
