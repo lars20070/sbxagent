@@ -25,6 +25,13 @@ and this project adheres to
   operand instead of through `--kit`, which `sbx` v0.42.0 deprecated for that
   purpose and warns about on every invocation. `--kit` remains the way to
   stack a mixin on top of a kit.
+- **Running a published kit without the wrapper changed shape** for the same
+  reason: `sbx run ghcr.io/lars20070/sbxclaude:<version>` replaces
+  `sbx run --kit ghcr.io/lars20070/sbxclaude:<version> sbxclaude`. The agent
+  is now read from the kit's own spec, so its name is no longer repeated as a
+  trailing operand, and stacking a mixin becomes
+  `sbx run <kit-ref> --kit ./my-extras`. `README.md` and
+  [`docs/published-kits.md`](docs/published-kits.md) show the new form.
 
 ### Fixed
 
