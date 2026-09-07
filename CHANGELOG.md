@@ -17,6 +17,11 @@ and this project adheres to
   yaml` works in scripts without a separate install. It tracks the
   distribution like the other apt tools, so it is not pinned.
 
+### Changed
+
+- Bump the pinned in-sandbox `sbx` CLI (and its release-workflow install)
+  from `v0.39.0` to `v0.42.0`, with updated SHA-256 digests.
+
 ## [0.4.1] - 2026-09-06
 
 ### Added

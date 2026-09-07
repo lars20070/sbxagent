@@ -198,7 +198,7 @@ jobs:
       # pins what it was tested against. Bump deliberately.
       - name: Install sbx CLI
         env:
-          SBX_VERSION: v0.39.0
+          SBX_VERSION: v0.42.0
         run: |
           set -euo pipefail
           curl -fsSL \
