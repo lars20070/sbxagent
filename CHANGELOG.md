@@ -13,6 +13,9 @@ and this project adheres to
 - `tree` is preinstalled in all four sandboxes, for viewing directory
   structure at a glance. It tracks the distribution like the other apt tools,
   so it is not pinned.
+- `python3-yaml` (PyYAML) is preinstalled in all four sandboxes, so `import
+  yaml` works in scripts without a separate install. It tracks the
+  distribution like the other apt tools, so it is not pinned.
 
 ## [0.4.1] - 2026-09-06
 

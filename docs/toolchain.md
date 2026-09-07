@@ -9,7 +9,7 @@ Every kit installs the same tools:
 
 | Tool | For | Version |
 | --- | --- | --- |
-| `curl`, `jq`, `python3`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution |
+| `curl`, `jq`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution |
 | `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below |
 | `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below |
 | Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below |

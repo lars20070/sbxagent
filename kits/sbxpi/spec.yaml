@@ -53,7 +53,8 @@ agentInstructions:
     - Search and data: `rg` (ripgrep), `fdfind` (fd — Ubuntu names it
       `fdfind`, not `fd`), `jq`
     - Shell: `shellcheck`; use `bash -n` for syntax checks
-    - Python: `python3`, `ruff` for lint and format, `uv` for packages
+    - Python: `python3`, `ruff` for lint and format, `uv` for packages,
+      PyYAML for YAML parsing (`import yaml`)
     - YAML: `yamllint`
     - Markdown and prose: `markdownlint-cli2`, `cspell`
     - Browser: `playwright`, with headless Chromium — load pages, screenshot
@@ -152,12 +153,16 @@ setup:
         # ships the binary as `fdfind` (the name `fd` is taken), which Pi
         # accepts natively via its systemBinaryNames list, so no symlink is
         # needed. ripgrep covers Pi's other bundled tool the same way.
+        #
+        # python3-yaml gives scripts `import yaml` (PyYAML) without a
+        # separate pip install.
         apt-get install -y \
           ca-certificates \
           curl \
           fd-find \
           jq \
           python3 \
+          python3-yaml \
           ripgrep \
           shellcheck \
           tree

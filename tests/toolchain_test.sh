@@ -74,6 +74,12 @@ check_tool shellcheck shellcheck --version
 check_tool git git --version
 check_tool tree tree --version
 
+# python3-yaml (PyYAML) has no CLI binary of its own, so it can't use
+# check_tool — check the import directly instead.
+python3 -c "import yaml" >/dev/null 2>&1 ||
+	fail "python3-yaml (PyYAML) is not importable"
+pass "python3-yaml (PyYAML) is importable"
+
 # Directly installed tools: exact pinned versions.
 check_tool_version ruff "${EXPECTED_RUFF_VERSION}" ruff --version
 check_tool_version yamllint "${EXPECTED_YAMLLINT_VERSION}" yamllint --version
