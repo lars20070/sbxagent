@@ -292,8 +292,8 @@ jq -e . "${CLAUDE_JSON}" >/dev/null 2>&1 ||
 	fail "${CLAUDE_JSON} is not valid JSON"
 pass "${CLAUDE_JSON} is valid JSON"
 
-# Guards against the same root-ownership defect the entrypoint chown already
-# works around for ~/.claude (see spec.yaml, issue #415).
+# The parent claude kit's setup owns ~/.claude and ~/.claude.json to the agent;
+# this guards against them arriving root-owned, which the agent cannot write.
 [[ -O "${CLAUDE_JSON}" ]] || fail "${CLAUDE_JSON} is not owned by the sandbox user"
 pass "${CLAUDE_JSON} is owned by the sandbox user"
 
@@ -360,16 +360,16 @@ CODEX_TOML="${HOME}/.codex/config.toml"
 [[ -s "${CODEX_TOML}" ]] || fail "${CODEX_TOML} is missing (${REBUILD_HINT})"
 pass "${CODEX_TOML} exists"
 
-# Guards against the same root-ownership defect the entrypoint chown works
-# around for ~/.codex (see kits/sbxcodex/spec.yaml, issue #415).
+# The parent codex kit's setup owns ~/.codex to the agent; this guards against
+# it arriving root-owned, which the agent cannot write.
 [[ -O "${CODEX_TOML}" ]] || fail "${CODEX_TOML} is not owned by the sandbox user"
 pass "${CODEX_TOML} is owned by the sandbox user"
 
-# The replicated parent seeding step must have run — without it Codex has no
-# yolo-mode config at all, which is the exact failure #415 causes.
+# The parent kit's seeding step must have run — without it Codex has no
+# yolo-mode config at all.
 grep -Fqx 'approval_policy = "never"' "${CODEX_TOML}" ||
 	fail "${CODEX_TOML} lacks the parent's yolo-mode keys (${REBUILD_HINT})"
-pass "replicated parent seeding step ran"
+pass "parent seeding step ran"
 
 grep -Fqx '[mcp_servers.context7]' "${CODEX_TOML}" ||
 	fail "context7 MCP server missing from ${CODEX_TOML}"
@@ -392,10 +392,10 @@ fi # end sbxcodex-only
 # ---------------------------------------------------------------------------
 # sbxcursor only. MCP servers ship as files/home/.cursor/mcp.json — the cursor
 # parent only writes ~/.cursor/cli-config.json, a different file, so a shipped
-# copy is safe here in a way it is not for Codex. The other assertions cover the
-# parent steps this kit has to replicate because sbx drops them (issue #415);
-# for Cursor that includes the parent's `setup.files:` entry, not just its
-# install and startup steps.
+# copy is safe here in a way it is not for Codex. The other assertions cover
+# what the cursor parent kit's own setup supplies: ~/.cursor ownership, the
+# workspace pre-trust file, and the cli-config.json it ships as a
+# `setup.files:` entry.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxcursor" ]]; then
 
@@ -407,7 +407,7 @@ jq -e . "${CURSOR_JSON}" >/dev/null 2>&1 ||
 pass "${CURSOR_JSON} is valid JSON"
 
 # Guards against root-owned files under ~/.cursor after the kit's files/home/
-# tree is copied in (see kits/sbxcursor/spec.yaml, issue #415).
+# tree is copied in (see kits/sbxcursor/spec.yaml).
 [[ -O "${CURSOR_JSON}" ]] || fail "${CURSOR_JSON} is not owned by the sandbox user"
 pass "${CURSOR_JSON} is owned by the sandbox user"
 

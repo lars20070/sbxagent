@@ -8,24 +8,16 @@ description: Claude Code with custom toolchain
 extends: claude
 
 sandbox:
-  # OLD CODE:
-  # entrypoint: [claude] # Runs with --dangerously-skip-permissions !!
-  #
-  # TEMPORARY: works around sbx dropping the parent claude kit's setup when
-  # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
-  # Revert to `entrypoint: [claude]` once sbx merges parent and child setup instead of replacing.
+  # This wrapper exists only for the GH_TOKEN export below; the parent kit's
+  # own `entrypoint: [claude]` (which runs with --dangerously-skip-permissions)
+  # is otherwise what this reduces to. Ownership of ~/.claude and
+  # ~/.claude.json is the parent kit's own setup step to handle, and sbx merges
+  # that step with this kit's `setup:` block rather than replacing it.
   entrypoint:
     - sh
     - -c
     - |
       set -eu
-      owner="$(id -u):$(id -g)"
-      if [ -e "$HOME/.claude" ] || [ -L "$HOME/.claude" ]; then
-        sudo chown -hR -P "$owner" -- "$HOME/.claude"
-      fi
-      if [ -e "$HOME/.claude.json" ] || [ -L "$HOME/.claude.json" ]; then
-        sudo chown -h -P "$owner" -- "$HOME/.claude.json"
-      fi
       # One `github` MCP definition has to work both on the host and in here,
       # or the kit's user scope and a project .mcp.json collide and Claude Code
       # reports conflicting endpoints. Both reference ${GITHUB_TOKEN}: on the

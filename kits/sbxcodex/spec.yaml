@@ -8,21 +8,17 @@ description: Codex with custom toolchain
 extends: codex
 
 sandbox:
-  # OLD CODE:
-  # entrypoint: [codex] # Runs with --dangerously-bypass-approvals-and-sandbox !!
-  #
-  # TEMPORARY: works around sbx dropping the parent codex kit's setup when
-  # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
-  # Revert to `entrypoint: [codex]` once sbx merges parent and child setup instead of replacing.
+  # This wrapper exists only for the token exports below; the parent kit's own
+  # `entrypoint: [codex]` (which runs with
+  # --dangerously-bypass-approvals-and-sandbox) is otherwise what this reduces
+  # to. Ownership of ~/.codex is the parent kit's own setup step to handle, and
+  # sbx merges that step with this kit's `setup:` block rather than replacing
+  # it.
   entrypoint:
     - sh
     - -c
     - |
       set -eu
-      owner="$(id -u):$(id -g)"
-      if [ -e "$HOME/.codex" ] || [ -L "$HOME/.codex" ]; then
-        sudo chown -hR -P "$owner" -- "$HOME/.codex"
-      fi
       # The `github` MCP server reads GITHUB_PERSONAL_ACCESS_TOKEN. Codex's
       # config.toml `env` table is static — it does not expand ${VAR} — so the
       # value cannot be written there the way ~/.claude.json does it. Instead
@@ -374,66 +370,15 @@ setup:
         chmod +x "$mmdc_bin"
       user: "1000"
       description: mermaid-cli, reusing the Playwright Chromium
-    # Replicated verbatim from the embedded `codex` parent kit. sbx drops the
-    # parent's install and startup steps once this kit declares its own (issue
-    # https://github.com/docker/sbx-releases/issues/415), and this is the step
-    # that seeds ~/.codex/config.toml and ~/.codex/auth.json. Without it Codex
-    # has neither. Verified in the Stage 2 spike: replicating it reproduces the
-    # parent's config.toml byte for byte. Keep it in sync with the parent when
-    # bumping the pinned sbx version, and drop it once #415 is fixed.
-    # It rewrites config.toml from scratch, so every step that appends to that
-    # file must come after this one.
-    - command: |
-        set -e
-        mkdir -p /home/agent/.codex /home/agent/.agents
-        MODE="${SBX_CRED_OPENAI_MODE:-none}"
-        cat > /home/agent/.codex/config.toml << 'EOF'
-        # Codex configuration for Docker sandbox
-        # This configuration enables "yolo mode" - no approvals, full access
-        approval_policy = "never"
-        sandbox_mode = "danger-full-access"
-        mcp_oauth_credentials_store = "file"
-        EOF
-        case "$MODE" in
-          oauth|apikey)
-            cat >> /home/agent/.codex/config.toml << 'EOF'
-        forced_login_method = "api"
-        EOF
-            ;;
-        esac
-        if [ "$MODE" = oauth ]; then
-          cat >> /home/agent/.codex/config.toml << 'EOF'
-        model_provider = "sandboxd"
-        [model_providers.sandboxd]
-        name = "Sandbox Proxy"
-        base_url = "https://chatgpt.com/backend-api/codex"
-        experimental_bearer_token = "oai-oat01-proxy-managed"
-        requires_openai_auth = false
-        EOF
-        fi
-        case "$MODE" in
-          oauth|apikey)
-            cat > /home/agent/.codex/auth.json << 'EOF'
-        {
-          "OPENAI_API_KEY": "proxy-managed"
-        }
-        EOF
-            ;;
-          *)
-            rm -f /home/agent/.codex/auth.json
-            ;;
-        esac
-      user: "agent"
-      description: Seed Codex config/auth from SBX_CRED_OPENAI_MODE (replicated parent step)
     # ALLOW_WEB toggle for Codex's hosted web_search tool. The tool is
     # its only internet-access tool, and it calls out from OpenAI's servers
     # rather than the sandbox, so it would otherwise side-step the sbx
     # network allow list. Prepends rather than
     # appends to config.toml, so the key lands before any later [table]
-    # header (e.g. [model_providers.sandboxd] above, or the MCP server
-    # registrations below) regardless of SBX_CRED_OPENAI_MODE — TOML would
-    # otherwise scope a bare key written after a table header to that table
-    # instead of the top level.
+    # header (e.g. the parent kit's [model_providers.sandboxd], or the MCP
+    # server registrations below) regardless of SBX_CRED_OPENAI_MODE — TOML
+    # would otherwise scope a bare key written after a table header to that
+    # table instead of the top level.
     - command: |
         set -eu
 
@@ -451,9 +396,11 @@ setup:
         fi
       user: "agent"
       description: Web access toggle (web_search)
-    # Must run after the seeding step above, which truncates config.toml. Not
-    # shipped as files/home/.codex/config.toml — the parent rewrites that file
-    # on every create. Uses env_vars (not env); see the entrypoint comment.
+    # Must run after the parent kit's own seeding step, which truncates
+    # config.toml — the merge in sbx v0.42.0 puts every parent install step
+    # ahead of this kit's, so that ordering holds. Not shipped as
+    # files/home/.codex/config.toml — the parent rewrites that file on every
+    # create. Uses env_vars (not env); see the entrypoint comment.
     - command: |
         set -eu
         cat >> /home/agent/.codex/config.toml <<'TOML'
@@ -469,26 +416,3 @@ setup:
         TOML
       user: "agent"
       description: Register the context7 and github MCP servers
-  startup:
-    # Also replicated from the parent, and lost for the same reason (#415).
-    # sandboxd injects MCP_GATEWAY_URL and MCP_SENTINEL_TOKEN_NAME when a
-    # gateway has been reserved; this is a no-op when it has not. The grep
-    # guard keeps it idempotent across gateway restarts.
-    - command:
-        - sh
-        - -c
-        - |
-          set -e
-          [ -n "$MCP_GATEWAY_URL" ] || exit 0
-          cfg="$HOME/.codex/config.toml"
-          touch "$cfg"
-          grep -q "^\[mcp_servers.mcp-gateway\]" "$cfg" && exit 0
-          cat >> "$cfg" <<EOF
-          [mcp_servers.mcp-gateway]
-          type = "http"
-          url = "$MCP_GATEWAY_URL"
-          [mcp_servers.mcp-gateway.headers]
-          Authorization = "Bearer $MCP_SENTINEL_TOKEN_NAME"
-          EOF
-      user: "agent"
-      description: Register the sandbox MCP gateway (replicated parent step)

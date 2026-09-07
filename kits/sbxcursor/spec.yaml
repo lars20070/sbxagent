@@ -8,23 +8,20 @@ description: Cursor with custom toolchain
 extends: cursor
 
 sandbox:
-  # OLD CODE:
-  # entrypoint: [agent] # Runs with --yolo !!
-  #
-  # TEMPORARY: works around sbx dropping the parent cursor kit's setup when
-  # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
-  # Revert to `entrypoint: [agent]` once sbx merges parent and child setup instead of replacing.
+  # This wrapper exists only for the GH_TOKEN export below; the parent kit's
+  # own `entrypoint: [agent]` (which runs with --yolo) is otherwise what this
+  # reduces to.
   entrypoint:
     - sh
     - -c
     - |
       set -eu
-      # No chown here, deliberately — unlike the sbxclaude and sbxcodex kits.
-      # The parent's own root-owned `chown agent:agent /home/agent/.cursor` is
-      # replicated in setup.install below, and it runs before the kit's
-      # files/home/ tree is copied in, so the whole tree already belongs to the
-      # agent. Verified on a rebuild: nothing under ~/.cursor is root-owned, and
-      # tests/toolchain_test.sh asserts it. Do not add one back for symmetry.
+      # No chown here, deliberately — unlike the sbxclaude and sbxcodex kits
+      # before sbx v0.42.0. The parent's own root-owned
+      # `chown agent:agent /home/agent/.cursor` runs before the kit's files/home/
+      # tree is copied in, so the whole tree already belongs to the agent.
+      # tests/toolchain_test.sh asserts nothing under ~/.cursor is root-owned.
+      # Do not add one back for symmetry.
       #
       # The `github` MCP server reads GITHUB_PERSONAL_ACCESS_TOKEN.
       # files/home/.cursor/mcp.json supplies it as "${env:GITHUB_TOKEN}" —
@@ -123,46 +120,6 @@ permissions:
 
 setup:
   install:
-    # ---- Replicated from the embedded `cursor` parent kit ----
-    # sbx drops the parent's whole setup node once this kit declares its own
-    # (issue https://github.com/docker/sbx-releases/issues/415). For Cursor that
-    # is worse than for Codex: the parent's `install`, `startup` AND `files`
-    # entries all go, and a spike confirmed `~/.cursor` then does not exist at
-    # all. The three steps below restore it. Keep them in sync with the parent
-    # when bumping the pinned sbx version, and drop them once #415 is fixed.
-    #
-    # This one must stay first: the kit's own files/home/ tree is copied in
-    # after `install` runs, and it writes into ~/.cursor.
-    - command: mkdir -p /home/agent/.cursor && chown agent:agent /home/agent/.cursor
-      user: "0"
-      description: Ensure .cursor is owned by agent before bind mounts and initFiles run (replicated parent step)
-    # Pre-trust the workspace so the interactive `agent` TUI skips its
-    # "Workspace Trust Required" prompt on every run. `--yolo` bypasses tool
-    # approvals but NOT this trust gate, and `--trust` only works in headless
-    # (-p) mode, so without this every interactive session starts with a prompt.
-    # The slug is derived per-workspace, which is why it cannot be a static file.
-    - command: |
-        [ -n "$WORKSPACE_DIR" ] || { echo "WORKSPACE_DIR unset; skipping Cursor workspace pre-trust" >&2; exit 0; }
-        ws="$WORKSPACE_DIR"
-        slug=$(printf '%s' "$ws" | sed 's#^/##; s#/#-#g')
-        dir="/home/agent/.cursor/projects/$slug"
-        mkdir -p "$dir"
-        esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
-        [ -f "$dir/.workspace-trusted" ] || printf '{"trustedAt":"%s","workspacePath":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$esc" > "$dir/.workspace-trusted"
-      user: "agent"
-      description: Pre-trust the workspace so `agent` skips the interactive Workspace Trust prompt (replicated parent step)
-    # The parent ships this as a `setup.files:` entry with onlyIfMissing: true.
-    # That whole node is dropped along with the rest, and a child `setup.files:`
-    # would be a second unverified path, so it is written from a command here
-    # instead — the `[ -f ] ||` guard reproduces onlyIfMissing exactly.
-    # Without it, agent traffic does not go through the forward proxy.
-    - command: |
-        set -eu
-        f=/home/agent/.cursor/cli-config.json
-        [ -f "$f" ] || printf '%s\n' '{"network": {"useHttp1ForAgent": true}}' > "$f"
-      user: "agent"
-      description: Seed HTTP/1.1+SSE for agent connections so traffic goes through the forward proxy (replicated parent step)
-    # ---- End replicated parent steps ----
     - command: |
         set -eu
         apt-get update
@@ -281,10 +238,6 @@ setup:
       user: "1000"
       description: mermaid-cli, reusing the Playwright Chromium
   startup:
-    # Replicated from the parent, and lost for the same reason (#415).
-    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
-      user: "root"
-      description: Update apt package cache in background (replicated parent step)
     # Cursor gates MCP servers behind a separate approval from the workspace
     # trust gate, and `--yolo` bypasses neither: without this, `agent mcp list`
     # reports both servers as "not loaded (needs approval)". `mcp enable`

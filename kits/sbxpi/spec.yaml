@@ -8,9 +8,9 @@ description: Pi with custom toolchain
 sandbox:
   # No `extends:` — Pi has no parent kit (only claude, codex, copilot, cursor,
   # gemini, kiro, opencode are valid `extends:` values). Built on the bare
-  # shell-docker template instead, so unlike the siblings there is no
-  # sbx-releases#415 parent/child setup collision to work around: plain
-  # `entrypoint: [pi]` is correct here.
+  # shell-docker template instead, so unlike the siblings there is no parent
+  # setup to merge with and no token export to wrap: plain `entrypoint: [pi]`
+  # is correct here.
   image: "docker/sandbox-templates:shell-docker"
   entrypoint: [pi]
 # resources:

@@ -26,6 +26,19 @@ and this project adheres to
   purpose and warns about on every invocation. `--kit` remains the way to
   stack a mixin on top of a kit.
 
+### Fixed
+
+- `sbxclaude`, `sbxcodex` and `sbxcursor` no longer carry hand-written
+  workarounds for
+  [docker/sbx-releases#415](https://github.com/docker/sbx-releases/issues/415)
+  now that `sbx` v0.42.0 merges a child kit's `setup:` with its parent's
+  instead of replacing it. Removed: the `chown` ownership fixups from the
+  `sbxclaude` and `sbxcodex` entrypoints, the replicated `~/.codex`
+  config/auth seeding and MCP-gateway registration steps from `sbxcodex`, and
+  the replicated `~/.cursor` ownership, workspace pre-trust, `cli-config.json`
+  seeding and apt-cache steps from `sbxcursor`. The parent kits supply all of
+  these again.
+
 ## [0.4.1] - 2026-09-06
 
 ### Added
