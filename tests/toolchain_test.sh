@@ -528,10 +528,10 @@ pass "${PI_SETTINGS_JSON} is valid JSON"
 [[ -O "${PI_SETTINGS_JSON}" ]] || fail "${PI_SETTINGS_JSON} is not owned by the sandbox user"
 pass "${PI_SETTINGS_JSON} is owned by the sandbox user"
 
-jq -e '.defaultProvider == "openrouter" and .defaultModel == "qwen/qwen3-coder"' \
+jq -e '.defaultProvider == "openrouter" and .defaultModel == "qwen/qwen3-coder-next"' \
 	"${PI_SETTINGS_JSON}" >/dev/null ||
-	fail "defaultProvider/defaultModel are not set to openrouter/qwen3-coder in ${PI_SETTINGS_JSON}"
-pass "settings.json defaults to openrouter / qwen/qwen3-coder"
+	fail "defaultProvider/defaultModel are not set to openrouter/qwen3-coder-next in ${PI_SETTINGS_JSON}"
+pass "settings.json defaults to openrouter / qwen/qwen3-coder-next"
 
 # `pi install` merges this key into the shipped settings.json at build time —
 # the kit does not hand-write it, so this is what proves that step ran and its
