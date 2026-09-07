@@ -11,29 +11,38 @@ CSPELL ?= cspell
 # only — it neither resolves imports nor checks types.
 ESBUILD ?= npx --yes esbuild@0.28.2
 
+# Skill definitions are prose authored to each agent tool's own conventions,
+# not this repo's, so the two prose checks below — markdownlint and cspell —
+# skip them. Every other check still covers them, so a skill that ships a
+# script or a config is still syntax-checked. `**/skills/**` needs `glob`
+# magic to match a `skills/` component at any depth — the plain `:!a/b/*` form
+# used for plan drafts cannot express "at any depth" without also matching a
+# directory that merely ends in "skills".
+NO_SKILLS := ':(exclude,glob)**/skills/**'
+
 .PHONY: lint validate test test-unit test-toolchain publish-dry-run
 
 # Lint tracked files: Markdown (skip plan drafts), JSON, jq filters (parsed
 # against null input, so a syntax error fails the build), TypeScript
 # (type-stripped by esbuild, so a syntax error fails the build too), YAML,
 # shell scripts (shellcheck + bash -n, one file per xargs call), and
-# spell-check (skip plan drafts). Assert each kits/<name>/ declares
-# name: <name>, that the files every kit duplicates stay byte-identical across
-# kits, that the Cursor kit's user-scope MCP config matches the repo's
-# project-scope one (the sandbox mounts the project, so the two sit side by
-# side), that the dev-only copies of the network-block jq filter and its Pi
-# extension each stay in sync with every kit heredoc that ships them, and that
-# VERSION, every kits/*/spec.yaml version, and CHANGELOG's latest release all
-# agree.
+# spell-check (skip plan drafts). Markdown and spell-check also skip skill
+# definitions. Assert each kits/<name>/ declares name: <name>, that the files
+# every kit duplicates stay byte-identical across kits, that the Cursor kit's
+# user-scope MCP config matches the repo's project-scope one (the sandbox
+# mounts the project, so the two sit side by side), that the dev-only copies
+# of the network-block jq filter and its Pi extension each stay in sync with
+# every kit heredoc that ships them, and that VERSION, every kits/*/spec.yaml
+# version, and CHANGELOG's latest release all agree.
 lint:
-	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' | xargs -0 $(MARKDOWNLINT)
+	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' $(NO_SKILLS) | xargs -0 $(MARKDOWNLINT)
 	git ls-files -z -- '*.json' | xargs -0 -n1 jq empty
 	git ls-files -z -- '*.jq' | xargs -0 -n1 sh -c 'jq -n -f "$$1" >/dev/null' --
 	git ls-files -z -- '*.ts' | xargs -0 -n1 sh -c '$(ESBUILD) --loader=ts --log-level=warning <"$$1" >/dev/null' --
 	git ls-files -z -- '*.yaml' '*.yml' | xargs -0 $(YAMLLINT)
 	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 shellcheck --enable=all
 	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 -n1 bash -n
-	git ls-files -z -- ':!.claude/plans/*' ':!.cursor/plans/*' | xargs -0 $(CSPELL) --no-progress
+	git ls-files -z -- ':!.claude/plans/*' ':!.cursor/plans/*' $(NO_SKILLS) | xargs -0 $(CSPELL) --no-progress
 	for kit in kits/*/; do \
 		dir="$${kit%/}"; name="$$(basename "$$dir")"; \
 		grep -qx "name: $$name" "$$dir/spec.yaml" || { \
