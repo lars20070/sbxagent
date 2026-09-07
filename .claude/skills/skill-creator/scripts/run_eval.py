@@ -138,7 +138,8 @@ def run_single_query(
                                     pending_tool_name = tool_name
                                     accumulated_json = ""
                                 else:
-                                    return False
+                                    pending_tool_name = None
+                                    accumulated_json = ""
 
                         elif se_type == "content_block_delta" and pending_tool_name:
                             delta = se.get("delta", {})
@@ -147,11 +148,14 @@ def run_single_query(
                                 if clean_name in accumulated_json:
                                     return True
 
-                        elif se_type in ("content_block_stop", "message_stop"):
+                        elif se_type == "content_block_stop":
                             if pending_tool_name:
-                                return clean_name in accumulated_json
-                            if se_type == "message_stop":
-                                return False
+                                if clean_name in accumulated_json:
+                                    return True
+                                pending_tool_name = None
+                                accumulated_json = ""
+                        elif se_type == "message_stop":
+                            return False
 
                     # Fallback: full assistant message
                     elif event.get("type") == "assistant":
@@ -165,7 +169,7 @@ def run_single_query(
                                 triggered = True
                             elif tool_name == "Read" and clean_name in tool_input.get("file_path", ""):
                                 triggered = True
-                            return triggered
+                        return triggered
 
                     elif event.get("type") == "result":
                         return triggered

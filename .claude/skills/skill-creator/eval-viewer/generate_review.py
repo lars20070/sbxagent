@@ -276,7 +276,12 @@ def generate_html(
     if benchmark:
         embedded["benchmark"] = benchmark
 
-    data_json = json.dumps(embedded)
+    data_json = (
+        json.dumps(embedded)
+        .replace("<", r"\u003c")
+        .replace(">", r"\u003e")
+        .replace("&", r"\u0026")
+    )
 
     return template.replace("/*__EMBEDDED_DATA__*/", f"const EMBEDDED_DATA = {data_json};")
 
@@ -360,6 +365,14 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if self.path == "/api/feedback":
+            origin = self.headers.get("Origin")
+            expected = f"http://{self.headers.get('Host', '')}"
+            if origin != expected:
+                self.send_error(403)
+                return
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                self.send_error(415)
+                return
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
             try:
