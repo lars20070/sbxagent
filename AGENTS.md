@@ -150,8 +150,8 @@ this — and it is worth removing this workaround once `sbx` handles it.
   against one.
 - `debug-third-party` — check for a known upstream bug before working around
   an error that looks like it's from a dependency.
-- `skill-creator` — create a new skill under `.claude/skills/`, or iterate on
-  an existing one, with drafting, test evals, and a review loop with the user.
+- `skill-creator` — write a new skill under `.claude/skills/`, or edit an
+  existing one, in the correct SKILL.md format.
 - `readme` — write or improve `README.md`; every claim must trace to a file in
   the repo, and content that isn't for onboarding/evaluation moves to
   `docs/`, `CONTRIBUTING.md`, or `AGENTS.md` instead of being deleted.
