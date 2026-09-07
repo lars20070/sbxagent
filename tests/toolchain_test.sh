@@ -72,6 +72,7 @@ check_tool curl curl --version
 check_tool python3 python3 --version
 check_tool shellcheck shellcheck --version
 check_tool git git --version
+check_tool tree tree --version
 
 # Directly installed tools: exact pinned versions.
 check_tool_version ruff "${EXPECTED_RUFF_VERSION}" ruff --version

@@ -60,7 +60,7 @@ agentInstructions:
       them, and read console output to verify UI changes before reporting done
     - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
       `mmdc -i diagram.mmd -o diagram.png`
-    - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`
+    - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`, `tree`
     - Sandbox kits: `sbx`, with the restrictions above
     - Docs: Context7 is installed as a native Pi package, not an MCP server —
       it registers its own tools directly. There is no GitHub MCP server in
@@ -159,7 +159,8 @@ setup:
           jq \
           python3 \
           ripgrep \
-          shellcheck
+          shellcheck \
+          tree
       description: CLI tools
     - command: |
         set -eu

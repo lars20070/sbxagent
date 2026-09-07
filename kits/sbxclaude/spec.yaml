@@ -76,7 +76,7 @@ agentInstructions:
       them, and read console output to verify UI changes before reporting done
     - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
       `mmdc -i diagram.mmd -o diagram.png`
-    - General: `git`, `docker`, `curl`, `node`, `npm`
+    - General: `git`, `docker`, `curl`, `node`, `npm`, `tree`
     - Sandbox kits: `sbx`, with the restrictions above
     - MCP servers: `context7` (up-to-date library/framework docs) and `github`
       (GitHub API) are configured and ready to use
@@ -125,7 +125,8 @@ setup:
           jq \
           python3 \
           ripgrep \
-          shellcheck
+          shellcheck \
+          tree
       description: CLI tools
     - command: |
         set -eu
