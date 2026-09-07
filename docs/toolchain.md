@@ -9,7 +9,7 @@ Every kit installs the same tools:
 
 | Tool | For | Version |
 | --- | --- | --- |
-| `curl`, `jq`, `python3`, `ripgrep`, `shellcheck` | shell and script work | tracks the distribution |
+| `curl`, `jq`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution |
 | `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below |
 | `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below |
 | Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below |
@@ -54,7 +54,7 @@ adds two of its own, for Pi and its Context7 package.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |
-| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.39.0` (SHA-256 verified) |
+| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.42.0` (SHA-256 verified) |
 | `ruff` | `kits/*/spec.yaml` | `0.16.2` |
 | `yamllint` | `kits/*/spec.yaml` | `1.38.0` |
 | `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.2` |

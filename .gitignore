@@ -1,2 +1,7 @@
 # macOS
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.ruff_cache/

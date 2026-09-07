@@ -1,30 +1,27 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxcursor
-version: "0.4.1"
+version: "0.4.2"
 displayName: Cursor with custom toolchain
 description: Cursor with custom toolchain
 
 extends: cursor
 
 sandbox:
-  # OLD CODE:
-  # entrypoint: [agent] # Runs with --yolo !!
-  #
-  # TEMPORARY: works around sbx dropping the parent cursor kit's setup when
-  # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
-  # Revert to `entrypoint: [agent]` once sbx merges parent and child setup instead of replacing.
+  # This wrapper exists only for the GH_TOKEN export below; the parent kit's
+  # own `entrypoint: [agent]` (which runs with --yolo) is otherwise what this
+  # reduces to.
   entrypoint:
     - sh
     - -c
     - |
       set -eu
-      # No chown here, deliberately — unlike the sbxclaude and sbxcodex kits.
-      # The parent's own root-owned `chown agent:agent /home/agent/.cursor` is
-      # replicated in setup.install below, and it runs before the kit's
-      # files/home/ tree is copied in, so the whole tree already belongs to the
-      # agent. Verified on a rebuild: nothing under ~/.cursor is root-owned, and
-      # tests/toolchain_test.sh asserts it. Do not add one back for symmetry.
+      # No chown here, deliberately — unlike the sbxclaude and sbxcodex kits
+      # before sbx v0.42.0. The parent's own root-owned
+      # `chown agent:agent /home/agent/.cursor` runs before the kit's files/home/
+      # tree is copied in, so the whole tree already belongs to the agent.
+      # tests/toolchain_test.sh asserts nothing under ~/.cursor is root-owned.
+      # Do not add one back for symmetry.
       #
       # The `github` MCP server reads GITHUB_PERSONAL_ACCESS_TOKEN.
       # files/home/.cursor/mcp.json supplies it as "${env:GITHUB_TOKEN}" —
@@ -72,14 +69,15 @@ agentInstructions:
 
     - Search and data: `rg` (ripgrep), `jq`
     - Shell: `shellcheck`; use `bash -n` for syntax checks
-    - Python: `python3`, `ruff` for lint and format, `uv` for packages
+    - Python: `python3`, `ruff` for lint and format, `uv` for packages,
+      PyYAML for YAML parsing (`import yaml`)
     - YAML: `yamllint`
     - Markdown and prose: `markdownlint-cli2`, `cspell`
     - Browser: `playwright`, with headless Chromium — load pages, screenshot
       them, and read console output to verify UI changes before reporting done
     - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
       `mmdc -i diagram.mmd -o diagram.png`
-    - General: `git`, `docker`, `curl`, `node`, `npm`
+    - General: `git`, `docker`, `curl`, `node`, `npm`, `tree`
     - Sandbox kits: `sbx`, with the restrictions above
     - MCP servers: `context7` (up-to-date library/framework docs) and `github`
       (GitHub API) are configured and ready to use
@@ -122,67 +120,31 @@ permissions:
 
 setup:
   install:
-    # ---- Replicated from the embedded `cursor` parent kit ----
-    # sbx drops the parent's whole setup node once this kit declares its own
-    # (issue https://github.com/docker/sbx-releases/issues/415). For Cursor that
-    # is worse than for Codex: the parent's `install`, `startup` AND `files`
-    # entries all go, and a spike confirmed `~/.cursor` then does not exist at
-    # all. The three steps below restore it. Keep them in sync with the parent
-    # when bumping the pinned sbx version, and drop them once #415 is fixed.
-    #
-    # This one must stay first: the kit's own files/home/ tree is copied in
-    # after `install` runs, and it writes into ~/.cursor.
-    - command: mkdir -p /home/agent/.cursor && chown agent:agent /home/agent/.cursor
-      user: "0"
-      description: Ensure .cursor is owned by agent before bind mounts and initFiles run (replicated parent step)
-    # Pre-trust the workspace so the interactive `agent` TUI skips its
-    # "Workspace Trust Required" prompt on every run. `--yolo` bypasses tool
-    # approvals but NOT this trust gate, and `--trust` only works in headless
-    # (-p) mode, so without this every interactive session starts with a prompt.
-    # The slug is derived per-workspace, which is why it cannot be a static file.
-    - command: |
-        [ -n "$WORKSPACE_DIR" ] || { echo "WORKSPACE_DIR unset; skipping Cursor workspace pre-trust" >&2; exit 0; }
-        ws="$WORKSPACE_DIR"
-        slug=$(printf '%s' "$ws" | sed 's#^/##; s#/#-#g')
-        dir="/home/agent/.cursor/projects/$slug"
-        mkdir -p "$dir"
-        esc=$(printf '%s' "$ws" | sed 's/\\/\\\\/g; s/"/\\"/g')
-        [ -f "$dir/.workspace-trusted" ] || printf '{"trustedAt":"%s","workspacePath":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$esc" > "$dir/.workspace-trusted"
-      user: "agent"
-      description: Pre-trust the workspace so `agent` skips the interactive Workspace Trust prompt (replicated parent step)
-    # The parent ships this as a `setup.files:` entry with onlyIfMissing: true.
-    # That whole node is dropped along with the rest, and a child `setup.files:`
-    # would be a second unverified path, so it is written from a command here
-    # instead — the `[ -f ] ||` guard reproduces onlyIfMissing exactly.
-    # Without it, agent traffic does not go through the forward proxy.
-    - command: |
-        set -eu
-        f=/home/agent/.cursor/cli-config.json
-        [ -f "$f" ] || printf '%s\n' '{"network": {"useHttp1ForAgent": true}}' > "$f"
-      user: "agent"
-      description: Seed HTTP/1.1+SSE for agent connections so traffic goes through the forward proxy (replicated parent step)
-    # ---- End replicated parent steps ----
     - command: |
         set -eu
         apt-get update
+        # python3-yaml gives scripts `import yaml` (PyYAML) without a
+        # separate pip install.
         apt-get install -y \
           ca-certificates \
           curl \
           jq \
           python3 \
+          python3-yaml \
           ripgrep \
-          shellcheck
+          shellcheck \
+          tree
       description: CLI tools
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.39.0 release assets.
+        # Digests of the v0.42.0 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="2ec45bc7938c20c2f406fe8cc72294ad5a954bdc047601484b89bf1a108311d4"
+            expected_sha256="a88c56f02435974145a86d983beab4458b412c2133d5da0df7f12e117d8152e7"
             ;;
           arm64)
-            expected_sha256="39c470a5f5e0991b1c2358952e2ab32a7b0309bfa57ac62b6bbc64b466d02c17"
+            expected_sha256="5f16183d26f90dc98014c2abac83e4a1d13aa04390a9512b54867096ef87db89"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -192,7 +154,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.39.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.42.0/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
@@ -276,10 +238,6 @@ setup:
       user: "1000"
       description: mermaid-cli, reusing the Playwright Chromium
   startup:
-    # Replicated from the parent, and lost for the same reason (#415).
-    - command: ["sh", "-c", "command -v apt-get > /dev/null 2>&1 && (apt-get update -qq -y > /dev/null 2>&1 || true) &"]
-      user: "root"
-      description: Update apt package cache in background (replicated parent step)
     # Cursor gates MCP servers behind a separate approval from the workspace
     # trust gate, and `--yolo` bypasses neither: without this, `agent mcp list`
     # reports both servers as "not loaded (needs approval)". `mcp enable`

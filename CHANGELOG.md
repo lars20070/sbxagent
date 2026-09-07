@@ -8,6 +8,54 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-07
+
+### Added
+
+- `tree` is preinstalled in all four sandboxes, for viewing directory
+  structure at a glance. It tracks the distribution like the other apt tools,
+  so it is not pinned.
+- `python3-yaml` (PyYAML) is preinstalled in all four sandboxes, so `import
+  yaml` works in scripts without a separate install. It tracks the
+  distribution like the other apt tools, so it is not pinned.
+
+### Changed
+
+- Bump the pinned in-sandbox `sbx` CLI (and its release-workflow install)
+  from `v0.39.0` to `v0.42.0`, with updated SHA-256 digests.
+- The wrapper now passes the kit as `sbx run`/`sbx create`'s first positional
+  operand instead of through `--kit`, which `sbx` v0.42.0 deprecated for that
+  purpose and warns about on every invocation. `--kit` remains the way to
+  stack a mixin on top of a kit.
+- **Running a published kit without the wrapper changed shape** for the same
+  reason: `sbx run ghcr.io/lars20070/sbxclaude:<version>` replaces
+  `sbx run --kit ghcr.io/lars20070/sbxclaude:<version> sbxclaude`. The agent
+  is now read from the kit's own spec, so its name is no longer repeated as a
+  trailing operand, and stacking a mixin becomes
+  `sbx run <kit-ref> --kit ./my-extras`. `README.md` and
+  [`docs/published-kits.md`](docs/published-kits.md) show the new form.
+
+### Fixed
+
+- `sbxclaude`, `sbxcodex` and `sbxcursor` no longer carry hand-written
+  workarounds for
+  [docker/sbx-releases#415](https://github.com/docker/sbx-releases/issues/415)
+  now that `sbx` v0.42.0 merges a child kit's `setup:` with its parent's
+  instead of replacing it. Removed: the `chown` ownership fixups from the
+  `sbxclaude` and `sbxcodex` entrypoints, the replicated `~/.codex`
+  config/auth seeding and MCP-gateway registration steps from `sbxcodex`, and
+  the replicated `~/.cursor` ownership, workspace pre-trust, `cli-config.json`
+  seeding and apt-cache steps from `sbxcursor`. The parent kits supply all of
+  these again.
+- `sbxclaude` registers the `context7` and `github` MCP servers again. They
+  shipped as `files/home/.claude.json`, but a kit's `files/home/` tree does not
+  overwrite a file that already exists, and from `sbx` v0.42.0 the parent
+  `claude` kit's own setup creates `~/.claude.json` first — so the shipped copy
+  was silently skipped and Claude Code started with neither server. They are
+  now merged into whatever `~/.claude.json` holds by a `startup:` step, which
+  keeps the parent's `mcp-gateway` entry and every key Claude Code writes for
+  itself.
+
 ## [0.4.1] - 2026-09-06
 
 ### Added

@@ -10,7 +10,7 @@ KIT_NAME="${SANDBOX_NAME:-$(hostname)}"
 KIT_NAME="${KIT_NAME%%-*}"
 [[ -n "${KIT_NAME}" ]] || KIT_NAME="sbxclaude"
 
-EXPECTED_SBX_VERSION="v0.39.0"
+EXPECTED_SBX_VERSION="v0.42.0"
 EXPECTED_RUFF_VERSION="0.16.2"
 EXPECTED_YAMLLINT_VERSION="1.38.0"
 EXPECTED_MARKDOWNLINT_VERSION="0.23.2"
@@ -72,6 +72,13 @@ check_tool curl curl --version
 check_tool python3 python3 --version
 check_tool shellcheck shellcheck --version
 check_tool git git --version
+check_tool tree tree --version
+
+# python3-yaml (PyYAML) has no CLI binary of its own, so it can't use
+# check_tool — check the import directly instead.
+python3 -c "import yaml" >/dev/null 2>&1 ||
+	fail "python3-yaml (PyYAML) is not importable"
+pass "python3-yaml (PyYAML) is importable"
 
 # Directly installed tools: exact pinned versions.
 check_tool_version ruff "${EXPECTED_RUFF_VERSION}" ruff --version
@@ -285,8 +292,8 @@ jq -e . "${CLAUDE_JSON}" >/dev/null 2>&1 ||
 	fail "${CLAUDE_JSON} is not valid JSON"
 pass "${CLAUDE_JSON} is valid JSON"
 
-# Guards against the same root-ownership defect the entrypoint chown already
-# works around for ~/.claude (see spec.yaml, issue #415).
+# The parent claude kit's setup owns ~/.claude and ~/.claude.json to the agent;
+# this guards against them arriving root-owned, which the agent cannot write.
 [[ -O "${CLAUDE_JSON}" ]] || fail "${CLAUDE_JSON} is not owned by the sandbox user"
 pass "${CLAUDE_JSON} is owned by the sandbox user"
 
@@ -353,16 +360,16 @@ CODEX_TOML="${HOME}/.codex/config.toml"
 [[ -s "${CODEX_TOML}" ]] || fail "${CODEX_TOML} is missing (${REBUILD_HINT})"
 pass "${CODEX_TOML} exists"
 
-# Guards against the same root-ownership defect the entrypoint chown works
-# around for ~/.codex (see kits/sbxcodex/spec.yaml, issue #415).
+# The parent codex kit's setup owns ~/.codex to the agent; this guards against
+# it arriving root-owned, which the agent cannot write.
 [[ -O "${CODEX_TOML}" ]] || fail "${CODEX_TOML} is not owned by the sandbox user"
 pass "${CODEX_TOML} is owned by the sandbox user"
 
-# The replicated parent seeding step must have run — without it Codex has no
-# yolo-mode config at all, which is the exact failure #415 causes.
+# The parent kit's seeding step must have run — without it Codex has no
+# yolo-mode config at all.
 grep -Fqx 'approval_policy = "never"' "${CODEX_TOML}" ||
 	fail "${CODEX_TOML} lacks the parent's yolo-mode keys (${REBUILD_HINT})"
-pass "replicated parent seeding step ran"
+pass "parent seeding step ran"
 
 grep -Fqx '[mcp_servers.context7]' "${CODEX_TOML}" ||
 	fail "context7 MCP server missing from ${CODEX_TOML}"
@@ -385,10 +392,10 @@ fi # end sbxcodex-only
 # ---------------------------------------------------------------------------
 # sbxcursor only. MCP servers ship as files/home/.cursor/mcp.json — the cursor
 # parent only writes ~/.cursor/cli-config.json, a different file, so a shipped
-# copy is safe here in a way it is not for Codex. The other assertions cover the
-# parent steps this kit has to replicate because sbx drops them (issue #415);
-# for Cursor that includes the parent's `setup.files:` entry, not just its
-# install and startup steps.
+# copy is safe here in a way it is not for Codex. The other assertions cover
+# what the cursor parent kit's own setup supplies: ~/.cursor ownership, the
+# workspace pre-trust file, and the cli-config.json it ships as a
+# `setup.files:` entry.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxcursor" ]]; then
 
@@ -400,7 +407,7 @@ jq -e . "${CURSOR_JSON}" >/dev/null 2>&1 ||
 pass "${CURSOR_JSON} is valid JSON"
 
 # Guards against root-owned files under ~/.cursor after the kit's files/home/
-# tree is copied in (see kits/sbxcursor/spec.yaml, issue #415).
+# tree is copied in (see kits/sbxcursor/spec.yaml).
 [[ -O "${CURSOR_JSON}" ]] || fail "${CURSOR_JSON} is not owned by the sandbox user"
 pass "${CURSOR_JSON} is owned by the sandbox user"
 
@@ -521,10 +528,10 @@ pass "${PI_SETTINGS_JSON} is valid JSON"
 [[ -O "${PI_SETTINGS_JSON}" ]] || fail "${PI_SETTINGS_JSON} is not owned by the sandbox user"
 pass "${PI_SETTINGS_JSON} is owned by the sandbox user"
 
-jq -e '.defaultProvider == "openrouter" and .defaultModel == "qwen/qwen3-coder"' \
+jq -e '.defaultProvider == "openrouter" and .defaultModel == "qwen/qwen3-coder-next"' \
 	"${PI_SETTINGS_JSON}" >/dev/null ||
-	fail "defaultProvider/defaultModel are not set to openrouter/qwen3-coder in ${PI_SETTINGS_JSON}"
-pass "settings.json defaults to openrouter / qwen/qwen3-coder"
+	fail "defaultProvider/defaultModel are not set to openrouter/qwen3-coder-next in ${PI_SETTINGS_JSON}"
+pass "settings.json defaults to openrouter / qwen/qwen3-coder-next"
 
 # `pi install` merges this key into the shipped settings.json at build time —
 # the kit does not hand-write it, so this is what proves that step ran and its

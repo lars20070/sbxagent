@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Upstream virtiofs cache bug: `cp` reading from the mounted workspace inside a
 # sandbox writes a hole (correct size, all NUL bytes); `cat` and `dd` are fine.
-# https://github.com/docker/sbx-releases/issues/526 — no fix as of sbx v0.39.0.
+# https://github.com/docker/sbx-releases/issues/526 — no fix as of sbx v0.42.0.
 # Must be set on the host before create. Revisit when bumping the pinned sbx
 # version; remove this export once #526 is fixed in that release.
 export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
@@ -133,7 +133,7 @@ case "${1:-}" in
 		exec sbx run --name "${SANDBOX}"
 	fi
 	sbx kit validate "${KIT}" >/dev/null
-	exec sbx run --name "${SANDBOX}" --kit "${KIT}" "${KIT_NAME}"
+	exec sbx run --name "${SANDBOX}" "${KIT}"
 	;;
 name)
 	shift
@@ -168,7 +168,7 @@ create)
 	shift
 	no_args create "$@"
 	require_sbx
-	exec sbx create --name "${SANDBOX}" --kit "${KIT}" "${KIT_NAME}" .
+	exec sbx create --name "${SANDBOX}" "${KIT}" .
 	;;
 rm)
 	shift

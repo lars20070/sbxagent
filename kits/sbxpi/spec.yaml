@@ -1,16 +1,16 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxpi
-version: "0.4.1"
+version: "0.4.2"
 displayName: Pi with custom toolchain
 description: Pi with custom toolchain
 
 sandbox:
   # No `extends:` — Pi has no parent kit (only claude, codex, copilot, cursor,
   # gemini, kiro, opencode are valid `extends:` values). Built on the bare
-  # shell-docker template instead, so unlike the siblings there is no
-  # sbx-releases#415 parent/child setup collision to work around: plain
-  # `entrypoint: [pi]` is correct here.
+  # shell-docker template instead, so unlike the siblings there is no parent
+  # setup to merge with and no token export to wrap: plain `entrypoint: [pi]`
+  # is correct here.
   image: "docker/sandbox-templates:shell-docker"
   entrypoint: [pi]
 # resources:
@@ -53,14 +53,15 @@ agentInstructions:
     - Search and data: `rg` (ripgrep), `fdfind` (fd — Ubuntu names it
       `fdfind`, not `fd`), `jq`
     - Shell: `shellcheck`; use `bash -n` for syntax checks
-    - Python: `python3`, `ruff` for lint and format, `uv` for packages
+    - Python: `python3`, `ruff` for lint and format, `uv` for packages,
+      PyYAML for YAML parsing (`import yaml`)
     - YAML: `yamllint`
     - Markdown and prose: `markdownlint-cli2`, `cspell`
     - Browser: `playwright`, with headless Chromium — load pages, screenshot
       them, and read console output to verify UI changes before reporting done
     - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
       `mmdc -i diagram.mmd -o diagram.png`
-    - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`
+    - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`, `tree`
     - Sandbox kits: `sbx`, with the restrictions above
     - Docs: Context7 is installed as a native Pi package, not an MCP server —
       it registers its own tools directly. There is no GitHub MCP server in
@@ -152,25 +153,30 @@ setup:
         # ships the binary as `fdfind` (the name `fd` is taken), which Pi
         # accepts natively via its systemBinaryNames list, so no symlink is
         # needed. ripgrep covers Pi's other bundled tool the same way.
+        #
+        # python3-yaml gives scripts `import yaml` (PyYAML) without a
+        # separate pip install.
         apt-get install -y \
           ca-certificates \
           curl \
           fd-find \
           jq \
           python3 \
+          python3-yaml \
           ripgrep \
-          shellcheck
+          shellcheck \
+          tree
       description: CLI tools
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.39.0 release assets.
+        # Digests of the v0.42.0 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="2ec45bc7938c20c2f406fe8cc72294ad5a954bdc047601484b89bf1a108311d4"
+            expected_sha256="a88c56f02435974145a86d983beab4458b412c2133d5da0df7f12e117d8152e7"
             ;;
           arm64)
-            expected_sha256="39c470a5f5e0991b1c2358952e2ab32a7b0309bfa57ac62b6bbc64b466d02c17"
+            expected_sha256="5f16183d26f90dc98014c2abac83e4a1d13aa04390a9512b54867096ef87db89"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -180,7 +186,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.39.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.42.0/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then

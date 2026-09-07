@@ -1,31 +1,23 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxclaude
-version: "0.4.1"
+version: "0.4.2"
 displayName: Claude Code with custom toolchain
 description: Claude Code with custom toolchain
 
 extends: claude
 
 sandbox:
-  # OLD CODE:
-  # entrypoint: [claude] # Runs with --dangerously-skip-permissions !!
-  #
-  # TEMPORARY: works around sbx dropping the parent claude kit's setup when
-  # this kit defines its own `setup:` block (see issue https://github.com/docker/sbx-releases/issues/415).
-  # Revert to `entrypoint: [claude]` once sbx merges parent and child setup instead of replacing.
+  # This wrapper exists only for the GH_TOKEN export below; the parent kit's
+  # own `entrypoint: [claude]` (which runs with --dangerously-skip-permissions)
+  # is otherwise what this reduces to. Ownership of ~/.claude and
+  # ~/.claude.json is the parent kit's own setup step to handle, and sbx merges
+  # that step with this kit's `setup:` block rather than replacing it.
   entrypoint:
     - sh
     - -c
     - |
       set -eu
-      owner="$(id -u):$(id -g)"
-      if [ -e "$HOME/.claude" ] || [ -L "$HOME/.claude" ]; then
-        sudo chown -hR -P "$owner" -- "$HOME/.claude"
-      fi
-      if [ -e "$HOME/.claude.json" ] || [ -L "$HOME/.claude.json" ]; then
-        sudo chown -h -P "$owner" -- "$HOME/.claude.json"
-      fi
       # One `github` MCP definition has to work both on the host and in here,
       # or the kit's user scope and a project .mcp.json collide and Claude Code
       # reports conflicting endpoints. Both reference ${GITHUB_TOKEN}: on the
@@ -69,14 +61,15 @@ agentInstructions:
 
     - Search and data: `rg` (ripgrep), `jq`
     - Shell: `shellcheck`; use `bash -n` for syntax checks
-    - Python: `python3`, `ruff` for lint and format, `uv` for packages
+    - Python: `python3`, `ruff` for lint and format, `uv` for packages,
+      PyYAML for YAML parsing (`import yaml`)
     - YAML: `yamllint`
     - Markdown and prose: `markdownlint-cli2`, `cspell`
     - Browser: `playwright`, with headless Chromium — load pages, screenshot
       them, and read console output to verify UI changes before reporting done
     - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
       `mmdc -i diagram.mmd -o diagram.png`
-    - General: `git`, `docker`, `curl`, `node`, `npm`
+    - General: `git`, `docker`, `curl`, `node`, `npm`, `tree`
     - Sandbox kits: `sbx`, with the restrictions above
     - MCP servers: `context7` (up-to-date library/framework docs) and `github`
       (GitHub API) are configured and ready to use
@@ -92,11 +85,11 @@ permissions:
       # Playwright downloads the Chromium browser binary from these CDN mirrors.
       - "cdn.playwright.dev:443"
       - "playwright.download.prss.microsoft.com:443"
-      # The Context7 MCP server (baked into every sandbox via
-      # files/home/.claude.json) calls its documentation API here.
+      # The Context7 MCP server (registered in ~/.claude.json by the startup
+      # step below) calls its documentation API here.
       - "context7.com:443"
-      # The GitHub MCP server (baked into every sandbox via
-      # files/home/.claude.json) runs locally and calls the REST API here.
+      # The GitHub MCP server (registered in ~/.claude.json by the startup
+      # step below) runs locally and calls the REST API here.
       - "api.github.com:443"
       - "github.com:443"
       # GitHub serves page CSS/JS from this host; without it github.com
@@ -119,24 +112,28 @@ setup:
     - command: |
         set -eu
         apt-get update
+        # python3-yaml gives scripts `import yaml` (PyYAML) without a
+        # separate pip install.
         apt-get install -y \
           ca-certificates \
           curl \
           jq \
           python3 \
+          python3-yaml \
           ripgrep \
-          shellcheck
+          shellcheck \
+          tree
       description: CLI tools
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.39.0 release assets.
+        # Digests of the v0.42.0 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="2ec45bc7938c20c2f406fe8cc72294ad5a954bdc047601484b89bf1a108311d4"
+            expected_sha256="a88c56f02435974145a86d983beab4458b412c2133d5da0df7f12e117d8152e7"
             ;;
           arm64)
-            expected_sha256="39c470a5f5e0991b1c2358952e2ab32a7b0309bfa57ac62b6bbc64b466d02c17"
+            expected_sha256="5f16183d26f90dc98014c2abac83e4a1d13aa04390a9512b54867096ef87db89"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -146,7 +143,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.39.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.42.0/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
@@ -373,3 +370,41 @@ setup:
         chmod +x "$mmdc_bin"
       user: "1000"
       description: mermaid-cli, reusing the Playwright Chromium
+  startup:
+    # The MCP servers cannot ship as files/home/.claude.json: the parent claude
+    # kit creates ~/.claude.json during its own setup, and a kit's files/home/
+    # tree does not overwrite a file that already exists, so a shipped copy is
+    # silently skipped. Merge into whatever is there instead, the way the codex
+    # kit appends to config.toml. This is a startup step so it runs after the
+    # parent's own gateway registration; `+` keeps that entry and every key
+    # Claude Code writes for itself, while these two definitions win.
+    #
+    # GITHUB_TOKEN stays an unexpanded literal — Claude Code expands it at
+    # read time, and the entrypoint exports it from the proxy-managed GH_TOKEN.
+    - command:
+        - sh
+        - -c
+        - |
+          set -eu
+          cfg="$HOME/.claude.json"
+          [ -f "$cfg" ] || printf '%s\n' '{}' > "$cfg"
+          tmp="$(mktemp)"
+          jq '.mcpServers = ((.mcpServers // {}) + {
+                "context7": {
+                  "type": "stdio",
+                  "command": "npx",
+                  "args": ["-y", "@upstash/context7-mcp@4.0.0"],
+                  "env": {}
+                },
+                "github": {
+                  "type": "stdio",
+                  "command": "github-mcp-server",
+                  "args": ["stdio"],
+                  "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
+                }
+              })' "$cfg" > "$tmp"
+          # cat, not mv, so the file keeps its original ownership and mode.
+          cat "$tmp" > "$cfg"
+          rm -f "$tmp"
+      user: "agent"
+      description: Register the context7 and github MCP servers
