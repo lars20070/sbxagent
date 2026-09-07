@@ -38,6 +38,14 @@ and this project adheres to
   the replicated `~/.cursor` ownership, workspace pre-trust, `cli-config.json`
   seeding and apt-cache steps from `sbxcursor`. The parent kits supply all of
   these again.
+- `sbxclaude` registers the `context7` and `github` MCP servers again. They
+  shipped as `files/home/.claude.json`, but a kit's `files/home/` tree does not
+  overwrite a file that already exists, and from `sbx` v0.42.0 the parent
+  `claude` kit's own setup creates `~/.claude.json` first — so the shipped copy
+  was silently skipped and Claude Code started with neither server. They are
+  now merged into whatever `~/.claude.json` holds by a `startup:` step, which
+  keeps the parent's `mcp-gateway` entry and every key Claude Code writes for
+  itself.
 
 ## [0.4.1] - 2026-09-06
 

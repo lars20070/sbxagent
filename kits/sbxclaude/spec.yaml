@@ -85,11 +85,11 @@ permissions:
       # Playwright downloads the Chromium browser binary from these CDN mirrors.
       - "cdn.playwright.dev:443"
       - "playwright.download.prss.microsoft.com:443"
-      # The Context7 MCP server (baked into every sandbox via
-      # files/home/.claude.json) calls its documentation API here.
+      # The Context7 MCP server (registered in ~/.claude.json by the startup
+      # step below) calls its documentation API here.
       - "context7.com:443"
-      # The GitHub MCP server (baked into every sandbox via
-      # files/home/.claude.json) runs locally and calls the REST API here.
+      # The GitHub MCP server (registered in ~/.claude.json by the startup
+      # step below) runs locally and calls the REST API here.
       - "api.github.com:443"
       - "github.com:443"
       # GitHub serves page CSS/JS from this host; without it github.com
@@ -370,3 +370,41 @@ setup:
         chmod +x "$mmdc_bin"
       user: "1000"
       description: mermaid-cli, reusing the Playwright Chromium
+  startup:
+    # The MCP servers cannot ship as files/home/.claude.json: the parent claude
+    # kit creates ~/.claude.json during its own setup, and a kit's files/home/
+    # tree does not overwrite a file that already exists, so a shipped copy is
+    # silently skipped. Merge into whatever is there instead, the way the codex
+    # kit appends to config.toml. This is a startup step so it runs after the
+    # parent's own gateway registration; `+` keeps that entry and every key
+    # Claude Code writes for itself, while these two definitions win.
+    #
+    # GITHUB_TOKEN stays an unexpanded literal — Claude Code expands it at
+    # read time, and the entrypoint exports it from the proxy-managed GH_TOKEN.
+    - command:
+        - sh
+        - -c
+        - |
+          set -eu
+          cfg="$HOME/.claude.json"
+          [ -f "$cfg" ] || printf '%s\n' '{}' > "$cfg"
+          tmp="$(mktemp)"
+          jq '.mcpServers = ((.mcpServers // {}) + {
+                "context7": {
+                  "type": "stdio",
+                  "command": "npx",
+                  "args": ["-y", "@upstash/context7-mcp@4.0.0"],
+                  "env": {}
+                },
+                "github": {
+                  "type": "stdio",
+                  "command": "github-mcp-server",
+                  "args": ["stdio"],
+                  "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
+                }
+              })' "$cfg" > "$tmp"
+          # cat, not mv, so the file keeps its original ownership and mode.
+          cat "$tmp" > "$cfg"
+          rm -f "$tmp"
+      user: "agent"
+      description: Register the context7 and github MCP servers
