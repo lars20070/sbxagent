@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-09
+
+### Removed
+
+- Trimmed the `skill-creator` skill down to writing and editing `SKILL.md`
+  files. Removed the eval-loop, benchmarking, and packaging tooling (grader,
+  analyzer, and comparator agents, eval/report scripts, schema references,
+  and the HTML eval viewer).
+
 ## [0.4.2] - 2026-09-07
 
 ### Added
