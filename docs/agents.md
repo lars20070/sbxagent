@@ -55,11 +55,12 @@ user hooks alone.
 
 ## GitHub MCP server
 
-Every kit installs [`github-mcp-server`](https://github.com/github/github-mcp-server),
-and this repo and every kit but `sbxpi` run it locally over stdio. `sbxpi` is
-the exception: Pi has no built-in MCP, so that kit registers no MCP servers at
-all — the binary is installed there only to keep the toolchain identical across
-kits, and Pi uses `git` and `gh` for GitHub work instead.
+`sbxclaude`, `sbxcodex` and `sbxcursor` install
+[`github-mcp-server`](https://github.com/github/github-mcp-server), and this
+repo and those three kits run it locally over stdio. `sbxpi` does not install
+it: Pi has no built-in MCP, so that kit registers no MCP servers at all, and a
+binary nothing would ever run is one less root-installed download. Pi uses
+`git` and `gh` for GitHub work instead.
 
 One definition has to work on the host and inside the sandbox alike. The
 sandbox mounts the project, so the repo's project-scope entry sits alongside

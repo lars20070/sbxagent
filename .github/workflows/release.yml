@@ -196,14 +196,27 @@ jobs:
       # after the tag is already public. `sbx kit` is marked EXPERIMENTAL and
       # its publishing behaviour has moved between releases, so a release
       # pins what it was tested against. Bump deliberately.
+      #
+      # Digest-checked, also unlike ci.yml: this binary runs install.sh under sudo
+      # and then pushes and signs every published kit, so the archive is
+      # verified before anything in it is extracted or executed. The digest is
+      # the one the kits pin for the same v0.42.0 Linux archive — the generic
+      # and -amd64 assets are byte-identical — so bump SBX_VERSION and
+      # SBX_SHA256 together, alongside the kits (docs/toolchain.md).
       - name: Install sbx CLI
         env:
           SBX_VERSION: v0.42.0
+          SBX_SHA256: a88c56f02435974145a86d983beab4458b412c2133d5da0df7f12e117d8152e7
         run: |
           set -euo pipefail
           curl -fsSL \
             "https://github.com/docker/sbx-releases/releases/download/${SBX_VERSION}/DockerSandboxes-linux.tar.gz" \
             -o /tmp/DockerSandboxes-linux.tar.gz
+          actual_sha256="$(sha256sum /tmp/DockerSandboxes-linux.tar.gz | cut -d' ' -f1)"
+          if [[ "${actual_sha256}" != "${SBX_SHA256}" ]]; then
+            echo "sbx tarball checksum mismatch: got ${actual_sha256}, want ${SBX_SHA256}" >&2
+            exit 1
+          fi
           tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
           sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
           echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
