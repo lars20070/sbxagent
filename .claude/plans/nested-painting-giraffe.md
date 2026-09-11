@@ -4,23 +4,37 @@
 
 A review (`trust-playbook-2026.md`) listed things a small OSS tool should do so
 users can check it rather than trust it. Most of the list is already done here:
-least-privilege CI, SHA-pinned Actions, GPG-signed tags, Sigstore-signed kits
-gated on `sbx kit verify`, hash-checked binary downloads, an honest guard table
-in the README. Four items are genuinely missing:
+least-privilege CI, SHA-pinned Actions, Sigstore-signed kits gated on
+`sbx kit verify`, hash-checked binary downloads, an honest guard table in the
+README. Four items are genuinely missing:
 
 1. `SECURITY.md` — no disclosure policy.
 2. Private Vulnerability Reporting — off (`gh api .../private-vulnerability-reporting` → `enabled: false`).
 3. Dependabot for `github-actions` — none, so the SHA pins will silently go stale.
 4. OpenSSF Scorecard — none.
 
-Goal: add them in stages, each stage independently mergeable and green under
-`make lint`, so the repo *signals* the hygiene it already practises.
+**Correction to earlier analysis:** release tags are NOT signed. `v0.4.1`–`v0.4.3`
+are lightweight tags (`git cat-file -t v0.4.3` → `commit`; `git tag -v` →
+"cannot verify a non-tag object"). The signature seen on the tagged commit is
+GitHub's web-flow key on the merge commit, not the maintainer's. The
+verifiable supply-chain claim today is the keyless signature + provenance on the
+published kits — not a signed git tag. Signed tags are a separate follow-up
+(Stage 5), not a completed control, and `SECURITY.md` must not claim them.
+
+Goal: add the four items in stages, each stage independently mergeable and
+green under `make lint`, so the repo *signals* the hygiene it already
+practises.
 
 Constraints from `AGENTS.md`: never commit or push; stage + hand over the
-message. Every workflow must keep the existing pattern — top-level
+message. Workflows keep the existing pattern — top-level
 `permissions: contents: read`, per-job elevation, `persist-credentials: false`,
 every `uses:` pinned to a full SHA with a `# vX.Y.Z` trailer. New words go in
 `.cspell.json`. User-facing changes go under `## [Unreleased]` in `CHANGELOG.md`.
+
+**Lint gotcha (applies to every stage):** `make lint` enumerates inputs with
+`git ls-files`, so an untracked file is invisible to markdownlint, yamllint and
+cspell. Always `git add` new files (or `git add -N` for intent-to-add) *before*
+running `make lint`, then review `git diff --cached`.
 
 ## Stage 1 — files only, no repo-settings changes (~20 min)
 
@@ -40,14 +54,19 @@ Short. Sections:
   - What it does **not** protect: the mounted project (read-write; a rogue
     agent can destroy or rewrite it), and anything reachable with the injected
     GitHub token (pushes, PRs — the token itself never enters the sandbox, but
-    its *powers* do). Cite `docs/setup.md`.
-  - Guard strength differs per agent; `sbxcursor` has no network-block guard.
-    Link `docs/agents.md` rather than duplicating it.
-- **Verifying what you run**: one-line pointer to the `sbx kit verify` command
-  in `docs/published-kits.md:63`.
+    its *powers* do). Link `docs/setup.md`.
+  - Guard enforcement varies per agent, per `docs/agents.md`: Claude Code is a
+    hard stop; Codex is soft (nothing enforces the stop); Cursor has no guard;
+    Pi's guard can be unregistered by the agent. Link `docs/agents.md` for
+    the detail rather than duplicating its table.
+- **Verifying what you run**: what is signed is the published kit in GHCR
+  (keyless Sigstore, provenance from this repo's release workflow). Link
+  `docs/published-kits.md` (no line number — the command block moves) for the
+  `sbx kit verify` invocation. Do **not** claim signed tags or signed commits.
 
-Lint: markdownlint + cspell run over every tracked `*.md`. Add any new words
-(e.g. "advisories" is fine; check on first `make lint`).
+Lint: markdownlint + cspell run over every tracked `*.md` — so `git add
+SECURITY.md` first. Add any new words (e.g. "advisories"; check on first
+`make lint`).
 
 ### 1b. `.github/dependabot.yml`
 
@@ -69,7 +88,7 @@ updated. No npm/pip ecosystems: tool pins live in `kits/*/spec.yaml` and
 `ci.yml`'s `npm install` line, which Dependabot cannot see — leave those to
 `docs/toolchain.md`'s manual process.
 
-Lint: yamllint runs over every tracked `*.yml`.
+Lint: yamllint runs over every tracked `*.yml` — `git add` first.
 
 ### 1c. `CHANGELOG.md`
 
@@ -78,7 +97,8 @@ Dependabot. (Scorecard goes in Stage 3's entry.)
 
 ### 1d. Verify + hand over
 
-`make lint`. Stage with `git add`, draft commit message, stop.
+`git add SECURITY.md .github/dependabot.yml CHANGELOG.md .cspell.json`, then
+`make lint`, then `git diff --cached` to review. Draft commit message, stop.
 
 ## Stage 2 — repo settings (user does these in the GitHub UI, ~5 min)
 
@@ -93,8 +113,12 @@ here. Give the user exact clicks:
    Repo is Shell + YAML + a little TS, so CodeQL coverage is thin, but the
    Scorecard `SAST` check credits it and it costs nothing.
 4. **Branch protection on `main`** (or a ruleset): require PR before merge,
-   require CI status checks (`lint`, `test`, `validate`), block force-push.
-   Scorecard's `Branch-Protection` check reads this.
+   block force-push, require status checks. The three CI jobs each run a
+   two-OS matrix, so GitHub exposes **six** checks, labelled per matrix leg
+   (e.g. `lint (ubuntu-latest)`, `lint (macos-latest)`, and likewise for
+   `test` and `validate`). Copy the exact labels from a completed CI run in
+   the ruleset UI's picker — do not type them from memory — and require all
+   six. Scorecard's `Branch-Protection` check reads this.
 
 Nothing to lint or commit. This stage can happen any time after Stage 1; only
 Stage 3 depends on it (for a good score, not for the workflow to run).
@@ -107,9 +131,27 @@ Follow the upstream template (`ossf/scorecard-action` README), adapted to
 this repo's conventions:
 
 - Triggers: `branch_protection_rule`, weekly `schedule`, `push` to `main`.
-- Top-level `permissions: read-all` is what upstream asks for; the job then
-  elevates `security-events: write` (upload SARIF), `id-token: write`
-  (`publish_results: true` signs the result so the badge can show it).
+- **Permissions — deliberate deviation from upstream, documented in a workflow
+  comment.** Upstream's template sets top-level `permissions: read-all`. This
+  repo's convention is top-level `contents: read`, and since the single job
+  carries its own `permissions:` map the top-level value only matters as a
+  default for jobs without one — so keep `contents: read` at the top. The
+  job-level map must be complete, because a job-level map resets every
+  unlisted scope to `none` (checkout would otherwise have no guaranteed
+  content access):
+
+  ```yaml
+  permissions:
+    contents: read          # checkout
+    actions: read           # Scorecard reads workflow runs
+    security-events: write  # upload SARIF to code scanning
+    id-token: write         # publish_results signs the result for the badge
+  ```
+
+  Upstream comments `contents`/`actions` out for public repos; list them
+  anyway so the map is explicit. If the first run's Scorecard log shows a
+  permission error, add the scope it names and record the tested result in
+  the workflow comment — do not fall back to `read-all`.
 - Steps: `actions/checkout` (same SHA as `ci.yml`, `persist-credentials:
   false`), `ossf/scorecard-action` with `results_file: results.sarif`,
   `results_format: sarif`, `publish_results: true`; then
@@ -134,9 +176,10 @@ Add `ossf`, `scorecard`, `sarif` (whatever `make lint` flags).
 
 ### 3e. Verify + hand over
 
-`make lint`. Stage, draft message, stop. After the user pushes: the workflow
-runs on push to `main`; check the score at the viewer URL and read the
-per-check findings.
+`git add .github/workflows/scorecard.yml README.md CHANGELOG.md .cspell.json`,
+then `make lint`, then `git diff --cached`. Draft commit message, stop. After
+the user pushes: the workflow runs on push to `main`; check the score at the
+viewer URL and read the per-check findings.
 
 ## Stage 4 — react to the first Scorecard run (later, size unknown)
 
@@ -146,7 +189,10 @@ answers:
 - `Pinned-Dependencies`: will flag `curl | sh` in `ci.yml`/`release.yml` sbx
   installs and the `npm install --global x@ver` lines. Accept for `ci.yml`
   (tracking `latest` is deliberate — comment says so); `release.yml` already
-  pins a version. Possibly add `--ignore-scripts` to the npm installs.
+  pins a version. `--ignore-scripts` on the npm installs is **an experiment,
+  not a default**: `esbuild@0.28.2` declares `postinstall: node install.js`,
+  so the flag may leave CI's `esbuild` unusable. Only try it on a branch with
+  a fresh npm cache (bump the cache key) and both OS legs green.
 - `Token-Permissions`: should already pass.
 - `Signed-Releases`: kits are signed in GHCR, but the GitHub Release has no
   signed asset. Optional: attach `git archive` tarball + attest it with
@@ -155,21 +201,39 @@ answers:
 - `Security-Policy`, `Vulnerabilities`, `Dependency-Update-Tool`: fixed by
   Stages 1–2.
 
+## Stage 5 — signed release tags (separate follow-up, not part of this change)
+
+Scoped out of Stages 1–4 so that `SECURITY.md` stays truthful on day one.
+When picked up:
+
+- Sign tags with SSH (`git config tag.gpgsign true`, `gpg.format ssh`,
+  `user.signingkey <pubkey>`), create them annotated (`git tag -s vX.Y.Z`),
+  and publish the verifying public key in `docs/published-kits.md` or
+  `SECURITY.md` so users can run `git tag -v`.
+- Have `release.yml` verify the tag signature before publishing (a
+  `git verify-tag` step with the allowed-signers file checked in), so a tag
+  pushed by a compromised account without the key cannot release.
+- Note in `AGENTS.md`'s release checklist that tags are annotated and signed.
+- Then, and only then, add "release tags are signed" to `SECURITY.md`.
+
 ## Verification (whole plan)
 
-- After Stage 1 and 3: `make lint` green locally; CI green on the PR (lint,
-  test, validate on both OSes).
+- After Stage 1 and 3: new files `git add`-ed, `make lint` green locally; CI
+  green on the PR (lint, test, validate — six matrix checks).
 - After Stage 2: `gh api repos/lars20070/sbxagent/private-vulnerability-reporting`
   → `enabled: true`; the "Report a vulnerability" button appears on the
   Security tab.
-- After Stage 3 push: Actions tab shows a green Scorecard run; badge renders a
-  number; SARIF shows under Security → Code scanning.
-- After Dependabot's first weekly run: a grouped PR titled like
-  "Bump the actions group…" appears; merging it keeps the `# vX.Y.Z` comments
-  in step with the SHAs.
+- After Stage 3 push: Actions tab shows a green Scorecard run with the
+  narrowed permissions; badge renders a number; SARIF shows under Security →
+  Code scanning. If the run fails on permissions, the log names the scope —
+  add it, note it, re-run.
+- After Dependabot's first weekly run: verify a single grouped PR appears for
+  the actions group (whatever its title) and that merging it keeps the
+  `# vX.Y.Z` comments in step with the SHAs.
 
 ## Files touched
 
 - New: `SECURITY.md`, `.github/dependabot.yml`, `.github/workflows/scorecard.yml`
 - Edited: `README.md` (badge), `CHANGELOG.md`, `.cspell.json`
 - Not touched: `ci.yml`, `release.yml`, `kits/**`, `scripts/**`
+  (Stage 5 would touch `release.yml` and `AGENTS.md`, later)
