@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-11
+
 ### Added
 
 - `SECURITY.md`: how to report a vulnerability privately, what the sandbox
