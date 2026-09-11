@@ -8,6 +8,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- All four kits: install `build-essential` and `python3-dev` so `uv`/`pip`
+  can build Python C extensions from source when no matching wheel exists.
+
 ## [0.4.5] - 2026-09-11
 
 ### Changed
