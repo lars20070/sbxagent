@@ -4,6 +4,12 @@
 > repository (e.g. Claude Code) — how to build, lint, and validate it. They are
 > not instructions for the coding agent running inside a sandbox.
 
+## Git
+
+Never run `git commit` or `git push` (including pushing tags) in this repo.
+Stage changes, draft the commit message, and hand it to the user — they run
+the commit and push themselves.
+
 ## Repository Map
 
 - `kits/<command>/spec.yaml` — one Docker Sandbox Kit spec per wrapper command:

@@ -133,6 +133,9 @@
     "Verbing",
     "initialisation",
     "ncdu",
-    "evals"
+    "evals",
+    "ossf",
+    "sarif",
+    "codeql"
   ]
 }

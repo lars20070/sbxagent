@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `SECURITY.md`: how to report a vulnerability privately, what the sandbox
+  does and does not protect, and how to verify a published kit.
+- Dependabot for GitHub Actions, so the SHA-pinned actions in the workflows
+  are kept current.
+- OpenSSF Scorecard workflow and README badge: a weekly automated audit of
+  the repository's supply-chain hygiene, published to scorecard.dev.
+
 ## [0.4.3] - 2026-09-09
 
 ### Removed
