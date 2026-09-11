@@ -61,7 +61,7 @@ flowchart LR
   subgraph VM["sbx sandbox"]
     direction TB
     CODEX["Codex"]
-    SESS["~/.codex/sessions<br/>(symlink)"]
+    SYMLINK["~/.codex/sessions<br/>(symlink)"]
     WS["/Users/lars/Code/xyz"]
     MNT["/Users/lars/.local/state/sbxagent/<br/>sbxcodex-xyz-a1b2c3/sessions"]
   end
@@ -70,8 +70,8 @@ flowchart LR
   PROJ -.->|"mounted"| WS
   TRACES -.->|"mounted"| MNT
   CODEX ==>|"edits"| WS
-  CODEX -->|"writes rollout-*.jsonl"| SESS
-  SESS -->|"points at"| MNT
+  CODEX -->|"writes rollout-*.jsonl"| SYMLINK
+  SYMLINK -->|"points at"| MNT
   TAIL -->|"reads live"| TRACES
 
   classDef data    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
@@ -80,7 +80,7 @@ flowchart LR
   classDef agent   fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
   class PROJ,TRACES,WS,MNT data
   class DRV,TAIL host
-  class SESS helper
+  class SYMLINK helper
   class CODEX agent
   style VM fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px
   style HOST fill:none,stroke:none
