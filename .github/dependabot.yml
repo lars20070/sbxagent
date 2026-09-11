@@ -1,0 +1,16 @@
+# Keep the SHA-pinned actions in .github/workflows/*.yml current. Dependabot
+# reads the `# vX.Y.Z` trailer after each pin and updates both together.
+#
+# No other ecosystems: the toolchain is pinned in kits/*/spec.yaml and in the
+# `npm install` lines of the workflows, neither of which Dependabot can see.
+# Those follow the manual process in docs/toolchain.md.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # One PR per week for every bump, so a pin refresh is one review.
+    groups:
+      actions:
+        patterns: ["*"]
