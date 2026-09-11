@@ -54,7 +54,7 @@ adds two of its own, for Pi and its Context7 package.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |
-| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.42.0` (SHA-256 verified) |
+| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.42.1` (SHA-256 verified) |
 | `ruff` | `kits/*/spec.yaml` | `0.16.2` |
 | `yamllint` | `kits/*/spec.yaml` | `1.38.0` |
 | `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.2` |

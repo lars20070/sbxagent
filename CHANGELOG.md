@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-09-11
+
+### Changed
+
+- Bump the pinned in-sandbox `sbx` CLI (and its release-workflow install)
+  from `v0.42.0` to `v0.42.1`, with updated SHA-256 digests. The upstream
+  release fixes the sandbox proxy mis-framing body-less HTTP/2 upstream
+  responses as chunked.
+
 ## [0.4.4] - 2026-09-11
 
 ### Added

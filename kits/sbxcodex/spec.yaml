@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxcodex
-version: "0.4.4"
+version: "0.4.5"
 displayName: Codex with custom toolchain
 description: Codex with custom toolchain
 
@@ -137,13 +137,13 @@ setup:
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.42.0 release assets.
+        # Digests of the v0.42.1 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="a88c56f02435974145a86d983beab4458b412c2133d5da0df7f12e117d8152e7"
+            expected_sha256="fe46facba420d1cb8b1dad57d5b182d6df9dadd46c324c2ca3ef574fb7eada6f"
             ;;
           arm64)
-            expected_sha256="5f16183d26f90dc98014c2abac83e4a1d13aa04390a9512b54867096ef87db89"
+            expected_sha256="285b36cdb46ce65f792f006869698f2664fcde8adc1e8524357f150f9368dd4c"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -153,7 +153,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.42.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.42.1/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
