@@ -17,6 +17,18 @@ and this project adheres to
 - OpenSSF Scorecard workflow and README badge: a weekly automated audit of
   the repository's supply-chain hygiene, published to scorecard.dev.
 
+### Removed
+
+- `sbxpi` no longer installs `github-mcp-server`. Pi has no MCP support, so
+  the binary was never run; GitHub work in that sandbox goes through `gh`,
+  as before. The other three kits are unchanged.
+
+### Security
+
+- The release workflow now verifies the SHA-256 of the `sbx` CLI it
+  publishes with, against the same digest the kits pin, before extracting
+  or running anything from the archive.
+
 ## [0.4.3] - 2026-09-09
 
 ### Removed

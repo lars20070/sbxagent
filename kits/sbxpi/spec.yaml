@@ -109,9 +109,9 @@ permissions:
       - "playwright.download.prss.microsoft.com:443"
       # The Context7 native Pi package calls its documentation API here.
       - "context7.com:443"
-      # GitHub release downloads (sbx CLI, github-mcp-server) and page assets.
-      # Playwright still browses these; dropping them is a policy change this
-      # work is not making, even though this kit registers no GitHub MCP server.
+      # GitHub release downloads (sbx CLI), `gh`, and page assets Playwright
+      # browses. This kit registers no GitHub MCP server, so `gh` over the
+      # proxy is how Pi reaches issues and pull requests.
       - "api.github.com:443"
       - "github.com:443"
       - "github.githubassets.com:443"
@@ -458,38 +458,6 @@ setup:
         chmod +x "$mmdc_bin"
       user: "1000"
       description: mermaid-cli, reusing the Playwright Chromium
-    - command: |
-        set -eu
-        arch="$(dpkg --print-architecture)"
-        # Digests of the v1.11.0 release assets.
-        case "$arch" in
-          amd64)
-            asset="Linux_x86_64"
-            expected_sha256="3b73bb7be0c8b043f861e90410df8ebdfc71b83128c54ced75fb32c4ff697fc5"
-            ;;
-          arm64)
-            asset="Linux_arm64"
-            expected_sha256="3f7615254f6b619469c471c5d275029299ff7431c93d6075496ea4b2eec020cb"
-            ;;
-          *)
-            echo "unsupported architecture for github-mcp-server: $arch" >&2
-            exit 1
-            ;;
-        esac
-        tmp="$(mktemp -d)"
-        trap 'rm -rf "$tmp"' EXIT
-        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/github/github-mcp-server/releases/download/v1.11.0/github-mcp-server_${asset}.tar.gz" \
-          -o "$tmp/gms.tar.gz"
-        actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
-        if [ "$actual_sha256" != "$expected_sha256" ]; then
-          echo "github-mcp-server checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
-          exit 1
-        fi
-        tar xzf "$tmp/gms.tar.gz" -C "$tmp" github-mcp-server
-        install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
-        github-mcp-server --version
-      description: GitHub MCP server binary, toolchain parity only — Pi never calls it
     - command: |
         set -eu
         PI_VERSION=0.84.4

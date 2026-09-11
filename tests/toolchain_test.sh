@@ -87,8 +87,12 @@ check_tool_version markdownlint-cli2 "v${EXPECTED_MARKDOWNLINT_VERSION}" markdow
 check_tool_version cspell "${EXPECTED_CSPELL_VERSION}" cspell --version
 check_tool_version sbx "${EXPECTED_SBX_VERSION}" sbx version
 check_tool_version playwright "Version ${EXPECTED_PLAYWRIGHT_VERSION}" playwright --version
-check_tool_version github-mcp-server "${EXPECTED_GITHUB_MCP_VERSION}" \
-	github-mcp-server --version
+# sbxpi does not install this: Pi has no MCP support, so the binary would never
+# run. The sbxpi block below asserts it is absent.
+if [[ "${KIT_NAME}" != "sbxpi" ]]; then
+	check_tool_version github-mcp-server "${EXPECTED_GITHUB_MCP_VERSION}" \
+		github-mcp-server --version
+fi
 
 # Chromium must actually launch, not just be present — this is what lets the
 # agent verify UI changes in a real browser. If this fails specifically on
@@ -471,8 +475,12 @@ fi # end sbxcursor-only
 if [[ "${KIT_NAME}" == "sbxpi" ]]; then
 
 check_tool_version pi "${EXPECTED_PI_VERSION}" pi --version
-# Pi has no MCP, so GitHub work goes through the `gh` CLI instead.
+# Pi has no MCP, so GitHub work goes through the `gh` CLI instead, and the
+# github-mcp-server binary the other kits install is deliberately absent.
 check_tool gh gh --version
+! command -v github-mcp-server >/dev/null 2>&1 ||
+	fail "github-mcp-server is installed but sbxpi never runs it (${REBUILD_HINT})"
+pass "github-mcp-server is not installed"
 
 # Pi's file-search tool downloads `fd` from GitHub releases at first launch
 # unless it finds `fd` or `fdfind` on PATH — unpinned, and network traffic on

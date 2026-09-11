@@ -62,7 +62,7 @@ adds two of its own, for Pi and its Context7 package.
 | `playwright` (+ Chromium) | `kits/*/spec.yaml` | `1.62.1` |
 | `mermaid-cli` (`mmdc`) | `kits/*/spec.yaml` | `11.16.0` |
 | Context7 MCP | `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `kits/*/` MCP configs | `4.0.0` |
-| `github-mcp-server` | `kits/*/spec.yaml` | `1.11.0` (SHA-256 verified) |
+| `github-mcp-server` | `kits/*/spec.yaml`, except `sbxpi` | `1.11.0` (SHA-256 verified) |
 | `@earendil-works/pi-coding-agent` | `kits/sbxpi/spec.yaml` | `0.84.4` |
 | `@upstash/context7-pi` | `kits/sbxpi/spec.yaml` | `0.1.2` |
 | `esbuild` (TypeScript lint) | `Makefile` | `0.28.2`, fetched via `npx` |
@@ -84,7 +84,9 @@ Intentional exceptions that stay on latest:
 To bump a pin:
 
 1. Update the version, and the `sbx` checksums, in **all four**
-   `kits/*/spec.yaml`.
+   `kits/*/spec.yaml`. The `sbx` digest is also pinned as `SBX_SHA256` in
+   `.github/workflows/release.yml`, next to `SBX_VERSION`; bump both there
+   too, or the release workflow refuses the download.
 2. Keep the `tests/toolchain_test.sh` expectations in sync.
 3. Rebuild the sandboxes.
 4. Run `make lint`, `make test-unit` and `make validate`, then
