@@ -75,7 +75,7 @@ You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with
 KVM available. Docker Desktop is not required. Install the `sbx` CLI, sign in,
 and link `scripts/sbxagent` onto your `PATH` once per agent you want.
 
-> **sbx v0.42.0 is required.** sbx is
+> **sbx v0.42.1 is required.** sbx is
 > experimental. A later version may break `sbxagent`.
 
 [macOS:](https://docs.docker.com/ai/sandboxes/install/#install-on-macos)

@@ -443,7 +443,7 @@ COPIED="${TEST_ROOT}/sbx-unknown-agent"
 # workspace file as fully sparse, so `cp` out of the workspace writes a
 # correctly-sized file of NUL bytes and this test would fail for a reason that
 # has nothing to do with dispatch. No `cp` flag avoids it; `cat` and `dd` are
-# unaffected. Open upstream, no fix as of sbx v0.42.0:
+# unaffected. Open upstream, no fix as of sbx v0.42.1:
 # https://github.com/docker/sbx-releases/issues/526
 cat "${AGENT_SCRIPT}" >"${COPIED}"
 chmod +x "${COPIED}"
