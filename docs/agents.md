@@ -1,7 +1,7 @@
 # Agent differences
 
 How the four sandboxes diverge: how strongly each enforces a blocked network
-request, and how each wires up the GitHub MCP server. See
+request, how each wires up the GitHub MCP server, and how Codex signs in. See
 [README.md](../README.md) for the agent table itself.
 
 ## Network-block guard
@@ -124,3 +124,22 @@ sbx secret rm --placeholder <the sbx-cs-… value>
 Check it with `claude mcp list`, `codex mcp list` or `agent mcp list`;
 the `github` line should report connected, both on the host and inside the
 sandbox.
+
+## Codex login
+
+`sbxcodex` signs in with either an OpenAI API key or a ChatGPT subscription.
+The parent `codex` kit owns the flow: it runs on the host, and the sandbox only
+ever sees a placeholder. The first run asks you to approve the `openai`
+credential; say yes, or Codex starts logged out.
+
+If a subscription login is not picked up, reset it:
+
+```bash
+sbx secret rm openai
+sbx secret set openai --oauth
+sbxcodex rm
+sbxcodex
+```
+
+A stored API key beats OAuth, and a secret only takes effect when the sandbox
+is created — hence all four lines.
