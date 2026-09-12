@@ -16,6 +16,7 @@ Every kit installs the same tools:
 | `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below |
 | `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below |
 | `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution |
+| `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image |
 
 The environment is the same in every sandbox. Your project is mounted as the
 workspace, so edits land on your real files. Inside you get passwordless
@@ -80,6 +81,10 @@ Intentional exceptions that stay on latest:
   `docker/sandbox-templates:shell-docker` is a moving tag, and its apt packages
   track the distribution. That includes `fd-find`, which Pi would otherwise
   download unpinned at first launch
+- `go` comes from the base image and is deliberately not pinned by any kit.
+  A project's `go.mod` is the pin: since Go 1.21, `GOTOOLCHAIN=auto` fetches
+  the version it names from `proxy.golang.org`, which every kit allowlists.
+  A kit pin would be a second pin that never wins
 
 To bump a pin:
 

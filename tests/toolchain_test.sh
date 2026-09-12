@@ -73,6 +73,9 @@ check_tool python3 python3 --version
 check_tool shellcheck shellcheck --version
 check_tool git git --version
 check_tool tree tree --version
+# Inherited from the base image, not installed by any kit. Presence only:
+# go.mod picks the real version and `go` fetches it on demand.
+check_tool go go version
 
 # python3-yaml (PyYAML) has no CLI binary of its own, so it can't use
 # check_tool — check the import directly instead.

@@ -12,6 +12,8 @@ and this project adheres to
 
 - All four kits: install `build-essential` and `python3-dev` so `uv`/`pip`
   can build Python C extensions from source when no matching wheel exists.
+- All four kits: allow `proxy.golang.org` and `sum.golang.org`, so Go can
+  fetch modules and the toolchain version a project's `go.mod` asks for.
 
 ## [0.4.5] - 2026-09-11
 

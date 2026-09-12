@@ -142,6 +142,7 @@
     "Dockerfiles",
     "sbxreview",
     "sbxsupervise",
-    "sbxenv"
+    "sbxenv",
+    "GOTOOLCHAIN"
   ]
 }

@@ -109,6 +109,9 @@ permissions:
       - "release-assets.githubusercontent.com:443"
       - "pypi.org:443"
       - "files.pythonhosted.org:443"
+      # Go modules and, since 1.21, the toolchain go.mod asks for.
+      - "proxy.golang.org:443"
+      - "sum.golang.org:443"
       # Pi agent development
       - "pi.dev"
       # OpenRouter model API, for agents configured against it.

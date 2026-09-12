@@ -104,6 +104,9 @@ permissions:
       # uv tool install: ruff, yamllint (index + wheels).
       - "pypi.org:443"
       - "files.pythonhosted.org:443"
+      # Go modules and, since 1.21, the toolchain go.mod asks for.
+      - "proxy.golang.org:443"
+      - "sum.golang.org:443"
       # Playwright downloads the Chromium browser binary from these CDN mirrors.
       - "cdn.playwright.dev:443"
       - "playwright.download.prss.microsoft.com:443"
