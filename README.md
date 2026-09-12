@@ -69,6 +69,10 @@ flowchart LR
 - [Further documentation](#further-documentation)
 - [Support](#support)
 
+<br>
+
+![sbxcodex quickstart](docs/assets/quickstart.gif)
+
 ## Install
 
 You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with
