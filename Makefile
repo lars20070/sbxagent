@@ -49,7 +49,7 @@ lint:
 			echo "lint: $$dir/spec.yaml does not declare 'name: $$name'" >&2; exit 1; \
 		}; \
 	done
-	for shared in home/.gitconfig workspace/.editorconfig; do \
+	for shared in home/.gitconfig workspace/.editorconfig home/.local/lib/sbxagent/link-state.sh; do \
 		ref="kits/sbxclaude/files/$$shared"; \
 		for kit in kits/*/; do \
 			copy="$${kit}files/$$shared"; \
@@ -144,6 +144,7 @@ test: test-unit test-toolchain
 # Test the wrapper with a fake sbx CLI.
 test-unit:
 	$(BASH) ./tests/sbxagent_test.sh
+	$(BASH) ./tests/link_state_test.sh
 
 # Smoke-test the installed helper tools inside the live sandbox.
 # AGENT selects which wrapper (and therefore which sandbox) to run in.

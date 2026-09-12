@@ -8,6 +8,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- All four kits: install `build-essential` and `python3-dev` so `uv`/`pip`
+  can build Python C extensions from source when no matching wheel exists.
+- All four kits: allow `proxy.golang.org` and `sum.golang.org`, so Go can
+  fetch modules and the toolchain version a project's `go.mod` asks for.
+- All four kits: mount a wrapper-managed, per-project state folder under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/sbxagent`, shared read-only across
+  every agent's sandbox for the same project, with a per-agent subfolder
+  writable only by that agent's own sandbox. `CROSS_SANDBOX_VISIBILITY=false`
+  at create time mounts only the agent's own subfolder.
+- All four kits: preserve native session traces in each agent's state
+  subfolder. With the default cross-sandbox visibility, sibling agents for the
+  same project can read the complete traces; set
+  `CROSS_SANDBOX_VISIBILITY=false` when creating them to keep traces private.
+
 ## [0.4.5] - 2026-09-11
 
 ### Changed

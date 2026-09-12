@@ -160,6 +160,17 @@ EOF
 chmod +x "${FAKE_BIN}/sbx"
 export PATH="${FAKE_BIN}:${PATH}"
 export SBX_LOG
+# The wrapper creates its state tree under XDG_STATE_HOME on every
+# sandbox-creating call; point it into TEST_ROOT so the real machine's
+# ~/.local/state is never touched.
+export XDG_STATE_HOME="${TEST_ROOT}/xdg-state"
+STATE_ROOT="${XDG_STATE_HOME}/sbxagent"
+
+# Portable mode probe: BSD stat first, GNU fallback, same pattern as the
+# wrapper's shasum/sha256sum probe.
+file_mode() {
+	stat -f%Lp "$1" 2>/dev/null || stat -c%a "$1"
+}
 
 WORK_A="${TEST_ROOT}/one/api"
 WORK_B="${TEST_ROOT}/two/api"
@@ -194,15 +205,26 @@ pass "version prints the kit name and version without calling sbx"
 
 SANDBOX="${NAME_A}"
 CLAUDE_KIT="${ROOT}/kits/sbxclaude"
+# The state tree is keyed by the project, not the agent: strip the agent
+# prefix from the sandbox name and every kit run against WORK_A shares the
+# result. Asserted below when a second kit creates into the same folder.
+PROJECT_DIR="${STATE_ROOT}/${NAME_A#*-}"
+
+# name and version are read-only: nothing under STATE_ROOT may exist yet.
+# This can only be asserted before the first sandbox-creating call.
+[[ ! -e "${STATE_ROOT}" ]] || fail "name/version created ${STATE_ROOT}"
 
 # Attach: creates (validate + kit) only when the sandbox is missing, and
 # re-attaches directly when it already exists. Neither call passes `--`,
-# since the wrapper never forwards agent arguments.
+# since the wrapper never forwards agent arguments. Creation mounts the
+# project's state folder read-only and this agent's subfolder read-write.
 clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_A}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t%s' \
-	"${CLAUDE_KIT}" "${SANDBOX}" "${CLAUDE_KIT}")" "new sandbox attach"
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${CLAUDE_KIT}" "${SANDBOX}" "${PROJECT_DIR}/sbxclaude" \
+	"${CLAUDE_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxclaude")" "new sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "new attach passed --"
+[[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "attach did not create ${PROJECT_DIR}/sbxclaude"
 
 clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=0 run_claude "${WORK_A}" >/dev/null
@@ -235,10 +257,15 @@ clear_log
 run_claude "${WORK_A}" inspect >/dev/null
 assert_log "$(printf 'inspect\t%s' "${SANDBOX}")" "inspect"
 
+# Wipe the state tree first so this covers the create branch's own mkdir,
+# rather than riding on the folder the attach test already made.
+rm -rf "${STATE_ROOT}"
 clear_log
 run_claude "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.' \
-	"${SANDBOX}" "${CLAUDE_KIT}")" "create"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${SANDBOX}" "${PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxclaude")" "create"
+[[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR}/sbxclaude"
+assert_eq "700" "$(file_mode "${PROJECT_DIR}/sbxclaude")" "agent state folder mode"
 
 clear_log
 run_claude "${WORK_A}" kit validate >/dev/null
@@ -317,9 +344,16 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${CODEX_KIT}")" "codex kit path"
 
 clear_log
 run_codex "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.' \
-	"${CODEX_NAME}" "${CODEX_KIT}")" "codex create"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${CODEX_NAME}" "${PROJECT_DIR}/sbxcodex" "${CODEX_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxcodex")" "codex create"
 pass "sbxcodex dispatches to its own kit, sandbox name and kit operand"
+
+# The state folder is shared per project, not per agent: both kits' folders
+# now sit under the one PROJECT_DIR, which is what lets one agent's sandbox
+# read the other's state for the same directory.
+[[ -d "${PROJECT_DIR}/sbxclaude" && -d "${PROJECT_DIR}/sbxcodex" ]] ||
+	fail "claude and codex did not share ${PROJECT_DIR}"
+pass "two agents for one directory share a project state folder"
 
 # The "use X directly" line names the agent's own CLI, not Claude's.
 clear_log
@@ -355,8 +389,8 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${CURSOR_KIT}")" "cursor kit path"
 
 clear_log
 run_cursor "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.' \
-	"${CURSOR_NAME}" "${CURSOR_KIT}")" "cursor create"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${CURSOR_NAME}" "${PROJECT_DIR}/sbxcursor" "${CURSOR_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxcursor")" "cursor create"
 pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
 
 clear_log
@@ -392,8 +426,8 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${PI_KIT}")" "pi kit path"
 
 clear_log
 run_pi "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.' \
-	"${PI_NAME}" "${PI_KIT}")" "pi create"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${PI_NAME}" "${PROJECT_DIR}/sbxpi" "${PI_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxpi")" "pi create"
 pass "sbxpi dispatches to its own kit, sandbox name and kit operand"
 
 clear_log
@@ -414,6 +448,57 @@ pass "pi help names the invoked command and its underlying CLI"
 	"${CURSOR_NAME}" != "${PI_NAME}" ]] ||
 	fail "the four names collide: ${NAME_A} ${CODEX_NAME} ${CURSOR_NAME} ${PI_NAME}"
 pass "the four commands yield four distinct sandbox names for one directory"
+
+# A different directory gets its own project state folder. Only that folder
+# is mounted, so a sandbox for WORK_B never sees WORK_A's state, and creating
+# it leaves WORK_A's folder exactly as it was.
+PROJECT_DIR_B="${STATE_ROOT}/${NAME_B#*-}"
+[[ "${PROJECT_DIR_B}" != "${PROJECT_DIR}" ]] ||
+	fail "same basenames produced the same project state folder"
+BEFORE="$(ls "${PROJECT_DIR}")"
+clear_log
+run_claude "${WORK_B}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create in another directory"
+[[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR_B}/sbxclaude"
+assert_eq "${BEFORE}" "$(ls "${PROJECT_DIR}")" "other project's state folder untouched"
+pass "each directory gets its own project state folder"
+
+# CROSS_SANDBOX_VISIBILITY=false drops the read-only project mount, leaving
+# only the agent's own read-write subfolder. Both creating paths have their
+# own exec line, so both are checked. The folder tree on disk is the same
+# either way. Any other value is rejected before sbx runs or anything is
+# created, and only on the creating paths — name must keep working.
+clear_log
+CROSS_SANDBOX_VISIBILITY=false run_claude "${WORK_B}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s' \
+	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "create without visibility"
+[[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create without visibility removed ${PROJECT_DIR_B}/sbxclaude"
+
+clear_log
+CROSS_SANDBOX_VISIBILITY=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s' \
+	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "attach without visibility"
+
+BEFORE="$(ls "${STATE_ROOT}")"
+CROSS_SANDBOX_VISIBILITY=bogus reject_without_call "${WORK_B}" create
+assert_eq "${BEFORE}" "$(ls "${STATE_ROOT}")" "bad visibility value created state"
+BOGUS_NAME="$(CROSS_SANDBOX_VISIBILITY=bogus run_claude "${WORK_B}" name)" ||
+	fail "'name' failed with a bad CROSS_SANDBOX_VISIBILITY"
+assert_eq "${NAME_B}" "${BOGUS_NAME}" "name with bad visibility value"
+pass "CROSS_SANDBOX_VISIBILITY=false drops the shared mount and rejects other values"
+
+# The empty-slug guard applies to the project folder as well as the sandbox
+# name: with nothing left of the basename the key is the bare hash, never
+# "-<hash>". EMPTY_NAME is already known to be sbxclaude-<hash>, so the
+# expected folder is derived the same way as PROJECT_DIR above.
+EMPTY_PROJECT_DIR="${STATE_ROOT}/${EMPTY_NAME#*-}"
+clear_log
+run_claude "${EMPTY_SLUG}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${EMPTY_NAME}" "${EMPTY_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${EMPTY_PROJECT_DIR}" "${EMPTY_PROJECT_DIR}/sbxclaude")" "create with empty slug"
+[[ -d "${EMPTY_PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${EMPTY_PROJECT_DIR}/sbxclaude"
+pass "an empty slug keys the project state folder by hash alone"
 
 # The README installs the wrapper as a symlink, so it has to resolve its own
 # path through the chain to locate the kit. Two extra hops, the second one

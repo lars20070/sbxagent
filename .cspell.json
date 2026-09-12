@@ -136,6 +136,16 @@
     "evals",
     "ossf",
     "sarif",
-    "codeql"
+    "codeql",
+    "worktree",
+    "lockfiles",
+    "Dockerfiles",
+    "sbxreview",
+    "sbxsupervise",
+    "sbxenv",
+    "GOTOOLCHAIN",
+    "EBUSY",
+    "mountpoint",
+    "remountable"
   ]
 }

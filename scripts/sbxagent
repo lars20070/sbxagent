@@ -8,6 +8,12 @@ set -euo pipefail
 # version; remove this export once #526 is fixed in that release.
 export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
 
+# Whether a sandbox can read the state folders of the other agents' sandboxes
+# for this same project. true mounts the shared project folder read-only
+# alongside this agent's own read-write subfolder; false mounts only the
+# subfolder. Takes effect at create time.
+CROSS_SANDBOX_VISIBILITY="${CROSS_SANDBOX_VISIBILITY:-true}"
+
 # One script, four commands. It is installed as a symlink named sbxclaude,
 # sbxcodex, sbxcursor or sbxpi, and dispatches on the name it was invoked as.
 # See the SELF block below.
@@ -60,6 +66,32 @@ require_sbx() {
 	echo "${SELF}: no sbx CLI found in PATH. Install it with:" >&2
 	install_hint
 	exit 1
+}
+
+# Sets STATE_HOME, PROJECT_DIR, AGENT_DIR and PROJECT_MOUNT. PROJECT_DIR is
+# shared by every agent's sandbox for this same project (same SLUG+HASH);
+# AGENT_DIR is this agent's own subfolder within it and is mounted read-write.
+# The same path is exported as SBXAGENT_STATE_DIR when the sandbox is created,
+# so the kit can relocate that agent's native session-trace directory into it.
+# PROJECT_MOUNT is the read-only mount operand for PROJECT_DIR, or empty when
+# CROSS_SANDBOX_VISIBILITY is false. STATE_HOME itself is never mounted, so
+# other projects' state stays invisible. XDG requires an absolute
+# XDG_STATE_HOME; a relative value is treated as unset rather than resolved
+# against the cwd.
+compute_state_mounts() {
+	case "${XDG_STATE_HOME:-}" in
+	/*) STATE_HOME="${XDG_STATE_HOME}/sbxagent" ;;
+	*) STATE_HOME="${HOME}/.local/state/sbxagent" ;;
+	esac
+	PROJECT_DIR="${STATE_HOME}/${SLUG:+${SLUG}-}${HASH}"
+	AGENT_DIR="${PROJECT_DIR}/${SELF}"
+	case "${CROSS_SANDBOX_VISIBILITY}" in
+	true) PROJECT_MOUNT="${PROJECT_DIR}:ro" ;;
+	false) PROJECT_MOUNT="" ;;
+	*) die "CROSS_SANDBOX_VISIBILITY must be true or false, not '${CROSS_SANDBOX_VISIBILITY}'" ;;
+	esac
+	mkdir -p "${AGENT_DIR}"
+	chmod 700 "${AGENT_DIR}"
 }
 
 # Follow symlinks without GNU `readlink -f`: BSD readlink lacked -f before macOS 12.3, and the README installs
@@ -133,7 +165,8 @@ case "${1:-}" in
 		exec sbx run --name "${SANDBOX}"
 	fi
 	sbx kit validate "${KIT}" >/dev/null
-	exec sbx run --name "${SANDBOX}" "${KIT}"
+	compute_state_mounts
+	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 name)
 	shift
@@ -168,7 +201,8 @@ create)
 	shift
 	no_args create "$@"
 	require_sbx
-	exec sbx create --name "${SANDBOX}" "${KIT}" .
+	compute_state_mounts
+	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 rm)
 	shift

@@ -16,10 +16,45 @@ Every kit installs the same tools:
 | `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below |
 | `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below |
 | `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution |
+| `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image |
 
 The environment is the same in every sandbox. Your project is mounted as the
-workspace, so edits land on your real files. Inside you get passwordless
-`sudo` and Docker, every host CPU, and half the host memory capped at 32 GiB.
+workspace, so edits land on your real files. Each sandbox also gets a
+wrapper-managed state folder under
+`${XDG_STATE_HOME:-~/.local/state}/sbxagent/<slug>-<hash>/`, keyed by the
+project directory and shared read-only across every agent's sandbox for it,
+with a per-agent subfolder (`sbxclaude/`, `sbxcodex/`, …) that only that
+agent's own sandbox can write. Set `CROSS_SANDBOX_VISIBILITY=false` when
+creating a sandbox to mount only its own subfolder and hide the other agents'.
+Other projects' folders are never mounted, and `rm` leaves all of this in
+place. Inside you get passwordless `sudo` and
+Docker, every host CPU, and half the host memory capped at 32 GiB.
+
+### Session traces
+
+The wrapper keeps each agent's native session format and relocates its trace
+tree into that agent's state subfolder:
+
+| Agent | Stock path in the sandbox | Path below the agent state folder |
+| --- | --- | --- |
+| Claude Code | `~/.claude/projects` | `projects/` |
+| Codex | `~/.codex/sessions` | `sessions/` |
+| Cursor | `~/.cursor/projects` | `projects/` |
+| Pi | `~/.pi/agent/sessions` | `sessions/` |
+
+With the default `CROSS_SANDBOX_VISIBILITY=true`, sibling agents for the same
+project can read these complete traces, including prompts, tool output, file
+excerpts, and any secrets recorded in them. Set
+`CROSS_SANDBOX_VISIBILITY=false` before creating a sandbox to hide sibling
+state. This setting and trace relocation are fixed at sandbox creation time;
+remove and rebuild existing sandboxes after changing the setting or upgrading
+to a kit that supports traces.
+
+Claude Code applies its normal `cleanupPeriodDays` retention setting (30 days
+by default) to these host-backed transcripts. Cursor's SQLite resume store
+remains inside its sandbox to avoid database locking on the shared mount. A kit
+started directly with `sbx run`, without the wrapper-provided
+`SBXAGENT_STATE_DIR`, keeps its stock trace location.
 
 Network access is an allowlist, not the open internet. Every kit rewrites
 GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
@@ -80,6 +115,10 @@ Intentional exceptions that stay on latest:
   `docker/sandbox-templates:shell-docker` is a moving tag, and its apt packages
   track the distribution. That includes `fd-find`, which Pi would otherwise
   download unpinned at first launch
+- `go` comes from the base image and is deliberately not pinned by any kit.
+  A project's `go.mod` is the pin: since Go 1.21, `GOTOOLCHAIN=auto` fetches
+  the version it names from `proxy.golang.org`, which every kit allowlists.
+  A kit pin would be a second pin that never wins
 
 To bump a pin:
 

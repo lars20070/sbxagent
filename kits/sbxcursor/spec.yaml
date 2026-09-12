@@ -36,6 +36,9 @@ sandbox:
       if [ -n "${GH_TOKEN:-}" ]; then
         export GITHUB_TOKEN="$GH_TOKEN"
       fi
+      # Cursor has no configuration override for its transcript tree.
+      sh "$HOME/.local/lib/sbxagent/link-state.sh" "$HOME/.cursor/projects" projects ||
+        echo "sbxcursor: could not link ~/.cursor/projects into the state folder; transcripts stay at the stock path" >&2
       exec agent "$@"
     - sbxcursor-entrypoint
 # resources:
@@ -110,6 +113,9 @@ permissions:
       - "release-assets.githubusercontent.com:443"
       - "pypi.org:443"
       - "files.pythonhosted.org:443"
+      # Go modules and, since 1.21, the toolchain go.mod asks for.
+      - "proxy.golang.org:443"
+      - "sum.golang.org:443"
       # Pi agent development
       - "pi.dev"
       # OpenRouter model API, for agents configured against it.
@@ -124,12 +130,15 @@ setup:
         set -eu
         apt-get update
         # python3-yaml gives scripts `import yaml` (PyYAML) without a
-        # separate pip install.
+        # separate pip install. build-essential + python3-dev let `uv`/`pip`
+        # build Python C extensions from source when no matching wheel exists.
         apt-get install -y \
+          build-essential \
           ca-certificates \
           curl \
           jq \
           python3 \
+          python3-dev \
           python3-yaml \
           ripgrep \
           shellcheck \
