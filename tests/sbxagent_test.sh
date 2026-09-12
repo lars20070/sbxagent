@@ -464,6 +464,30 @@ assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s:ro\t%s' \
 assert_eq "${BEFORE}" "$(ls "${PROJECT_DIR}")" "other project's state folder untouched"
 pass "each directory gets its own project state folder"
 
+# CROSS_SANDBOX_VISIBILITY=false drops the read-only project mount, leaving
+# only the agent's own read-write subfolder. Both creating paths have their
+# own exec line, so both are checked. The folder tree on disk is the same
+# either way. Any other value is rejected before sbx runs or anything is
+# created, and only on the creating paths — name must keep working.
+clear_log
+CROSS_SANDBOX_VISIBILITY=false run_claude "${WORK_B}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s' \
+	"${NAME_B}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "create without visibility"
+[[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create without visibility removed ${PROJECT_DIR_B}/sbxclaude"
+
+clear_log
+CROSS_SANDBOX_VISIBILITY=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t%s\t.\t%s' \
+	"${CLAUDE_KIT}" "${NAME_B}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "attach without visibility"
+
+BEFORE="$(ls "${STATE_ROOT}")"
+CROSS_SANDBOX_VISIBILITY=bogus reject_without_call "${WORK_B}" create
+assert_eq "${BEFORE}" "$(ls "${STATE_ROOT}")" "bad visibility value created state"
+BOGUS_NAME="$(CROSS_SANDBOX_VISIBILITY=bogus run_claude "${WORK_B}" name)" ||
+	fail "'name' failed with a bad CROSS_SANDBOX_VISIBILITY"
+assert_eq "${NAME_B}" "${BOGUS_NAME}" "name with bad visibility value"
+pass "CROSS_SANDBOX_VISIBILITY=false drops the shared mount and rejects other values"
+
 # The empty-slug guard applies to the project folder as well as the sandbox
 # name: with nothing left of the basename the key is the bare hash, never
 # "-<hash>". EMPTY_NAME is already known to be sbxclaude-<hash>, so the

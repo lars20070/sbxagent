@@ -17,7 +17,8 @@ and this project adheres to
 - All four kits: mount a wrapper-managed, per-project state folder under
   `${XDG_STATE_HOME:-$HOME/.local/state}/sbxagent`, shared read-only across
   every agent's sandbox for the same project, with a per-agent subfolder
-  writable only by that agent's own sandbox.
+  writable only by that agent's own sandbox. `CROSS_SANDBOX_VISIBILITY=false`
+  at create time mounts only the agent's own subfolder.
 
 ## [0.4.5] - 2026-09-11
 

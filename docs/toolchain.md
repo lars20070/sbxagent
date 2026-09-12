@@ -24,8 +24,10 @@ wrapper-managed state folder under
 `${XDG_STATE_HOME:-~/.local/state}/sbxagent/<slug>-<hash>/`, keyed by the
 project directory and shared read-only across every agent's sandbox for it,
 with a per-agent subfolder (`sbxclaude/`, `sbxcodex/`, …) that only that
-agent's own sandbox can write. Other projects' folders are never mounted, and
-`rm` leaves all of this in place. Inside you get passwordless `sudo` and
+agent's own sandbox can write. Set `CROSS_SANDBOX_VISIBILITY=false` when
+creating a sandbox to mount only its own subfolder and hide the other agents'.
+Other projects' folders are never mounted, and `rm` leaves all of this in
+place. Inside you get passwordless `sudo` and
 Docker, every host CPU, and half the host memory capped at 32 GiB.
 
 Network access is an allowlist, not the open internet. Every kit rewrites
