@@ -143,6 +143,9 @@
     "sbxreview",
     "sbxsupervise",
     "sbxenv",
-    "GOTOOLCHAIN"
+    "GOTOOLCHAIN",
+    "EBUSY",
+    "mountpoint",
+    "remountable"
   ]
 }
