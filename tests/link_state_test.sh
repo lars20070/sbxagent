@@ -12,7 +12,10 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/link-state-test.XXXXXX")"
 TESTS=0
 
 cleanup() {
-	chmod -R u+w "${TEST_ROOT}" 2>/dev/null || true
+	# u+rwx, not u+w: removing an entry needs execute on its directory too, so
+	# a mode-000 fixture left behind by a failing case is undeletable without
+	# it, and BSD rm reports that as an error where GNU rm quietly copes.
+	chmod -R u+rwx "${TEST_ROOT}" 2>/dev/null || true
 	rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT
@@ -59,6 +62,10 @@ fresh() {
 }
 
 # Reveal a distinct underlying directory when the helper unmounts LINK.
+# A real umount detaches the whole filesystem regardless of the permissions of
+# anything on it, so the stub has to widen modes before deleting: an unreadable
+# lost+found is removed by GNU rm but refused by BSD rm, which would otherwise
+# leave it behind on macOS only and diverge from a real unmount.
 fake_mount() {
 	FAKE_BIN="${CASE}/bin"
 	mkdir -p "${FAKE_BIN}"
@@ -66,7 +73,9 @@ fake_mount() {
 	cat >"${FAKE_BIN}/sudo" <<'SH'
 #!/bin/sh
 set -eu
-find "$3" -mindepth 1 -exec rm -rf {} +
+chmod -R u+rwx "$3" 2>/dev/null || true
+rm -rf "$3"
+mkdir -p "$3"
 echo underlying >"$3/underlying-marker"
 SH
 	chmod +x "${FAKE_BIN}/mountpoint" "${FAKE_BIN}/sudo"
@@ -307,13 +316,7 @@ else
 	chmod 000 "${LINK}/lost+found"
 	echo one >"${LINK}/file"
 	echo existing >"${STATE}/sessions/lost+found/marker"
-	FAKE_BIN="${CASE}/bin"
-	mkdir -p "${FAKE_BIN}"
-	printf '#!/bin/sh\nexit 0\n' >"${FAKE_BIN}/mountpoint"
-	chmod +x "${FAKE_BIN}/mountpoint"
-	# shellcheck disable=SC2016 # $3 is meant to expand when the fake script runs, not here.
-	printf '#!/bin/sh\nfind "$3" -mindepth 1 -exec rm -rf {} +\nexit 0\n' >"${FAKE_BIN}/sudo"
-	chmod +x "${FAKE_BIN}/sudo"
+	fake_mount
 	PATH="${FAKE_BIN}:${PATH}" run_helper "${LINK}" sessions
 	assert_eq 0 "${STATUS}" "lost+found exit status"
 	[[ -L "${LINK}" ]] || fail "lost+found: not a symlink afterwards"
