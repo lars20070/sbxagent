@@ -19,8 +19,14 @@ Every kit installs the same tools:
 | `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image |
 
 The environment is the same in every sandbox. Your project is mounted as the
-workspace, so edits land on your real files. Inside you get passwordless
-`sudo` and Docker, every host CPU, and half the host memory capped at 32 GiB.
+workspace, so edits land on your real files. Each sandbox also gets a
+wrapper-managed state folder under
+`${XDG_STATE_HOME:-~/.local/state}/sbxagent/<slug>-<hash>/`, keyed by the
+project directory and shared read-only across every agent's sandbox for it,
+with a per-agent subfolder (`sbxclaude/`, `sbxcodex/`, …) that only that
+agent's own sandbox can write. Other projects' folders are never mounted, and
+`rm` leaves all of this in place. Inside you get passwordless `sudo` and
+Docker, every host CPU, and half the host memory capped at 32 GiB.
 
 Network access is an allowlist, not the open internet. Every kit rewrites
 GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
