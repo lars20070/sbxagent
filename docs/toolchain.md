@@ -30,6 +30,32 @@ Other projects' folders are never mounted, and `rm` leaves all of this in
 place. Inside you get passwordless `sudo` and
 Docker, every host CPU, and half the host memory capped at 32 GiB.
 
+### Session traces
+
+The wrapper keeps each agent's native session format and relocates its trace
+tree into that agent's state subfolder:
+
+| Agent | Stock path in the sandbox | Path below the agent state folder |
+| --- | --- | --- |
+| Claude Code | `~/.claude/projects` | `projects/` |
+| Codex | `~/.codex/sessions` | `sessions/` |
+| Cursor | `~/.cursor/projects` | `projects/` |
+| Pi | `~/.pi/agent/sessions` | `sessions/` |
+
+With the default `CROSS_SANDBOX_VISIBILITY=true`, sibling agents for the same
+project can read these complete traces, including prompts, tool output, file
+excerpts, and any secrets recorded in them. Set
+`CROSS_SANDBOX_VISIBILITY=false` before creating a sandbox to hide sibling
+state. This setting and trace relocation are fixed at sandbox creation time;
+remove and rebuild existing sandboxes after changing the setting or upgrading
+to a kit that supports traces.
+
+Claude Code applies its normal `cleanupPeriodDays` retention setting (30 days
+by default) to these host-backed transcripts. Cursor's SQLite resume store
+remains inside its sandbox to avoid database locking on the shared mount. A kit
+started directly with `sbx run`, without the wrapper-provided
+`SBXAGENT_STATE_DIR`, keeps its stock trace location.
+
 Network access is an allowlist, not the open internet. Every kit rewrites
 GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
 allowlisted port 443 without changing the host checkout. On `sbxclaude`,

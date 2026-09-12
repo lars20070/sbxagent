@@ -34,6 +34,10 @@ sandbox:
         export GITHUB_TOKEN="$GH_TOKEN"
         export GITHUB_PERSONAL_ACCESS_TOKEN="$GH_TOKEN"
       fi
+      # Codex has no sessions-only configuration override; CODEX_HOME would
+      # also move config and credentials.
+      sh "$HOME/.local/lib/sbxagent/link-state.sh" "$HOME/.codex/sessions" sessions ||
+        echo "sbxcodex: could not link ~/.codex/sessions into the state folder; sessions stay at the stock path" >&2
       exec codex "$@"
     - sbxcodex-entrypoint
 # resources:

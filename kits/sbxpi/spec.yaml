@@ -9,10 +9,21 @@ sandbox:
   # No `extends:` — Pi has no parent kit (only claude, codex, copilot, cursor,
   # gemini, kiro, opencode are valid `extends:` values). Built on the bare
   # shell-docker template instead, so unlike the siblings there is no parent
-  # setup to merge with and no token export to wrap: plain `entrypoint: [pi]`
-  # is correct here.
+  # setup to merge with and no token export to wrap. The entrypoint only
+  # redirects Pi's session tree into the wrapper-managed state mount.
   image: "docker/sandbox-templates:shell-docker"
-  entrypoint: [pi]
+  entrypoint:
+    - sh
+    - -c
+    - |
+      set -eu
+      # PI_CODING_AGENT_SESSION_DIR flattens Pi's native per-project layout
+      # and changes continue-session lookup, so retain the stock path via a
+      # symlink instead.
+      sh "$HOME/.local/lib/sbxagent/link-state.sh" "$HOME/.pi/agent/sessions" sessions ||
+        echo "sbxpi: could not link ~/.pi/agent/sessions into the state folder; sessions stay at the stock path" >&2
+      exec pi "$@"
+    - sbxpi-entrypoint
 # resources:
 #   cpu: 8
 #   memory: 24g

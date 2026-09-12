@@ -36,6 +36,9 @@ sandbox:
       if [ -n "${GH_TOKEN:-}" ]; then
         export GITHUB_TOKEN="$GH_TOKEN"
       fi
+      # Cursor has no configuration override for its transcript tree.
+      sh "$HOME/.local/lib/sbxagent/link-state.sh" "$HOME/.cursor/projects" projects ||
+        echo "sbxcursor: could not link ~/.cursor/projects into the state folder; transcripts stay at the stock path" >&2
       exec agent "$@"
     - sbxcursor-entrypoint
 # resources:

@@ -220,9 +220,9 @@ PROJECT_DIR="${STATE_ROOT}/${NAME_A#*-}"
 # project's state folder read-only and this agent's subfolder read-write.
 clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_A}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t%s\t.\t%s:ro\t%s' \
-	"${CLAUDE_KIT}" "${SANDBOX}" "${CLAUDE_KIT}" \
-	"${PROJECT_DIR}" "${PROJECT_DIR}/sbxclaude")" "new sandbox attach"
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${CLAUDE_KIT}" "${SANDBOX}" "${PROJECT_DIR}/sbxclaude" \
+	"${CLAUDE_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxclaude")" "new sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "new attach passed --"
 [[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "attach did not create ${PROJECT_DIR}/sbxclaude"
 
@@ -262,8 +262,8 @@ assert_log "$(printf 'inspect\t%s' "${SANDBOX}")" "inspect"
 rm -rf "${STATE_ROOT}"
 clear_log
 run_claude "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s:ro\t%s' \
-	"${SANDBOX}" "${CLAUDE_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxclaude")" "create"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${SANDBOX}" "${PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxclaude")" "create"
 [[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR}/sbxclaude"
 assert_eq "700" "$(file_mode "${PROJECT_DIR}/sbxclaude")" "agent state folder mode"
 
@@ -344,8 +344,8 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${CODEX_KIT}")" "codex kit path"
 
 clear_log
 run_codex "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s:ro\t%s' \
-	"${CODEX_NAME}" "${CODEX_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxcodex")" "codex create"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${CODEX_NAME}" "${PROJECT_DIR}/sbxcodex" "${CODEX_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxcodex")" "codex create"
 pass "sbxcodex dispatches to its own kit, sandbox name and kit operand"
 
 # The state folder is shared per project, not per agent: both kits' folders
@@ -389,8 +389,8 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${CURSOR_KIT}")" "cursor kit path"
 
 clear_log
 run_cursor "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s:ro\t%s' \
-	"${CURSOR_NAME}" "${CURSOR_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxcursor")" "cursor create"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${CURSOR_NAME}" "${PROJECT_DIR}/sbxcursor" "${CURSOR_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxcursor")" "cursor create"
 pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
 
 clear_log
@@ -426,8 +426,8 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${PI_KIT}")" "pi kit path"
 
 clear_log
 run_pi "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s:ro\t%s' \
-	"${PI_NAME}" "${PI_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxpi")" "pi create"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${PI_NAME}" "${PROJECT_DIR}/sbxpi" "${PI_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxpi")" "pi create"
 pass "sbxpi dispatches to its own kit, sandbox name and kit operand"
 
 clear_log
@@ -458,8 +458,8 @@ PROJECT_DIR_B="${STATE_ROOT}/${NAME_B#*-}"
 BEFORE="$(ls "${PROJECT_DIR}")"
 clear_log
 run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s:ro\t%s' \
-	"${NAME_B}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create in another directory"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create in another directory"
 [[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR_B}/sbxclaude"
 assert_eq "${BEFORE}" "$(ls "${PROJECT_DIR}")" "other project's state folder untouched"
 pass "each directory gets its own project state folder"
@@ -471,14 +471,14 @@ pass "each directory gets its own project state folder"
 # created, and only on the creating paths — name must keep working.
 clear_log
 CROSS_SANDBOX_VISIBILITY=false run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s' \
-	"${NAME_B}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "create without visibility"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s' \
+	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "create without visibility"
 [[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create without visibility removed ${PROJECT_DIR_B}/sbxclaude"
 
 clear_log
 CROSS_SANDBOX_VISIBILITY=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t%s\t.\t%s' \
-	"${CLAUDE_KIT}" "${NAME_B}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "attach without visibility"
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s' \
+	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "attach without visibility"
 
 BEFORE="$(ls "${STATE_ROOT}")"
 CROSS_SANDBOX_VISIBILITY=bogus reject_without_call "${WORK_B}" create
@@ -495,8 +495,8 @@ pass "CROSS_SANDBOX_VISIBILITY=false drops the shared mount and rejects other va
 EMPTY_PROJECT_DIR="${STATE_ROOT}/${EMPTY_NAME#*-}"
 clear_log
 run_claude "${EMPTY_SLUG}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t%s\t.\t%s:ro\t%s' \
-	"${EMPTY_NAME}" "${CLAUDE_KIT}" "${EMPTY_PROJECT_DIR}" "${EMPTY_PROJECT_DIR}/sbxclaude")" "create with empty slug"
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+	"${EMPTY_NAME}" "${EMPTY_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${EMPTY_PROJECT_DIR}" "${EMPTY_PROJECT_DIR}/sbxclaude")" "create with empty slug"
 [[ -d "${EMPTY_PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${EMPTY_PROJECT_DIR}/sbxclaude"
 pass "an empty slug keys the project state folder by hash alone"
 

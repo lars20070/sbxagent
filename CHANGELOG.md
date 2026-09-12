@@ -19,6 +19,10 @@ and this project adheres to
   every agent's sandbox for the same project, with a per-agent subfolder
   writable only by that agent's own sandbox. `CROSS_SANDBOX_VISIBILITY=false`
   at create time mounts only the agent's own subfolder.
+- All four kits: preserve native session traces in each agent's state
+  subfolder. With the default cross-sandbox visibility, sibling agents for the
+  same project can read the complete traces; set
+  `CROSS_SANDBOX_VISIBILITY=false` when creating them to keep traces private.
 
 ## [0.4.5] - 2026-09-11
 

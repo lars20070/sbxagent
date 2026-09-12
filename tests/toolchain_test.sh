@@ -6,7 +6,8 @@ set -euo pipefail
 
 # Which kit built this sandbox. The wrapper names every sandbox
 # <kit>-<slug>-<hash>, so the prefix is the kit name and the command to rerun.
-KIT_NAME="${SANDBOX_NAME:-$(hostname)}"
+SANDBOX_ID="${SANDBOX_NAME:-$(hostname)}"
+KIT_NAME="${SANDBOX_ID}"
 KIT_NAME="${KIT_NAME%%-*}"
 [[ -n "${KIT_NAME}" ]] || KIT_NAME="sbxclaude"
 
@@ -141,6 +142,24 @@ pass "GitHub SSH remotes rewrite to HTTPS"
 # rebuild. A sandbox created before a kit change has none of them, and a bare
 # "file missing" would read as a broken test rather than a stale sandbox.
 REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
+
+# The entrypoint relocates only the agent's native session-trace tree. Its
+# target is this sandbox's writable subfolder in the shared project state.
+STATE_KEY="${SANDBOX_ID#*-}"
+case "${KIT_NAME}" in
+sbxclaude) TRACE_LINK="${HOME}/.claude/projects"; TRACE_SUBDIR="projects" ;;
+sbxcodex) TRACE_LINK="${HOME}/.codex/sessions"; TRACE_SUBDIR="sessions" ;;
+sbxcursor) TRACE_LINK="${HOME}/.cursor/projects"; TRACE_SUBDIR="projects" ;;
+sbxpi) TRACE_LINK="${HOME}/.pi/agent/sessions"; TRACE_SUBDIR="sessions" ;;
+*) fail "unknown kit name ${KIT_NAME}" ;;
+esac
+[[ -L "${TRACE_LINK}" ]] ||
+	fail "${TRACE_LINK} is not a symlink (${REBUILD_HINT}, then attach once)"
+TRACE_TARGET="$(readlink "${TRACE_LINK}")"
+[[ "${TRACE_TARGET}" == */sbxagent/"${STATE_KEY}"/"${KIT_NAME}"/"${TRACE_SUBDIR}" ]] ||
+	fail "${TRACE_LINK} points at ${TRACE_TARGET}, not this sandbox's state folder"
+[[ -w "${TRACE_LINK}/" ]] || fail "${TRACE_LINK} is not writable through its symlink"
+pass "the native session-trace folder is linked into this sandbox's state mount"
 
 # ---------------------------------------------------------------------------
 # sbxclaude, sbxcodex and sbxpi. All three kits install the same guard filter

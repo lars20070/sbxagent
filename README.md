@@ -183,6 +183,11 @@ A `yes` means a guard runs, not that it cannot be escaped.
 [docs/agents.md](docs/agents.md) says how strong each one is, why the four CLIs
 differ, and what every guard misses.
 
+The wrapper also preserves each agent's native session traces in its
+per-project state folder, where sibling agents can read them by default.
+[docs/toolchain.md](docs/toolchain.md#session-traces) lists the paths and the
+create-time privacy setting.
+
 ## Further documentation
 
 | Guide | Covers |

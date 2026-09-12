@@ -71,6 +71,8 @@ require_sbx() {
 # Sets STATE_HOME, PROJECT_DIR, AGENT_DIR and PROJECT_MOUNT. PROJECT_DIR is
 # shared by every agent's sandbox for this same project (same SLUG+HASH);
 # AGENT_DIR is this agent's own subfolder within it and is mounted read-write.
+# The same path is exported as SBXAGENT_STATE_DIR when the sandbox is created,
+# so the kit can relocate that agent's native session-trace directory into it.
 # PROJECT_MOUNT is the read-only mount operand for PROJECT_DIR, or empty when
 # CROSS_SANDBOX_VISIBILITY is false. STATE_HOME itself is never mounted, so
 # other projects' state stays invisible. XDG requires an absolute
@@ -164,7 +166,7 @@ case "${1:-}" in
 	fi
 	sbx kit validate "${KIT}" >/dev/null
 	compute_state_mounts
-	exec sbx run --name "${SANDBOX}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
+	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 name)
 	shift
@@ -200,7 +202,7 @@ create)
 	no_args create "$@"
 	require_sbx
 	compute_state_mounts
-	exec sbx create --name "${SANDBOX}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
+	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 rm)
 	shift

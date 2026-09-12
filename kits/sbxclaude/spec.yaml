@@ -29,6 +29,10 @@ sandbox:
       if [ -n "${GH_TOKEN:-}" ]; then
         export GITHUB_TOKEN="$GH_TOKEN"
       fi
+      # Claude Code has no sessions-only configuration override; moving its
+      # config directory would also move settings and credentials.
+      sh "$HOME/.local/lib/sbxagent/link-state.sh" "$HOME/.claude/projects" projects ||
+        echo "sbxclaude: could not link ~/.claude/projects into the state folder; transcripts stay at the stock path" >&2
       exec claude "$@"
     - sbxclaude-entrypoint
 # resources:
