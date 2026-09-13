@@ -76,8 +76,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # SBXAGENT_REQUIRE_BIND turns mount_state_test.sh's "no bind mounts here"
+      # skip into a failure. Only Linux can bind-mount at all, so this is the
+      # one runner that can be held to it — without it, a permissions change
+      # could silently reduce every runner to the non-mount cases.
       - name: Test wrapper
         run: make test-unit
+        env:
+          SBXAGENT_REQUIRE_BIND: ${{ runner.os == 'Linux' && '1' || '' }}
 
       # macOS still ships bash 3.2 as /bin/bash, which is the oldest
       # interpreter the wrapper has to run under.

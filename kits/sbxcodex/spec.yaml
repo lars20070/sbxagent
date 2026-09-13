@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxcodex
-version: "0.4.5"
+version: "0.4.6"
 displayName: Codex with custom toolchain
 description: Codex with custom toolchain
 
@@ -33,6 +33,18 @@ sandbox:
       if [ -n "${GH_TOKEN:-}" ]; then
         export GITHUB_TOKEN="$GH_TOKEN"
         export GITHUB_PERSONAL_ACCESS_TOKEN="$GH_TOKEN"
+      fi
+      # Codex has no sessions-only configuration override; CODEX_HOME would
+      # also move config and credentials.
+      # The bind mount does not survive a stop, so this runs on every boot, and
+      # any failure is fatal: sessions written to an unbound stock path would
+      # die with the sandbox rather than reach the state folder.
+      mount_state_status=0
+      sh "$HOME/.local/lib/sbxagent/mount-state.sh" "$HOME/.codex/sessions" sessions ||
+        mount_state_status=$?
+      if [ "${mount_state_status}" -ne 0 ]; then
+        echo "sbxcodex: could not relocate ~/.codex/sessions onto the state folder; refusing to start codex" >&2
+        exit "${mount_state_status}"
       fi
       exec codex "$@"
     - sbxcodex-entrypoint
@@ -109,6 +121,9 @@ permissions:
       - "release-assets.githubusercontent.com:443"
       - "pypi.org:443"
       - "files.pythonhosted.org:443"
+      # Go modules and, since 1.21, the toolchain go.mod asks for.
+      - "proxy.golang.org:443"
+      - "sum.golang.org:443"
       # Pi agent development
       - "pi.dev"
       # OpenRouter model API, for agents configured against it.
@@ -121,14 +136,32 @@ setup:
   install:
     - command: |
         set -eu
-        apt-get update
+        # Bounded the same way as the curl installs below (--retry 3
+        # --retry-delay 2 --max-time 600): retry a flaky mirror a few times,
+        # and give up on a hung one instead of stalling the build forever.
+        # Acquire::Retries defaults to 0, so without it a single dropped
+        # connection fails the whole kit build. `timeout` caps each call, so
+        # the sequence is finite even if a fetch never returns — a killed
+        # apt-get fails the build, and the image is rebuilt from scratch, so
+        # there is no half-configured dpkg state to repair.
+        apt_get() {
+          timeout 600 apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            "$@"
+        }
+        apt_get update
         # python3-yaml gives scripts `import yaml` (PyYAML) without a
-        # separate pip install.
-        apt-get install -y \
+        # separate pip install. build-essential + python3-dev let `uv`/`pip`
+        # build Python C extensions from source when no matching wheel exists.
+        apt_get install -y \
+          build-essential \
           ca-certificates \
           curl \
           jq \
           python3 \
+          python3-dev \
           python3-yaml \
           ripgrep \
           shellcheck \
@@ -416,3 +449,30 @@ setup:
         TOML
       user: "agent"
       description: Register the context7 and github MCP servers
+  startup:
+    # The trace bind mount is established here as well as in the entrypoint.
+    # Both call sites are deliberate and neither is sufficient on its own: a
+    # startup step runs on every sandbox start, so it covers `sbx exec` and any
+    # session that never attaches — which the entrypoint, being the agent launch
+    # command, cannot reach. The entrypoint in turn covers the starts where a
+    # startup step is known not to replay: docker/sbx-releases #420 (after a
+    # daemon restart) and #479 (`sbx exec` starting a stopped sandbox).
+    # mount-state.sh is idempotent — once bound it exits 0 having touched
+    # nothing — so whichever of the two runs second is a no-op.
+    #
+    # HOME is set explicitly because a startup step runs with a minimal
+    # environment; the cursor kit's own startup step documents the same trap.
+    # A failure is not swallowed: this step cannot refuse to launch the agent
+    # the way the entrypoint does, but it must not report success while the
+    # trace path is left unbound.
+    - command:
+        - sh
+        - -c
+        - |
+          set -eu
+          HOME="${HOME:-/home/agent}"
+          export HOME
+          sh "$HOME/.local/lib/sbxagent/mount-state.sh" \
+            "$HOME/.codex/sessions" sessions
+      user: "agent"
+      description: Bind-mount ~/.codex/sessions onto the state folder

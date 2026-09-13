@@ -6,7 +6,8 @@ set -euo pipefail
 
 # Which kit built this sandbox. The wrapper names every sandbox
 # <kit>-<slug>-<hash>, so the prefix is the kit name and the command to rerun.
-KIT_NAME="${SANDBOX_NAME:-$(hostname)}"
+SANDBOX_ID="${SANDBOX_NAME:-$(hostname)}"
+KIT_NAME="${SANDBOX_ID}"
 KIT_NAME="${KIT_NAME%%-*}"
 [[ -n "${KIT_NAME}" ]] || KIT_NAME="sbxclaude"
 
@@ -73,6 +74,9 @@ check_tool python3 python3 --version
 check_tool shellcheck shellcheck --version
 check_tool git git --version
 check_tool tree tree --version
+# Inherited from the base image, not installed by any kit. Presence only:
+# go.mod picks the real version and `go` fetches it on demand.
+check_tool go go version
 
 # python3-yaml (PyYAML) has no CLI binary of its own, so it can't use
 # check_tool — check the import directly instead.
@@ -138,6 +142,38 @@ pass "GitHub SSH remotes rewrite to HTTPS"
 # rebuild. A sandbox created before a kit change has none of them, and a bare
 # "file missing" would read as a broken test rather than a stale sandbox.
 REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
+
+# The entrypoint relocates only the agent's native session-trace tree, by
+# bind-mounting this sandbox's writable subfolder in the shared project state
+# over the stock path. The stock path itself has to stay a real directory: the
+# parent kit's own volume is mounted there, and the runtime recreates that mount
+# destination on every start, which it cannot do through a symlink. The bind is
+# re-made at every start — by a startup step and again by the entrypoint — so it
+# is expected here even though this test arrives through `sbx exec` rather than
+# an attach.
+STATE_KEY="${SANDBOX_ID#*-}"
+case "${KIT_NAME}" in
+sbxclaude) TRACE_LINK="${HOME}/.claude/projects"; TRACE_SUBDIR="projects" ;;
+sbxcodex) TRACE_LINK="${HOME}/.codex/sessions"; TRACE_SUBDIR="sessions" ;;
+sbxcursor) TRACE_LINK="${HOME}/.cursor/projects"; TRACE_SUBDIR="projects" ;;
+sbxpi) TRACE_LINK="${HOME}/.pi/agent/sessions"; TRACE_SUBDIR="sessions" ;;
+*) fail "unknown kit name ${KIT_NAME}" ;;
+esac
+BIND_HINT="${REBUILD_HINT} — the bind is re-made at every start, not stored on disk, so a missing one means the startup step and the entrypoint both failed to run"
+[[ -n "${SBXAGENT_STATE_DIR:-}" ]] ||
+	fail "SBXAGENT_STATE_DIR is unset; this sandbox was not created by the wrapper"
+[[ "${SBXAGENT_STATE_DIR}" == */sbxagent/"${STATE_KEY}"/"${KIT_NAME}" ]] ||
+	fail "SBXAGENT_STATE_DIR is ${SBXAGENT_STATE_DIR}, not this sandbox's state folder"
+TRACE_TARGET="${SBXAGENT_STATE_DIR}/${TRACE_SUBDIR}"
+[[ ! -L "${TRACE_LINK}" ]] ||
+	fail "${TRACE_LINK} is a symlink; it has to stay a real directory or the sandbox cannot restart"
+[[ -d "${TRACE_LINK}" ]] || fail "${TRACE_LINK} is not a directory (${BIND_HINT})"
+# Same device and inode means the one is bind-mounted onto the other. This runs
+# on Linux inside the sandbox, so GNU `stat -c` needs no BSD fallback here.
+[[ "$(stat -c '%d:%i' "${TRACE_LINK}")" == "$(stat -c '%d:%i' "${TRACE_TARGET}")" ]] ||
+	fail "${TRACE_LINK} is not bind-mounted onto ${TRACE_TARGET} (${BIND_HINT})"
+[[ -w "${TRACE_LINK}/" ]] || fail "${TRACE_LINK} is not writable through the bind mount"
+pass "the native session-trace folder is bind-mounted onto this sandbox's state mount"
 
 # ---------------------------------------------------------------------------
 # sbxclaude, sbxcodex and sbxpi. All three kits install the same guard filter

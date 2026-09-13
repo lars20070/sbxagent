@@ -20,7 +20,7 @@ ESBUILD ?= npx --yes esbuild@0.28.2
 # directory that merely ends in "skills".
 NO_SKILLS := ':(exclude,glob)**/skills/**'
 
-.PHONY: lint validate test test-unit test-toolchain publish-dry-run
+.PHONY: lint validate test test-unit test-toolchain test-lifecycle publish-dry-run
 
 # Lint tracked files: Markdown (skip plan drafts), JSON, jq filters (parsed
 # against null input, so a syntax error fails the build), TypeScript
@@ -49,7 +49,7 @@ lint:
 			echo "lint: $$dir/spec.yaml does not declare 'name: $$name'" >&2; exit 1; \
 		}; \
 	done
-	for shared in home/.gitconfig workspace/.editorconfig; do \
+	for shared in home/.gitconfig workspace/.editorconfig home/.local/lib/sbxagent/mount-state.sh; do \
 		ref="kits/sbxclaude/files/$$shared"; \
 		for kit in kits/*/; do \
 			copy="$${kit}files/$$shared"; \
@@ -144,8 +144,16 @@ test: test-unit test-toolchain
 # Test the wrapper with a fake sbx CLI.
 test-unit:
 	$(BASH) ./tests/sbxagent_test.sh
+	$(BASH) ./tests/mount_state_test.sh
 
 # Smoke-test the installed helper tools inside the live sandbox.
 # AGENT selects which wrapper (and therefore which sandbox) to run in.
 test-toolchain:
 	./scripts/sbx$(AGENT) exec ./tests/toolchain_test.sh
+
+# Prove the trace bind-mount survives the sandbox lifecycle: create, write,
+# stop, reattach, and cross-sandbox visibility. Needs a live sbx daemon and
+# creates disposable sandboxes of its own, so it is deliberately outside
+# `make test` alongside test-toolchain. AGENT selects the kit under test.
+test-lifecycle:
+	$(BASH) ./tests/lifecycle_test.sh $(AGENT)

@@ -8,6 +8,58 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-09-13
+
+### Changed
+
+- Project hashes in generated sandbox names and state-directory paths now
+  default to eight hexadecimal characters instead of six, reducing collision
+  risk. Set `HASH_LENGTH` to choose another length.
+- All four kits: bound the apt setup step. `apt-get update` and `apt-get
+  install` now retry a flaky mirror (`Acquire::Retries=3`) and time out on a
+  hung one (`Acquire::{http,https}::Timeout=30`), and each call runs under a
+  600-second `timeout`, matching the `--retry 3 --max-time 600` already used
+  by the kits' `curl` downloads. The installed packages are unchanged.
+
+### Added
+
+- All four kits: install `build-essential` and `python3-dev` so `uv`/`pip`
+  can build Python C extensions from source when no matching wheel exists.
+- All four kits: allow `proxy.golang.org` and `sum.golang.org`, so Go can
+  fetch modules and the toolchain version a project's `go.mod` asks for.
+- All four kits: mount a wrapper-managed, per-project state folder under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/sbxagent`, shared read-only across
+  every agent's sandbox for the same project, with a per-agent subfolder
+  writable only by that agent's own sandbox. `CROSS_SANDBOX_VISIBILITY=false`
+  at create time mounts only the agent's own subfolder.
+- All four kits: preserve native session traces in each agent's state
+  subfolder. With the default cross-sandbox visibility, sibling agents for the
+  same project can read the complete traces; set
+  `CROSS_SANDBOX_VISIBILITY=false` when creating them to keep traces private.
+
+### Fixed
+
+- All four kits: a sandbox could no longer be started once its session traces
+  had been relocated. Relocation replaced the agent's stock trace folder with a
+  symlink, but the agent's own persistent volume is mounted at that path, and
+  the sandbox runtime — which recreates that mount destination on every start —
+  refuses to do so through a symlink. Every start after the first failed with
+  `failed to start runtime: 500 Internal Server Error`. The stock folder now
+  stays a real directory and the state subfolder is bind-mounted over it at
+  each start instead. A sandbox already stuck this way has to be removed and
+  recreated.
+- All four kits: session traces now reach the state folder in sessions that do
+  not launch the agent, such as `sbxclaude exec bash`. Relocation previously
+  happened only when the agent itself started, so anything written by another
+  session went to the stock path inside the sandbox and was lost when the
+  sandbox was removed.
+- All four kits now refuse to launch their agent whenever the session-trace
+  folder cannot be relocated onto the state folder, rather than falling back to
+  the stock path. Traces written to the stock path are lost when the sandbox is
+  removed, so a partial relocation is no longer treated as good enough. A
+  sandbox created without the wrapper still keeps the agent's default location,
+  as before.
+
 ## [0.4.5] - 2026-09-11
 
 ### Changed
