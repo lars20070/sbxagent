@@ -44,6 +44,48 @@ wrapper state folder over it instead, on every boot. The stock path then stays
 a real directory forever, which is what the runtime needs to keep re-mounting
 the parent kit's volume there on every restart.
 
+### The bind-mount mechanic is confirmed, not assumed
+
+Verified empirically on 2026-09-13 from inside a Docker Sandbox microVM:
+
+- `sudo -n mount --bind SRC DST` succeeds for the unprivileged `agent` user —
+  passwordless sudo carries the mount capability. Independently corroborated by
+  upstream `docker/sbx-releases` issue #556, which closed on the premise that a
+  sandboxed process can freely `sudo mount -o remount,rw`.
+- Binding a **host-backed (virtiofs) source** — the shape `SBXAGENT_STATE_DIR`
+  actually has — works in both directions: reads through the mount see host
+  content, writes through it land on the host.
+- After binding, `stat '%d:%i'` matched on both paths, so the `same_fs()`
+  idempotency probe in the script below is a valid bound/not-bound signal.
+
+No open upstream issue matches this repo's exact crash signature
+(`openat2 home/agent/.claude/projects: No such file or directory`). The nearest
+hits are unrelated: #350 is a Windows daemon wedge, #545/#366 are general
+filesystem flakiness.
+
+### Known upstream risk: a bind over a host-backed source can silently detach
+
+`docker/sbx-releases` issue #388 (open, unfixed as of 2026-09-13) reports that a
+mount inside a sandbox whose source is a host directory can be **silently
+unmounted** when the host modifies that file tree. Applied here: the user's Mac
+touching `SBXAGENT_STATE_DIR` could drop the bind mid-session, after which the
+agent keeps writing happily — into the now-unbound stock path inside the
+sandbox, where those traces die with the sandbox. No error, no log line.
+
+This is a genuine regression in *failure mode* relative to the symlink design: a
+symlink cannot fall off. The trade is still clearly worth it (the symlink's
+failure is a hard, unrecoverable boot crash on every restart; this one is a rare
+silent detach), but it must not be accepted unexamined:
+
+- The design deliberately does **not** add a watchdog or a periodic re-bind.
+  That is real daemon complexity inside every kit, for a failure this
+  investigation has not yet observed in practice.
+- Instead the live tests below must actively try to *provoke* the detach, so we
+  learn whether #388 bites this specific usage before users do. If it does
+  reproduce, the watchdog question reopens as its own piece of work — and
+  `docs/traces.md` gains a warning that host-side edits to the state folder
+  during a live session can cost traces.
+
 ## Design
 
 Replace `link-state.sh` with `mount-state.sh` in all four kits (rename, keep
@@ -207,6 +249,15 @@ no special-casing is needed either way.
   `SBXAGENT_STATE_DIR/TRACE_SUBDIR`'s (bind-mounted), still writable. This
   test runs live inside an already-built sandbox via `sbx exec`, so
   unconditional GNU `stat -c` is fine here (unlike the unit test).
+  **Also add a detach probe for upstream #388**: after the assertion above
+  passes, have the *host* modify the state tree (create and delete a scratch
+  file directly under `SBXAGENT_STATE_DIR/TRACE_SUBDIR`, from outside the
+  sandbox), then re-run the same device+inode assertion through a fresh
+  `sbx exec`. If the inodes no longer match, the bind silently detached and
+  the test must fail loudly with a message naming issue #388 — this is the
+  cheap early-warning signal for the one failure mode the bind-mount design
+  introduces, and it costs a handful of lines in a test that is already
+  standing up a live sandbox.
 - **New: a live lifecycle regression test** (e.g. `tests/lifecycle_test.sh`,
   plus a `test-lifecycle` Makefile target, in the same "needs a live `sbx`
   daemon" bucket as `test-toolchain`, not part of `make test`/`test-unit`).
@@ -233,7 +284,15 @@ no special-casing is needed either way.
      (confirm a sibling sandbox for the same project can actually read the
      trace content, not just that the flag was accepted) and once with
      `=false` (confirm a sibling genuinely cannot read it).
-  7. Clean up the disposable sandbox(es) on exit.
+  7. **Detach probe across a restart (upstream #388).** With the sandbox
+     running and the bind confirmed, write to the state tree from the *host*,
+     then confirm from a fresh `sbx exec` that (a) the stock path is still
+     bound (device+inode match) and (b) a subsequent in-sandbox write still
+     lands in host state. A failure here does not block the fix — it is
+     strictly better than the crash being replaced — but it must be reported,
+     not swallowed, because it changes what `docs/traces.md` has to warn
+     users about.
+  8. Clean up the disposable sandbox(es) on exit.
 
   **This test needs a live `sbx` daemon and a real Mac host with `sbx`
   installed — this development sandbox has no access to that.** It is a
@@ -278,3 +337,9 @@ development sandbox has no access to it):
    the reported crash: before the fix this would reproduce the 500 on the
    second boot; after, it should pass, including the mount-count and
    cross-sandbox-visibility checks described above.
+6. Report the outcome of the #388 detach probes (step 7 of the lifecycle test,
+   and the host-side-write probe added to `toolchain_test.sh`) explicitly —
+   pass or fail. If the bind does detach on host-side writes, that is new
+   information about an open upstream bug: it decides whether `docs/traces.md`
+   needs a user-facing warning, and whether a re-bind watchdog becomes its own
+   follow-up task. Do not let a green overall run bury a red detach probe.
