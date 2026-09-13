@@ -19,6 +19,7 @@ flowchart LR
   subgraph IN[" "]
     direction TB
     PROJ["your project<br/>(host working tree)"]
+    STATE["session traces<br/>~/.local/state/sbxagent"]
     DRV["scripts/sbxclaude<br/>scripts/sbxcodex<br/>scripts/sbxcursor<br/>scripts/sbxpi"]
     KIT["kits/*/spec.yaml<br/>kits/*/files/"]
   end
@@ -36,6 +37,7 @@ flowchart LR
   end
 
   PROJ -.->|"mounted"| VM
+  STATE -.->|"mounted"| VM
   DRV -->|"creates / attaches"| VM
   KIT -->|"builds"| VM
   AGENT -.->|"runs"| TOOLS
@@ -48,7 +50,7 @@ flowchart LR
   classDef helper  fill:#E3F2F1,stroke:#0E7C86,stroke-width:2px,color:#0B3D40
   classDef agent   fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
   classDef ext     fill:#F0F0EE,stroke:#7A8482,stroke-width:1.5px,color:#3A4250
-  class PROJ data
+  class PROJ,STATE data
   class KIT,DRV host
   class TOOLS,PROXY helper
   class AGENT agent
@@ -58,7 +60,7 @@ flowchart LR
   style NET fill:none,stroke:none
 ```
 
-<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) uses the pinned toolchain (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place.*
+<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) uses the pinned toolchain (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces.*
 
 ## Contents
 
