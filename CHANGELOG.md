@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Project hashes in generated sandbox names and state-directory paths now
+  default to eight hexadecimal characters instead of six, reducing collision
+  risk. Set `HASH_LENGTH` to choose another length.
+
 ### Added
 
 - All four kits: install `build-essential` and `python3-dev` so `uv`/`pip`

@@ -183,7 +183,7 @@ ln -s "${WORK_A}" "${LINK}"
 # unique per path, stable across runs, symlink-transparent, and never empty.
 clear_log
 NAME_A="$(run_claude "${WORK_A}" name)"
-assert_match "^sbxclaude-$(expected_slug "${WORK_A}")-[0-9a-f]{6}$" "${NAME_A}" "derived name"
+assert_match "^sbxclaude-$(expected_slug "${WORK_A}")-[0-9a-f]{8}$" "${NAME_A}" "derived name"
 STABLE_NAME="$(run_claude "${WORK_A}" name)"
 assert_eq "${NAME_A}" "${STABLE_NAME}" "stable name"
 NAME_B="$(run_claude "${WORK_B}" name)"
@@ -191,10 +191,13 @@ NAME_B="$(run_claude "${WORK_B}" name)"
 LINK_NAME="$(run_claude "${LINK}" name)"
 assert_eq "${NAME_A}" "${LINK_NAME}" "symlink name"
 EMPTY_NAME="$(run_claude "${EMPTY_SLUG}" name)"
-[[ "${EMPTY_NAME}" =~ ^sbxclaude-[0-9a-f]{6}$ ]] ||
+[[ "${EMPTY_NAME}" =~ ^sbxclaude-[0-9a-f]{8}$ ]] ||
 	fail "empty sanitized basename produced invalid name '${EMPTY_NAME}'"
+CUSTOM_HASH_NAME="$(HASH_LENGTH=12 run_claude "${WORK_A}" name)"
+assert_match "^sbxclaude-$(expected_slug "${WORK_A}")-[0-9a-f]{12}$" \
+	"${CUSTOM_HASH_NAME}" "custom hash length"
 assert_no_log "name"
-pass "name derivation is unique, stable, and canonical"
+pass "name derivation is unique, stable, canonical, and configurable"
 
 # version: reads VERSION directly, needs no sbx call.
 clear_log
@@ -326,7 +329,7 @@ run_codex() {
 
 clear_log
 CODEX_NAME="$(run_codex "${WORK_A}" name)"
-assert_match "^sbxcodex-$(expected_slug "${WORK_A}")-[0-9a-f]{6}$" "${CODEX_NAME}" "codex derived name"
+assert_match "^sbxcodex-$(expected_slug "${WORK_A}")-[0-9a-f]{8}$" "${CODEX_NAME}" "codex derived name"
 # Same directory, different command: the slug and hash match and only the kit
 # prefix differs, which is what keeps the two sandboxes separate.
 assert_eq "sbxcodex-${NAME_A#sbxclaude-}" "${CODEX_NAME}" "codex name differs only by prefix"
@@ -375,7 +378,7 @@ run_cursor() {
 
 clear_log
 CURSOR_NAME="$(run_cursor "${WORK_A}" name)"
-assert_match "^sbxcursor-$(expected_slug "${WORK_A}")-[0-9a-f]{6}$" "${CURSOR_NAME}" "cursor derived name"
+assert_match "^sbxcursor-$(expected_slug "${WORK_A}")-[0-9a-f]{8}$" "${CURSOR_NAME}" "cursor derived name"
 assert_eq "sbxcursor-${NAME_A#sbxclaude-}" "${CURSOR_NAME}" "cursor name differs only by prefix"
 assert_no_log "cursor name"
 
@@ -412,7 +415,7 @@ run_pi() {
 
 clear_log
 PI_NAME="$(run_pi "${WORK_A}" name)"
-assert_match "^sbxpi-$(expected_slug "${WORK_A}")-[0-9a-f]{6}$" "${PI_NAME}" "pi derived name"
+assert_match "^sbxpi-$(expected_slug "${WORK_A}")-[0-9a-f]{8}$" "${PI_NAME}" "pi derived name"
 assert_eq "sbxpi-${NAME_A#sbxclaude-}" "${PI_NAME}" "pi name differs only by prefix"
 assert_no_log "pi name"
 

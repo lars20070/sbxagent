@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Number of SHA-256 characters in generated sandbox and state-directory names.
+HASH_LENGTH="${HASH_LENGTH:-8}"
+
 # Upstream virtiofs cache bug: `cp` reading from the mounted workspace inside a
 # sandbox writes a hole (correct size, all NUL bytes); `cat` and `dd` are fine.
 # https://github.com/docker/sbx-releases/issues/526 — no fix as of sbx v0.42.1.
@@ -150,9 +153,9 @@ done
 # Capability probe rather than an OS check, and the pattern to copy for portability: macOS has no sha256sum,
 # minimal Linux images have no shasum. Both print "<hex>  -", so cut agrees.
 if command -v shasum >/dev/null 2>&1; then
-	HASH="$(printf '%s' "${DIR}" | shasum -a 256 | cut -c1-6)"
+	HASH="$(printf '%s' "${DIR}" | shasum -a 256 | cut -c "1-${HASH_LENGTH}")"
 elif command -v sha256sum >/dev/null 2>&1; then
-	HASH="$(printf '%s' "${DIR}" | sha256sum | cut -c1-6)"
+	HASH="$(printf '%s' "${DIR}" | sha256sum | cut -c "1-${HASH_LENGTH}")"
 else
 	die "shasum or sha256sum is required"
 fi
