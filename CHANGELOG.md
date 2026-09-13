@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-09-13
+
 ### Changed
 
 - Project hashes in generated sandbox names and state-directory paths now
