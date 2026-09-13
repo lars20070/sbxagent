@@ -93,6 +93,8 @@ compute_state_mounts() {
 	false) PROJECT_MOUNT="" ;;
 	*) die "CROSS_SANDBOX_VISIBILITY must be true or false, not '${CROSS_SANDBOX_VISIBILITY}'" ;;
 	esac
+	mkdir -p "${PROJECT_DIR}"
+	chmod 700 "${PROJECT_DIR}"
 	mkdir -p "${AGENT_DIR}"
 	chmod 700 "${AGENT_DIR}"
 }
