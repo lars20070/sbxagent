@@ -13,6 +13,11 @@ and this project adheres to
 - Project hashes in generated sandbox names and state-directory paths now
   default to eight hexadecimal characters instead of six, reducing collision
   risk. Set `HASH_LENGTH` to choose another length.
+- All four kits: bound the apt setup step. `apt-get update` and `apt-get
+  install` now retry a flaky mirror (`Acquire::Retries=3`) and time out on a
+  hung one (`Acquire::{http,https}::Timeout=30`), and each call runs under a
+  600-second `timeout`, matching the `--retry 3 --max-time 600` already used
+  by the kits' `curl` downloads. The installed packages are unchanged.
 
 ### Added
 

@@ -118,11 +118,26 @@ setup:
   install:
     - command: |
         set -eu
-        apt-get update
+        # Bounded the same way as the curl installs below (--retry 3
+        # --retry-delay 2 --max-time 600): retry a flaky mirror a few times,
+        # and give up on a hung one instead of stalling the build forever.
+        # Acquire::Retries defaults to 0, so without it a single dropped
+        # connection fails the whole kit build. `timeout` caps each call, so
+        # the sequence is finite even if a fetch never returns — a killed
+        # apt-get fails the build, and the image is rebuilt from scratch, so
+        # there is no half-configured dpkg state to repair.
+        apt_get() {
+          timeout 600 apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30 \
+            "$@"
+        }
+        apt_get update
         # python3-yaml gives scripts `import yaml` (PyYAML) without a
         # separate pip install. build-essential + python3-dev let `uv`/`pip`
         # build Python C extensions from source when no matching wheel exists.
-        apt-get install -y \
+        apt_get install -y \
           build-essential \
           ca-certificates \
           curl \
