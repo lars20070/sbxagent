@@ -399,7 +399,7 @@ printf '#!/bin/sh\nexit 1\n' >"${FAKE_BIN}/ln"
 chmod +x "${FAKE_BIN}/cp" "${FAKE_BIN}/ln"
 LINK_STATE_COPY_SOURCE="${STATE}/sessions/." LINK_STATE_REAL_CP="${REAL_CP}" \
 	PATH="${FAKE_BIN}:${PATH}" run_helper "${LINK}" sessions
-assert_eq 1 "${STATUS}" "restore copy fails exit status"
+assert_eq 2 "${STATUS}" "restore copy fails exit status"
 assert_eq one "$(<"${STATE}/sessions/file")" "restore copy fails: saved traces"
 assert_eq underlying "$(<"${LINK}/underlying-marker")" "restore copy fails: underlying directory restored"
 [[ ! -e "${LINK}/file" ]] || fail "restore copy fails: failure was not exercised"
@@ -425,12 +425,91 @@ printf '#!/bin/sh\nexit 1\n' >"${FAKE_BIN}/ln"
 chmod +x "${FAKE_BIN}/mv" "${FAKE_BIN}/ln"
 LINK_STATE_MOVE_SOURCE="${LINK}.sbxagent-aside" LINK_STATE_REAL_MV="${REAL_MV}" \
 	PATH="${FAKE_BIN}:${PATH}" run_helper "${LINK}" sessions
-assert_eq 1 "${STATUS}" "restore move fails exit status"
+assert_eq 2 "${STATUS}" "restore move fails exit status"
 assert_eq one "$(<"${STATE}/sessions/file")" "restore move fails: saved traces"
 assert_eq underlying "$(<"${LINK}.sbxagent-aside/underlying-marker")" "restore move fails: aside preserved"
 [[ ! -e "${LINK}" ]] || fail "restore move fails: failure was not exercised"
 [[ "${STDERR}" == *"could not restore ${LINK}.sbxagent-aside"* && "${STDERR}" == *"remain in ${STATE}/sessions"* ]] ||
 	fail "restore move fails: stderr was '${STDERR}'"
 pass "a failed rollback rename reports and preserves the saved directories"
+
+# 21-24. Exercise the actual entrypoint shell blocks from every kit spec. A
+# safe helper failure keeps the existing warning and launches the agent; an
+# unsafe rollback failure names the surviving state target and stops first.
+for kit in sbxclaude sbxcodex sbxcursor sbxpi; do
+	SPEC="${ROOT}/kits/${kit}/spec.yaml"
+	ENTRYPOINT="$(awk '
+		$0 == "    - |" { block = 1; next }
+		block && /^    - / { exit }
+		block { sub(/^      /, ""); print }
+	' "${SPEC}")"
+	case "${kit}" in
+	sbxclaude)
+		agent=claude
+		subdir=projects
+		fallback="transcripts stay at the stock path"
+		;;
+	sbxcodex)
+		agent=codex
+		subdir=sessions
+		fallback="sessions stay at the stock path"
+		;;
+	sbxcursor)
+		agent=agent
+		subdir=projects
+		fallback="transcripts stay at the stock path"
+		;;
+	sbxpi)
+		agent=pi
+		subdir=sessions
+		fallback="sessions stay at the stock path"
+		;;
+	*) fail "unknown kit in entrypoint test: ${kit}" ;;
+	esac
+
+	fresh "entrypoint-${kit}"
+	FAKE_HOME="${CASE}/home/agent"
+	FAKE_BIN="${CASE}/bin"
+	AGENT_LOG="${CASE}/agent.log"
+	mkdir -p "${FAKE_HOME}/.local/lib/sbxagent" "${FAKE_BIN}"
+	cat >"${FAKE_HOME}/.local/lib/sbxagent/link-state.sh" <<'SH'
+#!/bin/sh
+exit "${LINK_STATE_TEST_STATUS}"
+SH
+	cat >"${FAKE_BIN}/${agent}" <<'SH'
+#!/bin/sh
+printf '%s\n' "$0" >>"${ENTRYPOINT_AGENT_LOG}"
+SH
+	chmod +x "${FAKE_HOME}/.local/lib/sbxagent/link-state.sh" "${FAKE_BIN}/${agent}"
+
+	: >"${AGENT_LOG}"
+	LINK_STATE_TEST_STATUS=0 ENTRYPOINT_AGENT_LOG="${AGENT_LOG}" HOME="${FAKE_HOME}" \
+		PATH="${FAKE_BIN}:${PATH}" sh -c "${ENTRYPOINT}" "${kit}-entrypoint"
+	[[ -s "${AGENT_LOG}" ]] || fail "${kit} success: agent was not launched"
+
+	: >"${AGENT_LOG}"
+	LINK_STATE_TEST_STATUS=1 ENTRYPOINT_AGENT_LOG="${AGENT_LOG}" HOME="${FAKE_HOME}" \
+		PATH="${FAKE_BIN}:${PATH}" sh -c "${ENTRYPOINT}" "${kit}-entrypoint" \
+		2>"${CASE}/safe-stderr"
+	[[ -s "${AGENT_LOG}" ]] || fail "${kit} safe failure: agent was not launched"
+	SAFE_STDERR="$(<"${CASE}/safe-stderr")"
+	[[ "${SAFE_STDERR}" == *"${fallback}"* ]] ||
+		fail "${kit} safe failure: fallback message was '${SAFE_STDERR}'"
+
+	: >"${AGENT_LOG}"
+	set +e
+	LINK_STATE_TEST_STATUS=2 ENTRYPOINT_AGENT_LOG="${AGENT_LOG}" HOME="${FAKE_HOME}" \
+		PATH="${FAKE_BIN}:${PATH}" sh -c "${ENTRYPOINT}" "${kit}-entrypoint" \
+		2>"${CASE}/unsafe-stderr"
+	STATUS=$?
+	set -e
+	UNSAFE_STDERR="$(<"${CASE}/unsafe-stderr")"
+	assert_eq 2 "${STATUS}" "${kit} unsafe failure exit status"
+	[[ ! -s "${AGENT_LOG}" ]] || fail "${kit} unsafe failure: agent was launched"
+	[[ "${UNSAFE_STDERR}" == *"refusing to start ${agent}"* &&
+		"${UNSAFE_STDERR}" == *"${STATE}/${subdir}"* ]] ||
+		fail "${kit} unsafe failure: stderr was '${UNSAFE_STDERR}'"
+	pass "${kit} entrypoint launches only after successful or safe link-state results"
+done
 
 echo "All ${TESTS} link-state tests passed."

@@ -36,8 +36,15 @@ sandbox:
       fi
       # Codex has no sessions-only configuration override; CODEX_HOME would
       # also move config and credentials.
+      link_state_status=0
       sh "$HOME/.local/lib/sbxagent/link-state.sh" "$HOME/.codex/sessions" sessions ||
+        link_state_status=$?
+      if [ "${link_state_status}" -eq 1 ]; then
         echo "sbxcodex: could not link ~/.codex/sessions into the state folder; sessions stay at the stock path" >&2
+      elif [ "${link_state_status}" -ne 0 ]; then
+        echo "sbxcodex: link-state rollback failed; refusing to start codex; sessions remain in ${SBXAGENT_STATE_DIR}/sessions" >&2
+        exit "${link_state_status}"
+      fi
       exec codex "$@"
     - sbxcodex-entrypoint
 # resources:

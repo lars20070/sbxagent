@@ -35,6 +35,13 @@ and this project adheres to
   same project can read the complete traces; set
   `CROSS_SANDBOX_VISIBILITY=false` when creating them to keep traces private.
 
+### Fixed
+
+- All four kits now refuse to launch their agent when session-trace migration
+  cannot be rolled back safely, and report the state path containing the
+  surviving traces. Failures that leave the stock path usable retain the
+  existing fallback behaviour.
+
 ## [0.4.5] - 2026-09-11
 
 ### Changed

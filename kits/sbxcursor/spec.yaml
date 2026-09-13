@@ -37,8 +37,15 @@ sandbox:
         export GITHUB_TOKEN="$GH_TOKEN"
       fi
       # Cursor has no configuration override for its transcript tree.
+      link_state_status=0
       sh "$HOME/.local/lib/sbxagent/link-state.sh" "$HOME/.cursor/projects" projects ||
+        link_state_status=$?
+      if [ "${link_state_status}" -eq 1 ]; then
         echo "sbxcursor: could not link ~/.cursor/projects into the state folder; transcripts stay at the stock path" >&2
+      elif [ "${link_state_status}" -ne 0 ]; then
+        echo "sbxcursor: link-state rollback failed; refusing to start agent; transcripts remain in ${SBXAGENT_STATE_DIR}/projects" >&2
+        exit "${link_state_status}"
+      fi
       exec agent "$@"
     - sbxcursor-entrypoint
 # resources:

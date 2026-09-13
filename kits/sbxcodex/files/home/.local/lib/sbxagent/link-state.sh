@@ -12,6 +12,8 @@
 # unmounted first, which turns it into an ordinary directory; either way,
 # contents are copied into the target first, the most-recently-copied
 # version winning on a name clash, before anything destructive happens.
+# Exit 1 means LINK remains safe for the agent to use; exit 2 means rollback
+# failed and the agent must not start because traces remain only in TARGET.
 set -eu
 [ -n "${SBXAGENT_STATE_DIR:-}" ] || exit 0
 link="$1"
@@ -37,14 +39,14 @@ renamed=""
 fail_migration() {
 	if [ -n "${renamed}" ] && ! mv "${aside}" "${link}"; then
 		echo "link-state: $1; could not restore ${aside} to ${link}; copied contents remain in ${target}" >&2
-		exit 1
+		exit 2
 	fi
 	# After unmounting, the directory at LINK holds the underlying contents.
 	# Restore the saved traces on every later failure, even before a rename.
 	if [ -n "${unmounted}" ]; then
 		if ! cp -R "${target}"/. "${link}"/; then
 			echo "link-state: $1; could not restore the unmounted traces at ${link}; copied contents remain in ${target}" >&2
-			exit 1
+			exit 2
 		fi
 		echo "link-state: $1; traces restored at ${link}" >&2
 	elif [ -n "${renamed}" ]; then
