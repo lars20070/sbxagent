@@ -30,7 +30,6 @@ Other projects' folders are never mounted, and `rm` leaves all of this in
 place. Inside you get passwordless `sudo` and
 Docker, every host CPU, and half the host memory capped at 32 GiB.
 
-
 Network access is an allowlist, not the open internet. Every kit rewrites
 GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
 allowlisted port 443 without changing the host checkout. On `sbxclaude`,
