@@ -18,16 +18,18 @@ sandbox:
     - |
       set -eu
       # PI_CODING_AGENT_SESSION_DIR flattens Pi's native per-project layout
-      # and changes continue-session lookup, so retain the stock path via a
-      # symlink instead.
-      link_state_status=0
-      sh "$HOME/.local/lib/sbxagent/link-state.sh" "$HOME/.pi/agent/sessions" sessions ||
-        link_state_status=$?
-      if [ "${link_state_status}" -eq 1 ]; then
-        echo "sbxpi: could not link ~/.pi/agent/sessions into the state folder; sessions stay at the stock path" >&2
-      elif [ "${link_state_status}" -ne 0 ]; then
-        echo "sbxpi: link-state rollback failed; refusing to start pi; sessions remain in ${SBXAGENT_STATE_DIR}/sessions" >&2
-        exit "${link_state_status}"
+      # and changes continue-session lookup, so retain the stock path and
+      # bind-mount the state folder over it instead.
+      #
+      # The bind mount does not survive a stop, so this runs on every boot, and
+      # any failure is fatal: sessions written to an unbound stock path would
+      # die with the sandbox rather than reach the state folder.
+      mount_state_status=0
+      sh "$HOME/.local/lib/sbxagent/mount-state.sh" "$HOME/.pi/agent/sessions" sessions ||
+        mount_state_status=$?
+      if [ "${mount_state_status}" -ne 0 ]; then
+        echo "sbxpi: could not relocate ~/.pi/agent/sessions onto the state folder; refusing to start pi" >&2
+        exit "${mount_state_status}"
       fi
       exec pi "$@"
     - sbxpi-entrypoint
@@ -536,3 +538,30 @@ setup:
         pi install "npm:@upstash/context7-pi@${CONTEXT7_PI_VERSION}"
       user: "1000"
       description: Context7 Pi extension, installed at build time
+  startup:
+    # The trace bind mount is established here as well as in the entrypoint.
+    # Both call sites are deliberate and neither is sufficient on its own: a
+    # startup step runs on every sandbox start, so it covers `sbx exec` and any
+    # session that never attaches — which the entrypoint, being the agent launch
+    # command, cannot reach. The entrypoint in turn covers the starts where a
+    # startup step is known not to replay: docker/sbx-releases #420 (after a
+    # daemon restart) and #479 (`sbx exec` starting a stopped sandbox).
+    # mount-state.sh is idempotent — once bound it exits 0 having touched
+    # nothing — so whichever of the two runs second is a no-op.
+    #
+    # HOME is set explicitly because a startup step runs with a minimal
+    # environment; the cursor kit's own startup step documents the same trap.
+    # A failure is not swallowed: this step cannot refuse to launch the agent
+    # the way the entrypoint does, but it must not report success while the
+    # trace path is left unbound.
+    - command:
+        - sh
+        - -c
+        - |
+          set -eu
+          HOME="${HOME:-/home/agent}"
+          export HOME
+          sh "$HOME/.local/lib/sbxagent/mount-state.sh" \
+            "$HOME/.pi/agent/sessions" sessions
+      user: "agent"
+      description: Bind-mount ~/.pi/agent/sessions onto the state folder

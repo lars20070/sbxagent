@@ -11,6 +11,7 @@
     "OpenRouter",
     "Ollama",
     "sbx",
+    "mountinfo",
     "npmjs",
     "maxsockets",
     "passwordless",
