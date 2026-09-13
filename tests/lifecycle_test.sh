@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Live proof that the trace bind mount survives the sandbox lifecycle, and the
-# reproduction test for the crash it fixes: before this change, a sandbox whose
-# stock trace path had been replaced by a symlink failed its *second* start with
-# "failed to start runtime: 500 Internal Server Error".
+# Live proof that the trace bind mount survives the sandbox lifecycle: the
+# stock path stays a real directory, so a stop and a fresh start succeed and
+# the bind is re-made.
 #
 # Needs a live sbx daemon, so it is outside `make test`, next to test-toolchain.
 # It touches none of your real sandboxes: it works in a throwaway project
@@ -157,9 +156,8 @@ DEPTH_NOW="$(mount_depth "${STOCK_ABS}")"
 	fail "mounts at ${STOCK_ABS} grew from ${BASELINE_DEPTH} to ${DEPTH_NOW}"
 pass "repeat starts do not stack another mount (depth stayed at ${BASELINE_DEPTH})"
 
-# 4. The crash this fixes: a stop and a fresh start. Before the fix the stock
-#    path was a symlink, the runtime could not recreate its mount destination
-#    through it, and this second start failed with a 500.
+# 4. A stop and a fresh start: the stock path stays a real directory, so the
+#    runtime can recreate its mount destination and the bind is re-made.
 sbx stop "${SANDBOX}" >/dev/null 2>&1 || fail "could not stop ${SANDBOX}"
 
 # Reached with `sbx exec` alone after the stop, so the entrypoint never runs.
@@ -170,7 +168,7 @@ same_id "$(trace_id "${STOCK_ABS}")" "$(host_id "${TARGET}")" ||
 pass "the startup step re-binds after a stop, without any attach"
 
 run_entrypoint >/dev/null ||
-	fail "the entrypoint failed after a stop — this is the crash the fix targets"
+	fail "the entrypoint failed after a stop"
 same_id "$(trace_id "${STOCK_ABS}")" "$(host_id "${TARGET}")" ||
 	fail "${STOCK_ABS} is not bound again after a stop and restart"
 [[ "$(in_sandbox cat "${STOCK_ABS}/lifecycle-marker")" == first ]] ||
