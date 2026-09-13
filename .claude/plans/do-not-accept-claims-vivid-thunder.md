@@ -44,6 +44,14 @@ wrapper state folder over it instead, on every boot. The stock path then stays
 a real directory forever, which is what the runtime needs to keep re-mounting
 the parent kit's volume there on every restart.
 
+There is no way to hand this to the runtime instead and skip the in-sandbox
+mount entirely. `sbx run`'s workspace operands take `PATH[:ro]` only, with no
+destination syntax (confirmed from `sbx run --help` on the pinned CLI), so the
+wrapper cannot ask for `${AGENT_DIR}/projects` to be mounted *at*
+`~/.claude/projects`. If a future `sbx` grows destination mounts, that becomes
+the simpler design and this helper can go away — so do not re-litigate it now,
+just revisit it then.
+
 ### The bind-mount mechanic is confirmed, not assumed
 
 Verified empirically on 2026-09-13 from inside a Docker Sandbox microVM:
@@ -57,6 +65,16 @@ Verified empirically on 2026-09-13 from inside a Docker Sandbox microVM:
   content, writes through it land on the host.
 - After binding, `stat '%d:%i'` matched on both paths, so the `same_fs()`
   idempotency probe in the script below is a valid bound/not-bound signal.
+- Binding **over a path that is already a mount point** — the confirmed
+  sbxclaude shape, where the parent kit's volume occupies `LINK` — works. The
+  bind stacks on top, `/proc/self/mountinfo` then shows exactly two entries for
+  that path, and running the script a second time leaves it at two. So
+  `same_fs` is a valid probe over a stack too, and the script does not grow the
+  stack on repeat runs.
+- Every process in the sandbox shares one mount namespace, PID 1 included, so a
+  bind made by the entrypoint is visible to a later `sbx exec` session rather
+  than trapped in the process that made it. This is what the live tests below
+  depend on when they assert the mount through a separate `sbx exec`.
 
 No open upstream issue matches this repo's exact crash signature
 (`openat2 home/agent/.claude/projects: No such file or directory`). The nearest
@@ -85,6 +103,56 @@ silent detach), but it must not be accepted unexamined:
   reproduce, the watchdog question reopens as its own piece of work — and
   `docs/traces.md` gains a warning that host-side edits to the state folder
   during a live session can cost traces.
+
+### Settled: the helper is called from *both* `setup: startup:` and the entrypoint
+
+This fix changes relocation from **once ever** to **once per container start**,
+so where the helper is called from is load-bearing, not a detail.
+
+Under the symlink design one attach was enough for the sandbox's whole life:
+the symlink is on disk, so every later session saw the relocated path, however
+it got in. A bind mount lives and dies with the container's mount namespace, so
+it has to be re-made after every `sbx stop`.
+
+**The entrypoint alone is not enough — confirmed, not suspected.** The kit
+`entrypoint` is the *agent launch command*, not a per-start hook: PID 1 in a
+live sandbox is `tini`, and this repo's own comment at
+`kits/sbxclaude/spec.yaml:27` already records the consequence — "This only
+covers the agent session this entrypoint starts; a `claude` launched by hand
+from `sbxclaude exec bash` does not inherit it." A bind made only there is
+absent for every `sbx exec` session and for any sandbox started but not
+attached, and the agent would then write traces to the unbound stock path with
+no error at all. `make test-toolchain` would be the first thing to trip over
+it, because it runs through `sbx exec` rather than through an attach.
+
+**`setup: startup:` is the per-start hook.** Upstream `docker/sbx-releases`
+issue #420 quotes the documented contract: startup commands "run on every
+sandbox start and replay on container restarts". This repo already relies on
+that hook for MCP registration (`kits/sbxclaude/spec.yaml:405`).
+
+**But it has two known upstream gaps**, both open as of 2026-09-13:
+
+- **#420** — startup commands do *not* replay after `sbx daemon restart`; the
+  daemon reuses cached state and the command never runs.
+- **#479** — `sbx exec` against a *stopped* sandbox starts it without
+  provisioning, so startup steps can be skipped on that path too.
+
+**Decision: call `mount-state.sh` from both places.** The script is already
+idempotent — once bound, `same_fs` matches and it exits 0 without touching
+anything — so the second call site costs one invocation and no new machinery.
+Either path firing is enough to establish the bind, which closes both #420 and
+#479 for this use without a watchdog. This is deliberately belt-and-braces:
+the failure it guards against is silent trace loss, which is exactly the class
+of bug that must not depend on a single upstream behaviour staying true.
+
+Consequences to carry into the code:
+
+- The `setup: startup:` step must fail loudly if the helper fails. It cannot
+  `exec` the agent, so it cannot enforce the refuse-to-start contract the
+  entrypoint does — the entrypoint remains the enforcement point, and the
+  startup step is the one that makes the bind exist for non-attach sessions.
+- The entrypoint keeps its full refuse-on-any-failure branch unchanged. It is
+  the last line of defence before the agent actually starts writing traces.
 
 ## Design
 
@@ -223,9 +291,29 @@ no special-casing is needed either way.
   (same shape for the other three kits, with their own paths/agent names).
   `sbxpi/spec.yaml` also has a comment mentioning "symlink" by name at its
   call site — update it to describe the bind-mount instead.
+
+  **Add a second call site in each kit's `setup: startup:` block** (per the
+  decision above), before or alongside the existing startup steps:
+  ```sh
+  sh "$HOME/.local/lib/sbxagent/mount-state.sh" "$HOME/.claude/projects" projects
+  ```
+  running as the agent user (`user: "1000"`, matching the other steps that
+  touch `$HOME`). Let a non-zero exit fail the startup step rather than
+  swallowing it — a startup step cannot refuse to launch the agent the way the
+  entrypoint can, but it must not report success when the bind is missing.
+  Comment at both call sites that the duplication is deliberate and safe: the
+  helper is idempotent via `same_fs`, the startup step covers `sbx exec` and
+  started-but-not-attached sessions, the entrypoint covers the upstream gaps
+  in #420/#479 where the startup step may not run at all, and neither one is
+  sufficient alone.
 - **`Makefile`** — line 52's shared-file list: `link-state.sh` →
   `mount-state.sh`. Line 147's `test-unit` target: point at the renamed test
   file.
+- **`.github/workflows/ci.yml`** — set `SBXAGENT_REQUIRE_BIND=1` on the
+  `ubuntu-latest` leg of the `test` job's matrix, so the two bind cases below
+  are enforced somewhere instead of being skippable on every runner. Leave the
+  two macOS invocations (including the bash 3.2 one) alone; they skip those
+  cases by capability probe.
 - **`tests/link_state_test.sh`** → rename to `tests/mount_state_test.sh`.
   Point `HELPER` at `mount-state.sh`. Drop cases that only existed for the old
   `mv`/`ln`/`umount`/aside/marker machinery. Keep and reword cases that still
@@ -233,7 +321,10 @@ no special-casing is needed either way.
   `LINK` and missing parents — this is the regression test for finding #1
   above), repeat-run idempotency via `same_fs`, `lost+found` skip, the four
   kits' entrypoint extraction (now checking the single refuse-on-any-failure
-  branch). Add: a case proving a name already present in host state is never
+  branch). Add: a case asserting **both** call sites exist in all four
+  `spec.yaml` files — the entrypoint one with its refuse-on-any-failure branch,
+  and the `setup: startup:` one running as the agent user — so a future edit
+  cannot quietly drop one and reintroduce the silent-no-bind hole; a case proving a name already present in host state is never
   overwritten by a stale/rebuilt native copy (finding #4's regression test —
   simulate a "rebuild": bind once, unbind by resetting `LINK` to a *different*
   fresh directory with an old file of the same name plus one new file, run
@@ -243,6 +334,45 @@ no special-casing is needed either way.
   `mount-state.sh` exits non-zero and the extracted entrypoint refuses to
   launch, not just logs a warning); a case for the exit-2 symlink refusal
   (no self-heal — any symlink is refused).
+
+  **Only two of those cases need a real bind mount, and they have to be gated.**
+  This test runs the helper directly on whatever machine ran `make test-unit`,
+  and `.github/workflows/ci.yml` runs it on `macos-latest` as well as
+  `ubuntu-latest`. macOS has no `mount --bind` at all, so on a Mac the script
+  cannot perform the one action it exists to perform. Details, all four measured
+  rather than assumed:
+
+  - **Gate on the capability, not the OS name.** `AGENTS.md` forbids a `uname`
+    branch, and a probe is better here anyway: it also catches a plain Linux
+    machine without password-free `sudo`, which an is-this-Linux check would
+    wave through and then fail on. The probe is: `mkdir` two scratch
+    directories, try `sudo -n mount --bind` one onto the other, unmount, and
+    treat any failure as unavailable.
+  - **Almost everything still runs everywhere.** With `sudo` stubbed to
+    succeed, the script completes and performs the whole merge without creating
+    any mount, so the no-env no-op, the exit-2 symlink refusal, the
+    fatal-failed-bind case, the host-authoritative merge, the `lost+found`
+    skip and the four entrypoint extractions are all unaffected. Only "a fresh
+    bind really happened" and "a second run sees itself as already bound" need
+    a genuine mount, because `same_fs` compares device and inode numbers, which
+    only match after a real bind. Faking that would mean stubbing `stat` too,
+    at which point the case tests the stub instead of the script — so gate,
+    don't fake.
+  - **Skip loudly.** Print a `skip - …` line, the way this test already does
+    for its root-user cases, so a Linux run that quietly lost the ability to
+    mount does not look identical to a fully green one.
+  - **Let Linux CI demand the real thing.** Honour a
+    `SBXAGENT_REQUIRE_BIND=1` environment variable that turns the skip into a
+    failure, and set it on the Linux half of the CI matrix. Without that, a
+    future permissions change could make *every* runner skip both cases and
+    nothing would ever say so.
+
+  **Also make the cleanup trap mount-aware.** The current trap goes straight to
+  `rm -rf "${TEST_ROOT}"`; doing that over a live bind mount deletes content
+  *through* the mount. Here the source also lives under `TEST_ROOT`, so the
+  damage is contained, but a case that fails midway would otherwise leave a
+  stray mount on the developer's machine. Unmount everything the test mounted
+  before removing anything.
 - **`tests/toolchain_test.sh`** lines 146-162 — currently assert `TRACE_LINK`
   is a symlink pointing at the state folder; replace with: `TRACE_LINK` is a
   real directory (`-d` and not `-L`), and its device+inode match
@@ -272,6 +402,12 @@ no special-casing is needed either way.
      (verify this is actually what `sbx exec`/`sbx run` does after a stop for
      this `sbx` version — don't assume, confirm from `sbx --help` output
      and/or by observing the entrypoint's own log lines on the reattach).
+  3b. **Prove the startup call site independently of the entrypoint.** After a
+     `sbx stop`, reach the sandbox with `sbx exec` *only* — never attaching,
+     so the entrypoint never runs — and assert the stock path is already bound
+     there. This is the regression test for the hole that drove the two-call-site
+     decision; without it, a green suite would not distinguish "both call sites
+     work" from "the entrypoint is silently carrying the whole design".
   4. Confirm the marker survived and a second write still lands in host
      state; confirm from a **separate** exec session that the mount is
      visible there too (not just in the process that wrote it).
@@ -302,7 +438,9 @@ no special-casing is needed either way.
   directory at all times and the wrapper bind-mounts the matching state
   subfolder over it at every start (rather than replacing it with a symlink),
   and why: the parent kit's own persistent volume at that path has to stay a
-  valid, re-mountable destination across restarts.
+  valid, re-mountable destination across restarts. Say plainly that the bind is
+  re-made on **every** sandbox start (it does not persist on disk the way the
+  old symlink did), which is why it is established from two places.
 - **`CHANGELOG.md`** `[Unreleased]` — reword the existing `### Fixed` bullet
   (currently about rollback-failure refusal) to describe the new refusal:
   only when `LINK` is found to be a symlink at all (no self-heal), not the
@@ -317,12 +455,15 @@ no special-casing is needed either way.
 
 1. `make lint` — shellcheck/`bash -n` over the new script, the byte-identical
    check across all four kits, changelog/version consistency.
-2. `make test-unit` — runs on Linux by default here. Note: this sandbox
-   cannot itself exercise the BSD branch of the `stat` fallback (no BSD
-   `stat` available) or bash 3.2 — that leg only gets genuine coverage from
-   the project's macOS CI runner (`make test-unit BASH=/bin/bash` on
-   `macos-latest`, per `.github/workflows/ci.yml`). Call this out rather than
-   claim local verification proves macOS portability.
+2. `make test-unit` — runs on Linux here, where `sudo -n mount --bind` works,
+   so this is the environment that covers the two real-bind cases; run it with
+   `SBXAGENT_REQUIRE_BIND=1` to prove they were not skipped. Two legs it cannot
+   cover, to state rather than gloss over: the BSD branch of the `stat`
+   fallback and bash 3.2 only get genuine coverage from the macOS CI runner
+   (`make test-unit BASH=/bin/bash` on `macos-latest`), and that same runner
+   necessarily skips the two bind cases, because macOS has no bind mounts. A
+   green local run therefore proves neither macOS portability nor macOS
+   coverage of the mount itself.
 3. `make validate` — schema-checks all four edited `spec.yaml` files.
 
 **Hand off to the user, on their Mac with a live `sbx` daemon** (this
