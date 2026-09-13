@@ -273,6 +273,47 @@ drops it. Each kit calls `mount-state.sh` from two places, and needs both:
 Whichever runs first does the work. The other hits the match in step 3 and
 exits `0`.
 
+Once docker/sbx-releases #420 and #479 are fixed, the startup step alone
+reaches every start, and the entrypoint call goes. The script then runs
+exactly once per boot, so step 3 goes with it — nothing can be bound already —
+and the flow shrinks to this:
+
+```mermaid
+flowchart LR
+  START(["mount-state.sh<br/>LINK SUBDIR"])
+  ENV{"SBXAGENT_STATE_DIR<br/>set?"}
+  MK["mkdir -p<br/>TARGET and LINK"]
+  COPY["copy entries of LINK<br/>missing from TARGET<br/>(host files win)"]
+  BIND["sudo mount --bind<br/>TARGET LINK"]
+  OK0(["exit 0<br/>stock location kept"])
+  OK2(["exit 0<br/>LINK now writes<br/>to the host"])
+  ERR1(["exit 1<br/>startup step fails"])
+
+  START --> ENV
+  ENV -->|"no"| OK0
+  ENV -->|"yes"| MK
+  MK --> COPY
+  COPY --> BIND
+  BIND --> OK2
+  MK -.->|"failed"| ERR1
+  COPY -.->|"failed"| ERR1
+  BIND -.->|"failed"| ERR1
+
+  classDef step  fill:#E8F3EC,stroke:#2E7D4F,stroke-width:2px,color:#0F3D22
+  classDef ask   fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px,color:#2B2F2E
+  classDef ok    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
+  classDef fail  fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
+  class START,MK,COPY,BIND step
+  class ENV ask
+  class OK0,OK2 ok
+  class ERR1 fail
+```
+
+<br>*The same script with one caller. One check, three steps, two good exits.
+The "already bound" diamond and its `stat` probe are gone. So is the
+entrypoint's refusal: with no entrypoint call, a failure surfaces as a failed
+startup step rather than an agent that will not launch.*
+
 ### Why a bind mount, not a symlink
 
 The parent kit mounts its own volume at `LINK`, and the runtime recreates that
