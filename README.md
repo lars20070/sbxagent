@@ -195,11 +195,11 @@ create-time privacy setting.
 
 | Guide | Covers |
 | --- | --- |
-| [docs/setup.md](docs/setup.md) | Host-side credentials: a GitHub token, an OpenRouter key, and optional local models through Ollama |
-| [docs/toolchain.md](docs/toolchain.md) | What is installed in every sandbox, which versions are pinned, and how to rebuild after changing one |
-| [docs/traces.md](docs/traces.md) | Where each agent's session traces are kept, which sibling agents can read them, and how long they last |
-| [docs/agents.md](docs/agents.md) | How strictly each agent enforces a blocked request, and how each wires up the GitHub MCP server |
-| [docs/published-kits.md](docs/published-kits.md) | Running a kit from the registry without cloning this repository |
+| [Host setup](docs/setup.md) | Host-side credentials: a GitHub token, an OpenRouter key, and optional local models through Ollama |
+| [Toolchain](docs/toolchain.md) | What is installed in every sandbox, which versions are pinned, and how to rebuild after changing one |
+| [Session traces](docs/traces.md) | Where each agent's session traces are kept, which sibling agents can read them, and how long they last |
+| [Agent differences](docs/agents.md) | How strictly each agent enforces a blocked request, and how each wires up the GitHub MCP server |
+| [Published kits](docs/published-kits.md) | Running a kit from the registry without cloning this repository |
 
 ## Support
 
