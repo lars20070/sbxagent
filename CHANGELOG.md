@@ -13,6 +13,21 @@ and this project adheres to
 - `pandoc` in all four sandboxes, for converting between document formats
   (e.g. Markdown, HTML, docx). Tracks the distribution version, like `rg`
   or `jq`.
+- `SECURITY.md`: a "Why the wrapper is a plain shell script" section. Unlike
+  tools installed via `curl | sh` or a postinstall hook, `scripts/sbxagent`
+  has no install step, build step, or external dependencies, so its full
+  behaviour is readable end to end before it is trusted. Distinguishes this
+  from kit verification, which still needs signing because kits bundle setup
+  commands and get network access.
+
+### Removed
+
+- All four kits: `mount-state.sh` no longer detects a symlinked stock trace
+  path and refuses early with `exit 2` (the safety net for sandboxes left
+  over from the pre-0.4.6 symlink design). Removed along with its test case
+  and the docs describing it; a sandbox still carrying that old symlink now
+  falls through to the ordinary bind-mount steps instead of an explicit
+  error.
 
 ## [0.4.6] - 2026-09-13
 
