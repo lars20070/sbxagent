@@ -147,6 +147,7 @@
     "GOTOOLCHAIN",
     "EBUSY",
     "mountpoint",
-    "remountable"
+    "remountable",
+    "bootstrapper"
   ]
 }
