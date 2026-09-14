@@ -74,6 +74,7 @@ check_tool python3 python3 --version
 check_tool shellcheck shellcheck --version
 check_tool git git --version
 check_tool tree tree --version
+check_tool pandoc pandoc --version
 # Inherited from the base image, not installed by any kit. Presence only:
 # go.mod picks the real version and `go` fetches it on demand.
 check_tool go go version

@@ -148,6 +148,7 @@
     "EBUSY",
     "mountpoint",
     "remountable",
-    "bootstrapper"
+    "bootstrapper",
+    "pandoc"
   ]
 }

@@ -8,6 +8,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `pandoc` in all four sandboxes, for converting between document formats
+  (e.g. Markdown, HTML, docx). Tracks the distribution version, like `rg`
+  or `jq`.
+
 ## [0.4.6] - 2026-09-13
 
 ### Changed
