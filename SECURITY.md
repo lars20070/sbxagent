@@ -50,9 +50,7 @@ file, readable end to end by a user or a coding agent before it is trusted.
 The trade-off is convenience: there is no package manager entry and no
 auto-update mechanism. Updating means pulling the repository again. In
 exchange, there is no install-time code path that could hide something the
-static source does not show. After cloning, the best way to verify
-`sbxagent` is to have your coding agent check the repository for malicious
-code.
+static source does not show.
 
 This is a different guarantee from kit verification (below). The kits need
 signing and provenance because they bundle setup commands, run inside the
