@@ -35,7 +35,32 @@ different force in each agent: Claude Code is a hard stop, Codex is soft
 (nothing enforces the stop), Cursor has no guard, and Pi's guard can be
 unregistered by the agent. [docs/agents.md](docs/agents.md) has the detail.
 
-## Verifying what you run
+## Why the wrapper is a plain shell script
+
+Many CLI tools install via `curl | sh`, a package manager postinstall hook,
+or a bootstrapper that downloads further code at install or run time. Each
+of those steps is an opportunity to inject malicious code outside of what a
+user can easily review, and is a common vector for supply-chain attacks.
+
+`scripts/sbxagent` avoids this entirely. It is a single, self-contained bash
+script with no install step, no build step, and no external dependencies of
+its own. `git clone` and run — the full behaviour is the ~250 lines in that
+file, readable end to end by a user or a coding agent before it is trusted.
+
+The trade-off is convenience: there is no package manager entry and no
+auto-update mechanism. Updating means pulling the repository again. In
+exchange, there is no install-time code path that could hide something the
+static source does not show. After cloning, the best way to verify
+`sbxagent` is to have your coding agent check the repository for malicious
+code.
+
+This is a different guarantee from kit verification (below). The kits need
+signing and provenance because they bundle setup commands, run inside the
+sandbox, and get network access — properties that cannot be fully checked by
+reading source alone. The wrapper carries none of that risk; it is auditable
+by inspection.
+
+## Verifying the sandbox kits
 
 The published kits are the artifacts to verify. Each is signed keyless through
 this repository's GitHub Actions release workflow and carries a SLSA
