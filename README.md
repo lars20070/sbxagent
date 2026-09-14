@@ -70,6 +70,7 @@ flowchart LR
 - [Supported agents](#supported-agents)
 - [Further documentation](#further-documentation)
 - [Support](#support)
+- [Security](#security)
 
 <br>
 
@@ -204,3 +205,8 @@ create-time privacy setting.
 
 Bugs and questions go to the
 [issue tracker](https://github.com/lars20070/sbxagent/issues).
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the threat model, how to report a
+vulnerability, and how to verify what you run.
