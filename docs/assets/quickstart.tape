@@ -31,11 +31,11 @@ Type "N" Sleep 400ms  Enter  Sleep 900ms
 Type "sbxcodex"  Sleep 400ms  Enter
 Sleep 6s                                   # Show the first lines of progress
 Hide
-Wait+Screen@180s /Created sandbox/         # Pause recording until it finishes
+Wait+Screen@3000s /Created sandbox/         # Pause recording until it finishes
 Show
 Sleep 2s                                   # Let the result sit on screen
 
 Sleep 400ms  Enter
 Sleep 6s
-Type "What is the capital of France?" Sleep 400ms  Enter
+Type "What is the capital of France?" Sleep 400ms Enter
 Sleep 10s
