@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The network-block guard no longer stops the turn on output that merely
+  quotes a block message. It matched the block strings anywhere in a tool's
+  output, so a successful fetch of release notes or docs that mention
+  `Blocked by org policy` read as a block. Block strings must now start a
+  line, as the proxy's real message does; a `WebFetch` that returned HTTP 403
+  still escalates wherever the message appears in its body.
+
 ## [0.4.7] - 2026-09-15
 
 ### Added

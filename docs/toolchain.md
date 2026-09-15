@@ -5,19 +5,20 @@ change them. See [README.md](../README.md) to get a sandbox running first.
 
 ## What each sandbox gets
 
-Every kit installs the same tools (three of them opt-in):
+Every kit installs the same tools (three of them only with `SBXAGENT_LITE=false`;
+here it is `false`):
 
-| Tool | For | Version |
-| --- | --- | --- |
-| `curl`, `jq`, `pandoc`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution |
-| `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below |
-| `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below |
-| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes; only with `SBXAGENT_LITE=false` | pinned below |
-| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium; only with `SBXAGENT_LITE=false` | pinned below |
-| XeTeX (`texlive-xetex`, `texlive-fonts-recommended`, `texlive-latex-extra`, `lmodern`) | `pandoc … --pdf-engine=xelatex` PDF output; only with `SBXAGENT_LITE=false` | tracks the distribution |
-| `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below |
-| `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution |
-| `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image |
+| Tool | For | Version | `SBXAGENT_LITE` |
+| --- | --- | --- | --- |
+| `curl`, `jq`, `pandoc`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution | either |
+| `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below | either |
+| `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below | either |
+| `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below | either |
+| `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution | either |
+| `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image | either |
+| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below | `false` |
+| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below | `false` |
+| XeTeX (`texlive-xetex`, `texlive-fonts-recommended`, `texlive-latex-extra`, `lmodern`) | `pandoc … --pdf-engine=xelatex` PDF output | tracks the distribution | `false` |
 
 The environment is the same in every sandbox. Your project is mounted as the
 workspace, so edits land on your real files. Each sandbox also gets a

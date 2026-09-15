@@ -322,6 +322,40 @@ check_guard_blocks "a blocked WebFetch of a URL containing spec.yaml" \
 	'{"tool_name":"WebFetch","tool_input":{"url":"https://example.com/spec.yaml"},"tool_response":{"content":"Blocked by local rule for z.test"}}' \
 	'sbx policy rm network --resource "z.test"'
 
+# Quoting a block message is not being blocked. The sbx v0.43.0 release notes
+# say a host "now reads as Blocked by org policy", and fetching them stopped
+# two real turns on a request that returned 200. curl makes reaches_network
+# true, so self_reference cannot rescue these; only the line anchor can. The
+# payloads are ASCII and backtick-free to keep shellcheck --enable=all quiet;
+# what matters is only that the block string sits mid-line.
+check_guard_ignores "release notes quoting the block string" \
+	'{"tool_name":"Bash","tool_input":{"command":"curl -sS https://api.github.com/repos/docker/sbx-releases/releases/tags/v0.43.0 | jq -r .body"},"tool_response":{"stdout":"- Fixed: agents no longer suggest sbx policy allow for an org-governed default-deny host; it now reads as Blocked by org policy, same as an explicit org deny rule.\n"}}'
+
+check_guard_ignores "a grep hit quoting the block string" \
+	'{"tool_name":"Bash","tool_input":{"command":"grep -n policy notes.md"},"tool_response":{"stdout":"70:- Fixed: it now reads as Blocked by network policy: domain example.com today\n"}}'
+
+# ...but the anchor must tolerate the real message being indented, and still
+# recover the host from it.
+check_guard_blocks "an indented block body" \
+	'{"tool_name":"Bash","tool_input":{"command":"curl -sS https://indented.test"},"tool_response":{"stdout":"fetching...\n  Blocked by network policy: domain indented.test\n    rule: default deny\n"}}' \
+	'sbx policy allow network "indented.test"'
+
+# The anchor's one fail-open risk: a real block whose message lands mid-line.
+# An HTTP 403 is a block on its face, so it fires regardless of position.
+check_guard_blocks "a WebFetch 403 with the message mid-line" \
+	'{"tool_name":"WebFetch","tool_input":{"url":"https://four03.test"},"tool_response":{"code":403,"result":"proxy said: Blocked by network policy: domain four03.test"}}' \
+	'sbx policy allow network "four03.test"'
+
+# A 200 with the same body shape is a page that merely talks about blocking.
+check_guard_ignores "a WebFetch 200 quoting the block string" \
+	'{"tool_name":"WebFetch","tool_input":{"url":"https://docs.test"},"tool_response":{"code":200,"result":"the proxy replies: Blocked by org policy, and you contact IT"}}'
+
+# A non-object tool_response must not make http_403 emit nothing — an empty
+# result would leave the whole filter with no output at all, failing open.
+check_guard_blocks "a block whose tool_response is a string" \
+	'{"tool_name":"Bash","tool_input":{"command":"curl -sS https://string-body.test"},"tool_response":"Blocked by local rule for string-body.test"}' \
+	'sbx policy rm network --resource "string-body.test"'
+
 fi # end guard-filter tests
 
 # ---------------------------------------------------------------------------
