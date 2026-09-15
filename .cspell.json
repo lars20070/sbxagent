@@ -147,6 +147,13 @@
     "GOTOOLCHAIN",
     "EBUSY",
     "mountpoint",
-    "remountable"
+    "remountable",
+    "bootstrapper",
+    "pandoc",
+    "DOTENV",
+    "texlive",
+    "xetex",
+    "xelatex",
+    "lmodern"
   ]
 }

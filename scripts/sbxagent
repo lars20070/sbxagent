@@ -1,12 +1,61 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# One script, four commands. It is installed as a symlink named sbxclaude,
+# sbxcodex, sbxcursor or sbxpi, and dispatches on the name it was invoked as.
+# Read first because die() and the .env loader below both report errors
+# under this name.
+SELF="$(basename "$0")"
+
+die() {
+	echo "${SELF}: $*" >&2
+	exit 1
+}
+
+# Follow symlinks without GNU `readlink -f`: BSD readlink lacked -f before macOS 12.3, and the README installs
+# this script as a symlink, so the chain has to be walked to find the kit.
+resolve_dir() {
+	local path="$1"
+	local link
+	local hops=0
+	while [[ -L "${path}" ]]; do
+		((++hops <= 40)) || die "too many symlinks resolving ${1}"
+		link="$(readlink "${path}")" || return 1
+		case "${link}" in
+		/*) path="${link}" ;;
+		*) path="$(dirname "${path}")/${link}" ;;
+		esac
+	done
+	(cd "$(dirname "${path}")" && pwd -P)
+}
+
+SCRIPT_DIR="$(resolve_dir "${BASH_SOURCE[0]}")"
+REPO="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+
+# Config layer weaker than a real exported var, stronger than the defaults
+# below: source .env if present, then restore whatever was already exported
+# so a real env var always wins. `before` is a snapshot of `export -p`
+# output; re-evaluating it after sourcing overwrites anything .env changed
+# for a name that was already exported, and leaves untouched any new name
+# .env introduced. The `|| true` covers the rare case where something in the
+# snapshot is also readonly (e.g. a caller did `declare -rx FOO=...` before
+# invoking us) — eval fails just that one restore line, not the rest.
+ENV_FILE="${REPO}/.env"
+if [[ -r "${ENV_FILE}" ]]; then
+	before="$(export -p)"
+	set -a
+	# shellcheck disable=SC1090,SC1091
+	. "${ENV_FILE}"
+	set +a
+	eval "${before}" 2>/dev/null || true
+fi
+
 # Number of SHA-256 characters in generated sandbox and state-directory names.
 HASH_LENGTH="${HASH_LENGTH:-8}"
 
 # Upstream virtiofs cache bug: `cp` reading from the mounted workspace inside a
 # sandbox writes a hole (correct size, all NUL bytes); `cat` and `dd` are fine.
-# https://github.com/docker/sbx-releases/issues/526 — no fix as of sbx v0.42.1.
+# https://github.com/docker/sbx-releases/issues/526 — no fix as of sbx v0.43.0.
 # Must be set on the host before create. Revisit when bumping the pinned sbx
 # version; remove this export once #526 is fixed in that release.
 export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
@@ -17,15 +66,9 @@ export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
 # subfolder. Takes effect at create time.
 CROSS_SANDBOX_VISIBILITY="${CROSS_SANDBOX_VISIBILITY:-true}"
 
-# One script, four commands. It is installed as a symlink named sbxclaude,
-# sbxcodex, sbxcursor or sbxpi, and dispatches on the name it was invoked as.
-# See the SELF block below.
-SELF="$(basename "$0")"
-
-die() {
-	echo "${SELF}: $*" >&2
-	exit 1
-}
+# false also installs Playwright, Chromium, mermaid-cli and XeTeX. Takes effect
+# at create time; passed to the kit as --kit-arg lite=... (see args: in spec.yaml).
+SBXAGENT_LITE="${SBXAGENT_LITE:-true}"
 
 no_args() {
 	local command="$1"
@@ -83,8 +126,8 @@ require_sbx() {
 # against the cwd.
 compute_state_mounts() {
 	case "${XDG_STATE_HOME:-}" in
-	/*) STATE_HOME="${XDG_STATE_HOME}/sbxagent" ;;
-	*) STATE_HOME="${HOME}/.local/state/sbxagent" ;;
+	/*) STATE_HOME="${XDG_STATE_HOME}/sbxagent/traces" ;;
+	*) STATE_HOME="${HOME}/.local/state/sbxagent/traces" ;;
 	esac
 	PROJECT_DIR="${STATE_HOME}/${SLUG:+${SLUG}-}${HASH}"
 	AGENT_DIR="${PROJECT_DIR}/${SELF}"
@@ -93,31 +136,15 @@ compute_state_mounts() {
 	false) PROJECT_MOUNT="" ;;
 	*) die "CROSS_SANDBOX_VISIBILITY must be true or false, not '${CROSS_SANDBOX_VISIBILITY}'" ;;
 	esac
+	case "${SBXAGENT_LITE}" in
+	true | false) ;;
+	*) die "SBXAGENT_LITE must be true or false, not '${SBXAGENT_LITE}'" ;;
+	esac
 	mkdir -p "${PROJECT_DIR}"
 	chmod 700 "${PROJECT_DIR}"
 	mkdir -p "${AGENT_DIR}"
 	chmod 700 "${AGENT_DIR}"
 }
-
-# Follow symlinks without GNU `readlink -f`: BSD readlink lacked -f before macOS 12.3, and the README installs
-# this script as a symlink, so the chain has to be walked to find the kit.
-resolve_dir() {
-	local path="$1"
-	local link
-	local hops=0
-	while [[ -L "${path}" ]]; do
-		((++hops <= 40)) || die "too many symlinks resolving ${1}"
-		link="$(readlink "${path}")" || return 1
-		case "${link}" in
-		/*) path="${link}" ;;
-		*) path="$(dirname "${path}")/${link}" ;;
-		esac
-	done
-	(cd "$(dirname "${path}")" && pwd -P)
-}
-
-SCRIPT_DIR="$(resolve_dir "${BASH_SOURCE[0]}")"
-REPO="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 
 # Dispatch on the name we were invoked as. SELF is the basename of $0, taken
 # before resolve_dir walks the symlink chain — resolving first would erase the
@@ -161,6 +188,32 @@ elif command -v sha256sum >/dev/null 2>&1; then
 else
 	die "shasum or sha256sum is required"
 fi
+# sbx v0.43.0 rejects a sandbox name longer than 63 characters or ending in a
+# hyphen or period. SELF and HASH are fixed, so the slug is what has to give:
+# cut it to whatever room is left, then re-strip trailing hyphens so a cut that
+# lands on one cannot produce an invalid name. Lossy on purpose — HASH still
+# carries the whole path, so two long sibling directories stay distinct. SLUG
+# also keys the state folder (compute_state_mounts), and cutting it here rather
+# than at the SANDBOX= line below keeps the two in lockstep, as docs/traces.md
+# documents: drop the "<command>-" prefix from a sandbox name and you have the
+# folder.
+SANDBOX_NAME_MAX=63
+# The shortest name this can produce, "<self>-<hash>", with the slug dropped entirely.
+name_floor=$((${#SELF} + 1 + ${#HASH}))
+if ((name_floor > SANDBOX_NAME_MAX)); then
+	die "HASH_LENGTH=${HASH_LENGTH} makes every sandbox name longer than ${SANDBOX_NAME_MAX} characters"
+fi
+# One more character than the floor goes to the hyphen a non-empty slug adds.
+slug_budget=$((SANDBOX_NAME_MAX - name_floor - 1))
+if ((slug_budget < 0)); then
+	slug_budget=0
+fi
+if ((${#SLUG} > slug_budget)); then
+	SLUG="${SLUG:0:${slug_budget}}"
+	while [[ "${SLUG%-}" != "${SLUG}" ]]; do
+		SLUG="${SLUG%-}"
+	done
+fi
 SANDBOX="${SELF}-${SLUG:+${SLUG}-}${HASH}"
 
 case "${1:-}" in
@@ -171,7 +224,7 @@ case "${1:-}" in
 	fi
 	sbx kit validate "${KIT}" >/dev/null
 	compute_state_mounts
-	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
+	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 name)
 	shift
@@ -207,7 +260,7 @@ create)
 	no_args create "$@"
 	require_sbx
 	compute_state_mounts
-	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
+	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 rm)
 	shift

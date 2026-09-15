@@ -5,15 +5,16 @@ change them. See [README.md](../README.md) to get a sandbox running first.
 
 ## What each sandbox gets
 
-Every kit installs the same tools:
+Every kit installs the same tools (three of them opt-in):
 
 | Tool | For | Version |
 | --- | --- | --- |
-| `curl`, `jq`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution |
+| `curl`, `jq`, `pandoc`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution |
 | `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below |
 | `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below |
-| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below |
-| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below |
+| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes; only with `SBXAGENT_LITE=false` | pinned below |
+| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium; only with `SBXAGENT_LITE=false` | pinned below |
+| XeTeX (`texlive-xetex`, `texlive-fonts-recommended`, `texlive-latex-extra`, `lmodern`) | `pandoc … --pdf-engine=xelatex` PDF output; only with `SBXAGENT_LITE=false` | tracks the distribution |
 | `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below |
 | `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution |
 | `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image |
@@ -21,7 +22,7 @@ Every kit installs the same tools:
 The environment is the same in every sandbox. Your project is mounted as the
 workspace, so edits land on your real files. Each sandbox also gets a
 wrapper-managed state folder under
-`${XDG_STATE_HOME:-~/.local/state}/sbxagent/<slug>-<hash>/`, keyed by the
+`${XDG_STATE_HOME:-~/.local/state}/sbxagent/traces/<slug>-<hash>/`, keyed by the
 project directory and shared read-only across every agent's sandbox for it,
 with a per-agent subfolder (`sbxclaude/`, `sbxcodex/`, …) that only that
 agent's own sandbox can write. Set `CROSS_SANDBOX_VISIBILITY=false` when
@@ -63,7 +64,7 @@ adds two of its own, for Pi and its Context7 package.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |
-| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.42.1` (SHA-256 verified) |
+| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.43.0` (SHA-256 verified) |
 | `ruff` | `kits/*/spec.yaml` | `0.16.2` |
 | `yamllint` | `kits/*/spec.yaml` | `1.38.0` |
 | `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.2` |

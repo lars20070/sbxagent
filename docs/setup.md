@@ -4,6 +4,13 @@ Credentials and model providers, all configured on the host so the sandbox
 never holds a real secret. Only Git over HTTPS applies to every agent; the
 rest is `sbxpi`.
 
+## Contents
+
+- [Git over HTTPS](#git-over-https)
+- [Environment variables](#environment-variables)
+- [OpenRouter (`sbxpi`, cloud models)](#openrouter-sbxpi-cloud-models)
+- [Ollama (`sbxpi`, local models)](#ollama-sbxpi-local-models)
+
 ## Git over HTTPS
 
 Sandbox network policy allows `github.com:443` but not SSH port 22. Every kit
@@ -17,6 +24,29 @@ GitHub token on the host so the credential proxy can inject it:
 ```bash
 echo "$(gh auth token)" | sbx secret set github
 ```
+
+## Environment variables
+
+Set before running `sbxclaude`, `sbxcodex`, `sbxcursor`, or `sbxpi` to change
+how `scripts/sbxagent` behaves. Three ways to set them, strongest first: a
+real exported shell variable, a `.env` file at the repo root, or the built-in
+default in the table below.
+
+`.env` is optional and gitignored — create one once per host with:
+
+```bash
+cp .env.example .env
+```
+
+then uncomment and edit whichever lines you want to change; anything left
+commented out keeps its default.
+
+| Var | Default | Does what |
+| --- | --- | --- |
+| `CROSS_SANDBOX_VISIBILITY` | `true` | `false` hides sibling agents' state folders from a new sandbox |
+| `XDG_STATE_HOME` | `~/.local/state` | where sbxagent stores its per-project state tree; must be absolute, a relative value falls back to the default |
+| `HASH_LENGTH` | `8` | how many hash chars go in sandbox/state folder names |
+| `SBXAGENT_LITE` | `true` | `false` also installs Playwright, Chromium, `mmdc` and `xelatex`; takes effect at create time |
 
 ## OpenRouter (`sbxpi`, cloud models)
 

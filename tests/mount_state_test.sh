@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Exercises the kits' shared mount-state.sh helper against temporary
-# directories, so its merge, refusal and idempotency branches are proven on the
+# directories, so its merge and idempotency branches are proven on the
 # host rather than only by attaching a live sandbox.
 #
 # Two cases need a real bind mount, which only Linux can do and only with
@@ -217,22 +217,7 @@ assert_eq 1 "${STATUS}" "bind fails exit status"
 assert_eq one "$(<"${STATE}/sessions/trace")" "bind fails: traces were still copied"
 pass "a failed bind is fatal rather than a silent fallback to the stock path"
 
-# 7. A symlink at the stock path is refused outright, never self-healed. On the
-#    kit that made this fix necessary the runtime fails before any script runs,
-#    so a self-heal could not help there anyway; everywhere else a rebuild is
-#    the honest instruction. The refusal comes before any mkdir.
-fresh symlink
-mkdir -p "${CASE}/elsewhere"
-ln -s "${CASE}/elsewhere" "${LINK}"
-run_helper "${LINK}" sessions
-assert_eq 2 "${STATUS}" "symlink exit status"
-assert_eq "${CASE}/elsewhere" "$(readlink "${LINK}")" "symlink: left untouched"
-[[ ! -e "${STATE}" ]] || fail "symlink: state root was created"
-[[ "${STDERR}" == *"is a symlink"* && "${STDERR}" == *"recreate the sandbox"* ]] ||
-	fail "symlink: stderr was '${STDERR}'"
-pass "a symlink at the stock path is refused with a rebuild instruction"
-
-# 8. A failed copy is fatal too, before anything is mounted. A read-only target
+# 7. A failed copy is fatal too, before anything is mounted. A read-only target
 #    denies the copy for a normal user; root ignores mode bits, so skip there.
 if [[ "$(id -u)" -eq 0 ]]; then
 	echo "skip - copy failure case needs a non-root user"
@@ -248,7 +233,7 @@ else
 	pass "a failed copy is fatal before anything is mounted"
 fi
 
-# 9-12. Exercise the actual entrypoint shell blocks from every kit spec. There
+# 8-11. Exercise the actual entrypoint shell blocks from every kit spec. There
 # is no soft failure mode left: any non-zero status from the helper has to stop
 # the agent from starting, because every one of them means traces would
 # otherwise be written somewhere that does not reach the state folder.
@@ -287,27 +272,24 @@ SH
 		PATH="${FAKE_BIN}:${PATH}" sh -c "${ENTRYPOINT}" "${kit}-entrypoint"
 	[[ -s "${AGENT_LOG}" ]] || fail "${kit} success: agent was not launched"
 
-	# 1 and 2 differ only in what went wrong; both must stop the launch.
-	for helper_status in 1 2; do
-		: >"${AGENT_LOG}"
-		set +e
-		MOUNT_STATE_TEST_STATUS="${helper_status}" \
-			ENTRYPOINT_AGENT_LOG="${AGENT_LOG}" HOME="${FAKE_HOME}" \
-			PATH="${FAKE_BIN}:${PATH}" sh -c "${ENTRYPOINT}" "${kit}-entrypoint" \
-			2>"${CASE}/stderr-${helper_status}"
-		STATUS=$?
-		set -e
-		STDERR="$(<"${CASE}/stderr-${helper_status}")"
-		assert_eq "${helper_status}" "${STATUS}" "${kit} status ${helper_status}: exit status"
-		[[ ! -s "${AGENT_LOG}" ]] ||
-			fail "${kit} status ${helper_status}: agent was launched anyway"
-		[[ "${STDERR}" == *"refusing to start ${agent}"* ]] ||
-			fail "${kit} status ${helper_status}: stderr was '${STDERR}'"
-	done
+	: >"${AGENT_LOG}"
+	set +e
+	MOUNT_STATE_TEST_STATUS=1 \
+		ENTRYPOINT_AGENT_LOG="${AGENT_LOG}" HOME="${FAKE_HOME}" \
+		PATH="${FAKE_BIN}:${PATH}" sh -c "${ENTRYPOINT}" "${kit}-entrypoint" \
+		2>"${CASE}/stderr-1"
+	STATUS=$?
+	set -e
+	STDERR="$(<"${CASE}/stderr-1")"
+	assert_eq 1 "${STATUS}" "${kit} status 1: exit status"
+	[[ ! -s "${AGENT_LOG}" ]] ||
+		fail "${kit} status 1: agent was launched anyway"
+	[[ "${STDERR}" == *"refusing to start ${agent}"* ]] ||
+		fail "${kit} status 1: stderr was '${STDERR}'"
 	pass "${kit} entrypoint launches only when the trace path is relocated"
 done
 
-# 13. Both call sites exist in every kit. The bind does not survive a stop, so
+# 12. Both call sites exist in every kit. The bind does not survive a stop, so
 # it has to be re-made on every start, and neither call site alone reaches every
 # start: the entrypoint is the agent launch command, so it never runs for a
 # `sbx exec` session or a sandbox that is started but not attached; the startup

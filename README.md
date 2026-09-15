@@ -26,7 +26,7 @@ flowchart LR
 
   subgraph VM["sbx sandbox"]
     AGENT["Claude Code, Codex,<br/>Cursor, Pi CLI"]
-    TOOLS["git, docker, rg, jq,<br/>ruff, playwright, ..."]
+    TOOLS["git, docker, rg, jq,<br/>ruff, pandoc, ..."]
     PROXY["credential + network<br/>allowlist proxy"]
   end
 
@@ -70,6 +70,7 @@ flowchart LR
 - [Supported agents](#supported-agents)
 - [Further documentation](#further-documentation)
 - [Support](#support)
+- [Security](#security)
 
 <br>
 
@@ -81,7 +82,7 @@ You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with
 KVM available. Docker Desktop is not required. Install the `sbx` CLI, sign in,
 and link `scripts/sbxagent` onto your `PATH` once per agent you want.
 
-> **sbx v0.42.1 is required.** sbx is
+> **sbx v0.43.0 is required.** sbx is
 > experimental. A later version may break `sbxagent`.
 
 [macOS:](https://docs.docker.com/ai/sandboxes/install/#install-on-macos)
@@ -194,13 +195,18 @@ create-time privacy setting.
 
 | Guide | Covers |
 | --- | --- |
-| [docs/setup.md](docs/setup.md) | Host-side credentials: a GitHub token, an OpenRouter key, and optional local models through Ollama |
-| [docs/toolchain.md](docs/toolchain.md) | What is installed in every sandbox, which versions are pinned, and how to rebuild after changing one |
-| [docs/traces.md](docs/traces.md) | Where each agent's session traces are kept, which sibling agents can read them, and how long they last |
-| [docs/agents.md](docs/agents.md) | How strictly each agent enforces a blocked request, and how each wires up the GitHub MCP server |
-| [docs/published-kits.md](docs/published-kits.md) | Running a kit from the registry without cloning this repository |
+| [Host setup](docs/setup.md) | Host-side credentials: a GitHub token, an OpenRouter key, and optional local models through Ollama |
+| [Toolchain](docs/toolchain.md) | What is installed in every sandbox, which versions are pinned, and how to rebuild after changing one |
+| [Session traces](docs/traces.md) | Where each agent's session traces are kept, which sibling agents can read them, and how long they last |
+| [Agent differences](docs/agents.md) | How strictly each agent enforces a blocked request, and how each wires up the GitHub MCP server |
+| [Published kits](docs/published-kits.md) | Running a kit from the registry without cloning this repository |
 
 ## Support
 
 Bugs and questions go to the
 [issue tracker](https://github.com/lars20070/sbxagent/issues).
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the threat model, how to report a
+vulnerability, and how to verify what you run.

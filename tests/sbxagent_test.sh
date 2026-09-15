@@ -18,7 +18,22 @@ SBX_LOG="${TEST_ROOT}/sbx.log"
 TESTS=0
 EXPECTED_VERSION="$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' "${ROOT}/VERSION")"
 
+# scripts/sbxagent loads ${ROOT}/.env if present, and every test below
+# invokes the wrapper against this real checkout — there is no sandboxed
+# REPO to point it at instead. Move any real .env a developer created via
+# `cp .env.example .env` out of the way for the whole suite, and put it
+# back (or remove a test-written one) on exit, so `make test-unit` never
+# reads or clobbers a real local .env.
+ENV_FILE="${ROOT}/.env"
+ENV_BACKUP="${TEST_ROOT}/env-backup"
+[[ ! -e "${ENV_FILE}" ]] || mv "${ENV_FILE}" "${ENV_BACKUP}"
+
 cleanup() {
+	if [[ -e "${ENV_BACKUP}" ]]; then
+		mv "${ENV_BACKUP}" "${ENV_FILE}"
+	else
+		rm -f "${ENV_FILE}"
+	fi
 	rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT
@@ -164,7 +179,7 @@ export SBX_LOG
 # sandbox-creating call; point it into TEST_ROOT so the real machine's
 # ~/.local/state is never touched.
 export XDG_STATE_HOME="${TEST_ROOT}/xdg-state"
-STATE_ROOT="${XDG_STATE_HOME}/sbxagent"
+STATE_ROOT="${XDG_STATE_HOME}/sbxagent/traces"
 
 # Portable mode probe: BSD stat first, GNU fallback, same pattern as the
 # wrapper's shasum/sha256sum probe.
@@ -176,7 +191,13 @@ WORK_A="${TEST_ROOT}/one/api"
 WORK_B="${TEST_ROOT}/two/api"
 EMPTY_SLUG="${TEST_ROOT}/..."
 LINK="${TEST_ROOT}/api-link"
-mkdir -p "${WORK_A}" "${WORK_B}" "${EMPTY_SLUG}"
+# Two basenames that overrun the 63-character sandbox-name limit sbx enforces.
+# The second is sized so the cut lands exactly on a hyphen, which would leave a
+# trailing hyphen -- also rejected -- if the wrapper did not re-strip afterwards.
+LONG_SLUG="${TEST_ROOT}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+LONG_SLUG_CUT_ON_HYPHEN="${TEST_ROOT}/ccccccccccccccccccccccccccccccccccccccccccc-tail"
+mkdir -p "${WORK_A}" "${WORK_B}" "${EMPTY_SLUG}" "${LONG_SLUG}" \
+	"${LONG_SLUG_CUT_ON_HYPHEN}"
 ln -s "${WORK_A}" "${LINK}"
 
 # Sandbox naming: derived from the canonical directory path, so it must be
@@ -198,6 +219,29 @@ assert_match "^sbxclaude-$(expected_slug "${WORK_A}")-[0-9a-f]{12}$" \
 	"${CUSTOM_HASH_NAME}" "custom hash length"
 assert_no_log "name"
 pass "name derivation is unique, stable, canonical, and configurable"
+
+# sbx rejects a sandbox name longer than 63 characters or ending in a hyphen or
+# period, so the slug is truncated to fit. The hash still carries the whole
+# path, so two truncated siblings stay distinct.
+clear_log
+LONG_NAME="$(run_claude "${LONG_SLUG}" name)"
+assert_match "^sbxclaude-a{44}-[0-9a-f]{8}$" "${LONG_NAME}" "truncated long name"
+[[ "${#LONG_NAME}" -le 63 ]] ||
+	fail "long basename produced a ${#LONG_NAME}-character name '${LONG_NAME}'"
+HYPHEN_CUT_NAME="$(run_claude "${LONG_SLUG_CUT_ON_HYPHEN}" name)"
+assert_match "^sbxclaude-c{43}-[0-9a-f]{8}$" \
+	"${HYPHEN_CUT_NAME}" "cut landing on a hyphen"
+# A hash long enough to overrun the limit on its own has nothing left to trim,
+# so the wrapper refuses rather than emitting a name sbx would reject.
+set +e
+OVERLONG_HASH_OUT="$(HASH_LENGTH=60 run_claude "${WORK_A}" name 2>&1)"
+OVERLONG_HASH_STATUS=$?
+set -e
+[[ "${OVERLONG_HASH_STATUS}" -ne 0 ]] ||
+	fail "HASH_LENGTH=60 unexpectedly produced '${OVERLONG_HASH_OUT}'"
+assert_match "63 characters" "${OVERLONG_HASH_OUT}" "overlong hash error"
+assert_no_log "name"
+pass "names are truncated to the 63-character limit without a trailing hyphen"
 
 # version: reads VERSION directly, needs no sbx call.
 clear_log
@@ -223,7 +267,7 @@ PROJECT_DIR="${STATE_ROOT}/${NAME_A#*-}"
 # project's state folder read-only and this agent's subfolder read-write.
 clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_A}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s' \
 	"${CLAUDE_KIT}" "${SANDBOX}" "${PROJECT_DIR}/sbxclaude" \
 	"${CLAUDE_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxclaude")" "new sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "new attach passed --"
@@ -265,7 +309,7 @@ assert_log "$(printf 'inspect\t%s' "${SANDBOX}")" "inspect"
 rm -rf "${STATE_ROOT}"
 clear_log
 run_claude "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s' \
 	"${SANDBOX}" "${PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxclaude")" "create"
 [[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR}/sbxclaude"
 assert_eq "700" "$(file_mode "${PROJECT_DIR}/sbxclaude")" "agent state folder mode"
@@ -347,7 +391,7 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${CODEX_KIT}")" "codex kit path"
 
 clear_log
 run_codex "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s' \
 	"${CODEX_NAME}" "${PROJECT_DIR}/sbxcodex" "${CODEX_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxcodex")" "codex create"
 pass "sbxcodex dispatches to its own kit, sandbox name and kit operand"
 
@@ -392,7 +436,7 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${CURSOR_KIT}")" "cursor kit path"
 
 clear_log
 run_cursor "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s' \
 	"${CURSOR_NAME}" "${PROJECT_DIR}/sbxcursor" "${CURSOR_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxcursor")" "cursor create"
 pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
 
@@ -429,7 +473,7 @@ assert_log "$(printf 'kit\tvalidate\t%s' "${PI_KIT}")" "pi kit path"
 
 clear_log
 run_pi "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s' \
 	"${PI_NAME}" "${PROJECT_DIR}/sbxpi" "${PI_KIT}" "${PROJECT_DIR}" "${PROJECT_DIR}/sbxpi")" "pi create"
 pass "sbxpi dispatches to its own kit, sandbox name and kit operand"
 
@@ -461,7 +505,7 @@ PROJECT_DIR_B="${STATE_ROOT}/${NAME_B#*-}"
 BEFORE="$(ls "${PROJECT_DIR}")"
 clear_log
 run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s' \
 	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create in another directory"
 [[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR_B}/sbxclaude"
 assert_eq "${BEFORE}" "$(ls "${PROJECT_DIR}")" "other project's state folder untouched"
@@ -474,13 +518,13 @@ pass "each directory gets its own project state folder"
 # created, and only on the creating paths — name must keep working.
 clear_log
 CROSS_SANDBOX_VISIBILITY=false run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
 	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "create without visibility"
 [[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create without visibility removed ${PROJECT_DIR_B}/sbxclaude"
 
 clear_log
 CROSS_SANDBOX_VISIBILITY=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s' \
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
 	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "attach without visibility"
 
 BEFORE="$(ls "${STATE_ROOT}")"
@@ -491,6 +535,51 @@ BOGUS_NAME="$(CROSS_SANDBOX_VISIBILITY=bogus run_claude "${WORK_B}" name)" ||
 assert_eq "${NAME_B}" "${BOGUS_NAME}" "name with bad visibility value"
 pass "CROSS_SANDBOX_VISIBILITY=false drops the shared mount and rejects other values"
 
+# SBXAGENT_LITE reaches the kit as --kit-arg lite=<value>; the default true
+# is already asserted by every create/run argv above. Like the visibility
+# flag, a bad value is rejected only on the creating paths.
+clear_log
+SBXAGENT_LITE=false run_claude "${WORK_B}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s:ro\t%s' \
+	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create with SBXAGENT_LITE=false"
+SBXAGENT_LITE=bogus reject_without_call "${WORK_B}" create
+LITE_BOGUS_NAME="$(SBXAGENT_LITE=bogus run_claude "${WORK_B}" name)" ||
+	fail "'name' failed with a bad SBXAGENT_LITE"
+assert_eq "${NAME_B}" "${LITE_BOGUS_NAME}" "name with bad SBXAGENT_LITE value"
+pass "SBXAGENT_LITE is passed as a kit arg and rejects other values"
+
+# .env file: a config layer weaker than a real exported env var, stronger
+# than scripts/sbxagent's own defaults. ${ROOT}/.env is backed up for the
+# whole suite (see top of file); this is the only block that writes one, and
+# it removes it again immediately after so nothing later in the suite
+# observes it.
+WORK_ENV="${TEST_ROOT}/three/api"
+mkdir -p "${WORK_ENV}"
+cat >"${ENV_FILE}" <<'EOF'
+HASH_LENGTH=6
+CROSS_SANDBOX_VISIBILITY=false
+SBXAGENT_LITE=false
+EOF
+
+clear_log
+DOTENV_NAME="$(run_claude "${WORK_ENV}" name)"
+assert_match "^sbxclaude-$(expected_slug "${WORK_ENV}")-[0-9a-f]{6}$" \
+	"${DOTENV_NAME}" ".env sets HASH_LENGTH when unset in real env"
+
+DOTENV_PROJECT_DIR="${STATE_ROOT}/${DOTENV_NAME#*-}"
+clear_log
+run_claude "${WORK_ENV}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s' \
+	"${DOTENV_NAME}" "${DOTENV_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${DOTENV_PROJECT_DIR}/sbxclaude")" \
+	".env CROSS_SANDBOX_VISIBILITY=false drops the shared mount and SBXAGENT_LITE=false reaches the kit"
+
+ENV_OVERRIDE_NAME="$(HASH_LENGTH=9 run_claude "${WORK_ENV}" name)"
+assert_match "^sbxclaude-$(expected_slug "${WORK_ENV}")-[0-9a-f]{9}$" \
+	"${ENV_OVERRIDE_NAME}" "real env HASH_LENGTH beats .env"
+
+rm -f "${ENV_FILE}"
+pass ".env supplies defaults that real env still overrides"
+
 # The empty-slug guard applies to the project folder as well as the sandbox
 # name: with nothing left of the basename the key is the bare hash, never
 # "-<hash>". EMPTY_NAME is already known to be sbxclaude-<hash>, so the
@@ -498,7 +587,7 @@ pass "CROSS_SANDBOX_VISIBILITY=false drops the shared mount and rejects other va
 EMPTY_PROJECT_DIR="${STATE_ROOT}/${EMPTY_NAME#*-}"
 clear_log
 run_claude "${EMPTY_SLUG}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s:ro\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s' \
 	"${EMPTY_NAME}" "${EMPTY_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${EMPTY_PROJECT_DIR}" "${EMPTY_PROJECT_DIR}/sbxclaude")" "create with empty slug"
 [[ -d "${EMPTY_PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${EMPTY_PROJECT_DIR}/sbxclaude"
 pass "an empty slug keys the project state folder by hash alone"
@@ -531,7 +620,7 @@ COPIED="${TEST_ROOT}/sbx-unknown-agent"
 # workspace file as fully sparse, so `cp` out of the workspace writes a
 # correctly-sized file of NUL bytes and this test would fail for a reason that
 # has nothing to do with dispatch. No `cp` flag avoids it; `cat` and `dd` are
-# unaffected. Open upstream, no fix as of sbx v0.42.1:
+# unaffected. Open upstream, no fix as of sbx v0.43.0:
 # https://github.com/docker/sbx-releases/issues/526
 cat "${AGENT_SCRIPT}" >"${COPIED}"
 chmod +x "${COPIED}"

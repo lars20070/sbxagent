@@ -95,6 +95,14 @@ anything repeatable, or pin the digest to be certain:
 sbx run ghcr.io/lars20070/sbxclaude@sha256:<digest>
 ```
 
+Playwright, Chromium, mermaid-cli and XeTeX are opt-in. The wrapper turns
+`SBXAGENT_LITE=false` into a kit argument; without the wrapper, pass it
+yourself:
+
+```bash
+sbx run --kit-arg lite=false ghcr.io/lars20070/sbxclaude:<version>
+```
+
 ## Building on a published kit
 
 You can **stack** kits — `--kit` is now the mixin flag, and may be given more
@@ -105,7 +113,7 @@ sbx run ghcr.io/lars20070/sbxclaude:<version> --kit ./my-extras
 ```
 
 You cannot yet **derive** a kit from one. The spec has a `mixins:` field for
-exactly that, but as of `sbx` v0.42.1 it is accepted and then ignored —
+exactly that, but as of `sbx` v0.43.0 it is accepted and then ignored —
 `sbx kit validate` says so out loud:
 
 ```text

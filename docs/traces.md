@@ -16,7 +16,7 @@ Where each agent's session trace ends up, and who else can read it. See
 
 Each agent saves its sessions where it always does, inside the sandbox. The
 wrapper makes that folder and a folder on your machine the same folder. The
-host folder is `~/.local/state/sbxagent/<slug>-<hash>/<agent>/`, for example
+host folder is `~/.local/state/sbxagent/traces/<slug>-<hash>/<agent>/`, for example
 `…/sbxclaude/`.
 
 So when the agent saves a session, the file is on your machine at once. Nothing
@@ -34,10 +34,10 @@ redo: if the two folders are already the same, the script does nothing.
 
 ```mermaid
 flowchart LR
-  subgraph HOST[" "]
+  subgraph HOST["your machine"]
     direction TB
     WRAP["sbxclaude / sbxcodex<br/>sbxcursor / sbxpi"]
-    STATE["~/.local/state/sbxagent<br/>&lt;slug&gt;-&lt;hash&gt;/&lt;agent&gt;/"]
+    STATE["~/.local/state/sbxagent/traces<br/>&lt;slug&gt;-&lt;hash&gt;/&lt;agent&gt;/"]
   end
 
   subgraph VM["sbx sandbox"]
@@ -48,10 +48,10 @@ flowchart LR
   end
 
   WRAP -->|"creates / attaches"| VM
-  STATE -.->|"1. mounted"| MOUNT
-  MOUNT -->|"2. bind-mounted over"| STOCK
+  STATE -.->|"1. wrapper mounts it in"| MOUNT
+  MOUNT -->|"2. bind-mounts it over"| STOCK
+  STATE <-.->|"same files"| STOCK
   AGENT -->|"writes sessions"| STOCK
-  STOCK -.->|"same files"| STATE
 
   classDef data    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
   classDef host    fill:#FDF3E0,stroke:#B8860B,stroke-width:2px,color:#4A3405
@@ -62,7 +62,7 @@ flowchart LR
   class AGENT agent
   class MOUNT step
   style VM fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px
-  style HOST fill:none,stroke:none
+  style HOST fill:#FFFDF7,stroke:#B8860B,stroke-width:1.5px,stroke-dasharray:4 3
 ```
 
 <br>*The wrapper (amber) creates the sandbox and mounts the host state folder
@@ -75,7 +75,7 @@ show up on the host. See [Under the hood](#under-the-hood) for the details.*
 Everything sits under one folder in your home directory:
 
 ```text
-~/.local/state/sbxagent/<slug>-<hash>/<agent>/
+~/.local/state/sbxagent/traces/<slug>-<hash>/<agent>/
 ```
 
 - `<slug>` is the name of your project folder. Anything that is not a letter,
@@ -95,27 +95,28 @@ it. Your home folder then looks like this:
 └── .local
     └── state
         └── sbxagent
-            └── weather-app-3f9a1c2e     ← <slug>-<hash>
-                ├── sbxclaude
-                │   └── projects
-                │       └── -Users-you-Code-weather-app
-                │           └── 8c1d2e7a-….jsonl
-                ├── sbxcodex
-                │   └── sessions
-                │       └── 2026
-                │           └── 09
-                │               └── 13
-                │                   └── rollout-2026-09-13T10-42-07-….jsonl
-                ├── sbxcursor
-                │   └── projects
-                │       └── Users-you-Code-weather-app
-                │           └── agent-transcripts
-                │               └── 5b7e…
-                │                   └── 5b7e….jsonl
-                └── sbxpi
-                    └── sessions
-                        └── --Users-you-Code-weather-app--
-                            └── 2026-09-13T10-42-07_….jsonl
+            └── traces
+                └── weather-app-3f9a1c2e     ← <slug>-<hash>
+                    ├── sbxclaude
+                    │   └── projects
+                    │       └── -Users-you-Code-weather-app
+                    │           └── 8c1d2e7a-….jsonl
+                    ├── sbxcodex
+                    │   └── sessions
+                    │       └── 2026
+                    │           └── 09
+                    │               └── 13
+                    │                   └── rollout-2026-09-13T10-42-07-….jsonl
+                    ├── sbxcursor
+                    │   └── projects
+                    │       └── Users-you-Code-weather-app
+                    │           └── agent-transcripts
+                    │               └── 5b7e…
+                    │                   └── 5b7e….jsonl
+                    └── sbxpi
+                        └── sessions
+                            └── --Users-you-Code-weather-app--
+                                └── 2026-09-13T10-42-07_….jsonl
 ```
 
 You do not have to work any of that out. In your project, run `sbxclaude name`
@@ -123,11 +124,11 @@ You do not have to work any of that out. In your project, run `sbxclaude name`
 `sbxclaude-<slug>-<hash>`. Drop the `sbxclaude-` prefix and you have the folder:
 
 ```bash
-cd ~/.local/state/sbxagent/"$(sbxclaude name | sed 's/^sbxclaude-//')"/sbxclaude
+cd ~/.local/state/sbxagent/traces/"$(sbxclaude name | sed 's/^sbxclaude-//')"/sbxclaude
 ```
 
-If you set `XDG_STATE_HOME`, the tree lives under `$XDG_STATE_HOME/sbxagent/`
-instead of `~/.local/state/sbxagent/`.
+If you set `XDG_STATE_HOME` to an absolute path, the tree lives under
+`$XDG_STATE_HOME/sbxagent/traces/` instead of `~/.local/state/sbxagent/traces/`.
 
 The wrapper keeps each agent's native session format and relocates its trace
 tree into that agent's state subfolder:
@@ -197,26 +198,65 @@ folder (`LINK`, for example `~/.claude/projects`). It runs as the `agent`
 user, and:
 
 1. Exits `0` at once if `SBXAGENT_STATE_DIR` is unset.
-2. Exits `2` if `LINK` is a symlink. That is a sandbox left over from the old
-   symlink design; remove and recreate it.
-3. Runs `mkdir -p` on both `TARGET` and `LINK`. `mount --bind` needs an
+2. Runs `mkdir -p` on both `TARGET` and `LINK`. `mount --bind` needs an
    existing destination and will not create one, and the pi kit never creates
    `~/.pi/agent/sessions` itself.
-4. Compares the `stat` device and inode of `LINK` and `TARGET`. If they match,
+3. Compares the `stat` device and inode of `LINK` and `TARGET`. If they match,
    the mount is already in place and the script exits `0`. This is the only
    "already done" check. A marker file under `SBXAGENT_STATE_DIR` would live on
    the host, outlive `sbx rm`, and make a rebuilt sandbox skip the next step.
-5. Seeds `TARGET` from `LINK`: every entry in `LINK` whose name is missing from
+4. Seeds `TARGET` from `LINK`: every entry in `LINK` whose name is missing from
    `TARGET` is copied over with `cp -R`. Host files win; the script never
    overwrites one. It skips `lost+found`. This single loop handles both the
    first migration and the files a rebuilt sandbox's parent kit has just
    seeded.
-6. Runs `sudo -n mount --bind TARGET LINK`. From now on, writing to `LINK`
+5. Runs `sudo -n mount --bind TARGET LINK`. From now on, writing to `LINK`
    writes to `TARGET`, which is the host folder.
 
 Any failure after step 1 exits `1`. The entrypoint then refuses to start the
 agent: traces written to an unbound `LINK` live only inside the sandbox and die
 with it.
+
+```mermaid
+flowchart LR
+  START(["mount-state.sh<br/>LINK SUBDIR"])
+  ENV{"SBXAGENT_STATE_DIR<br/>set?"}
+  MK["mkdir -p<br/>TARGET and LINK"]
+  SAME{"LINK already<br/>bound to TARGET?"}
+  COPY["copy entries of LINK<br/>missing from TARGET<br/>(host files win)"]
+  BIND["sudo mount --bind<br/>TARGET LINK"]
+  OK0(["exit 0<br/>stock location kept"])
+  OK1(["exit 0<br/>nothing to do"])
+  OK2(["exit 0<br/>LINK now writes<br/>to the host"])
+  ERR1(["exit 1<br/>entrypoint refuses<br/>to start the agent"])
+
+  START --> ENV
+  ENV -->|"no"| OK0
+  ENV -->|"yes"| MK
+  MK --> SAME
+  SAME -->|"yes"| OK1
+  SAME -->|"no"| COPY
+  COPY --> BIND
+  BIND --> OK2
+  MK -.->|"failed"| ERR1
+  COPY -.->|"failed"| ERR1
+  BIND -.->|"failed"| ERR1
+
+  classDef step  fill:#E8F3EC,stroke:#2E7D4F,stroke-width:2px,color:#0F3D22
+  classDef ask   fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px,color:#2B2F2E
+  classDef ok    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
+  classDef fail  fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
+  class START,MK,COPY,BIND step
+  class ENV,SAME ask
+  class OK0,OK1,OK2 ok
+  class ERR1 fail
+```
+
+<br>*The same five steps as a flow. Grey diamonds are the two checks; green
+boxes are the work. Blue ends are the good exits: `0` because there is no state
+folder, because the mount is already in place, or because it has just been
+made. Red is the one bad exit: `1` for anything that failed, after which the
+entrypoint will not start the agent.*
 
 ### Two call sites
 
@@ -231,15 +271,52 @@ drops it. Each kit calls `mount-state.sh` from two places, and needs both:
   (docker/sbx-releases #420) and when `sbx exec` wakes a stopped sandbox
   (#479).
 
-Whichever runs first does the work. The other hits the match in step 4 and
+Whichever runs first does the work. The other hits the match in step 3 and
 exits `0`.
+
+Once docker/sbx-releases #420 and #479 are fixed, the startup step alone
+reaches every start, and the entrypoint call goes. The script then runs
+exactly once per boot, so step 3 goes with it — nothing can be bound already —
+and the flow shrinks to this:
+
+```mermaid
+flowchart LR
+  START(["mount-state.sh<br/>LINK SUBDIR"])
+  ENV{"SBXAGENT_STATE_DIR<br/>set?"}
+  MK["mkdir -p<br/>TARGET and LINK"]
+  COPY["copy entries of LINK<br/>missing from TARGET<br/>(host files win)"]
+  BIND["sudo mount --bind<br/>TARGET LINK"]
+  OK0(["exit 0<br/>stock location kept"])
+  OK2(["exit 0<br/>LINK now writes<br/>to the host"])
+  ERR1(["exit 1<br/>startup step fails"])
+
+  START --> ENV
+  ENV -->|"no"| OK0
+  ENV -->|"yes"| MK
+  MK --> COPY
+  COPY --> BIND
+  BIND --> OK2
+  MK -.->|"failed"| ERR1
+  COPY -.->|"failed"| ERR1
+  BIND -.->|"failed"| ERR1
+
+  classDef step  fill:#E8F3EC,stroke:#2E7D4F,stroke-width:2px,color:#0F3D22
+  classDef ask   fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px,color:#2B2F2E
+  classDef ok    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
+  classDef fail  fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
+  class START,MK,COPY,BIND step
+  class ENV ask
+  class OK0,OK2 ok
+  class ERR1 fail
+```
+
+<br>*The same script with one caller. One check, three steps, two good exits.
+The "already bound" diamond and its `stat` probe are gone. So is the
+entrypoint's refusal: with no entrypoint call, a failure surfaces as a failed
+startup step rather than an agent that will not launch.*
 
 ### Why a bind mount, not a symlink
 
-An earlier version replaced `LINK` with a symlink to `TARGET`. That broke every
-start after the first. The parent `claude` kit provisions `~/.claude/projects`
-as its own persistent volume, the runtime recreates that mount destination at
-each start, and it refuses to do so through a symlink. All the user saw was
-`failed to start runtime: 500 Internal Server Error`. Keeping `LINK` a real
-directory keeps it a valid mount destination for the life of the sandbox. The
-price is the re-mount on every boot described above.
+The parent kit mounts its own volume at `LINK`, and the runtime recreates that
+mount destination at every start. It cannot do so through a symlink, so `LINK`
+stays a real directory and the bind is re-made each boot.

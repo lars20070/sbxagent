@@ -1,9 +1,18 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxpi
-version: "0.4.6"
+version: "0.4.7"
 displayName: Pi with custom toolchain
 description: Pi with custom toolchain
+
+# Host-side SBXAGENT_LITE, passed by scripts/sbxagent as --kit-arg lite=...
+# and substituted into the install steps and instructions below before the
+# spec is decoded.
+args:
+  lite:
+    default: "true"
+    enum: ["true", "false"]
+    description: Skip Playwright, Chromium, mermaid-cli and XeTeX
 
 sandbox:
   # No `extends:` — Pi has no parent kit (only claude, codex, copilot, cursor,
@@ -41,6 +50,7 @@ environment:
   variables:
     PI_TELEMETRY: "0"
     PI_SKIP_VERSION_CHECK: "1"
+    SBXAGENT_LITE: "${{ kit.args.lite }}"
 
 agentInstructions:
   filename: AGENTS.md
@@ -77,10 +87,14 @@ agentInstructions:
       PyYAML for YAML parsing (`import yaml`)
     - YAML: `yamllint`
     - Markdown and prose: `markdownlint-cli2`, `cspell`
-    - Browser: `playwright`, with headless Chromium — load pages, screenshot
-      them, and read console output to verify UI changes before reporting done
-    - Diagrams: `mmdc` (mermaid-cli) — turn a `.mmd` file into a picture:
-      `mmdc -i diagram.mmd -o diagram.png`
+    - Browser, diagrams and PDF, only when the sandbox was created with
+      `SBXAGENT_LITE=false` (here it is `${{ kit.args.lite }}`): `playwright`
+      with headless Chromium — load pages, screenshot them, read console
+      output to verify UI changes — `mmdc` (mermaid-cli):
+      `mmdc -i diagram.mmd -o diagram.png` — and `xelatex`, so
+      `pandoc doc.md -o doc.pdf --pdf-engine=xelatex` works
+    - Documents: `pandoc` — convert between document formats (e.g. Markdown,
+      HTML, docx)
     - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`, `tree`
     - Sandbox kits: `sbx`, with the restrictions above
     - Docs: Context7 is installed as a native Pi package, not an MCP server —
@@ -203,6 +217,7 @@ setup:
           curl \
           fd-find \
           jq \
+          pandoc \
           python3 \
           python3-dev \
           python3-yaml \
@@ -213,13 +228,13 @@ setup:
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.42.1 release assets.
+        # Digests of the v0.43.0 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="fe46facba420d1cb8b1dad57d5b182d6df9dadd46c324c2ca3ef574fb7eada6f"
+            expected_sha256="3eb15b8444e969aaa8d637250bef0f2bf90cb030aba0a7016a56b8e5fcdd25fe"
             ;;
           arm64)
-            expected_sha256="285b36cdb46ce65f792f006869698f2664fcde8adc1e8524357f150f9368dd4c"
+            expected_sha256="31ae3a88cc083743e59569fedd6a1f527b3bdd6c567d58e5bc60c6c0af19a540"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -229,7 +244,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.42.1/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.43.0/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
@@ -476,12 +491,31 @@ setup:
       description: Markdown and spelling linters
     - command: |
         set -eu
+        [ "${{ kit.args.lite }}" = "false" ] || exit 0
+        # Same retry and timeout bounds as the CLI tools step above, with a
+        # longer cap because TeX Live is a few hundred MB.
+        # --no-install-recommends skips the documentation packages, which
+        # would roughly double that.
+        timeout 1200 apt-get \
+          -o Acquire::Retries=3 \
+          -o Acquire::http::Timeout=30 \
+          -o Acquire::https::Timeout=30 \
+          install -y --no-install-recommends \
+          texlive-xetex \
+          texlive-fonts-recommended \
+          texlive-latex-extra \
+          lmodern
+      description: XeTeX for pandoc PDF output (SBXAGENT_LITE=false only)
+    - command: |
+        set -eu
+        [ "${{ kit.args.lite }}" = "false" ] || exit 0
         npm install --global playwright@1.62.1
         playwright install --with-deps chromium
       user: "1000"
-      description: Playwright with headless Chromium
+      description: Playwright with headless Chromium (SBXAGENT_LITE=false only)
     - command: |
         set -eu
+        [ "${{ kit.args.lite }}" = "false" ] || exit 0
         # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
         # reuses the one Playwright just installed, above.
         PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.16.0
@@ -500,7 +534,7 @@ setup:
         WRAPPER
         chmod +x "$mmdc_bin"
       user: "1000"
-      description: mermaid-cli, reusing the Playwright Chromium
+      description: mermaid-cli, reusing the Playwright Chromium (SBXAGENT_LITE=false only)
     - command: |
         set -eu
         PI_VERSION=0.84.4

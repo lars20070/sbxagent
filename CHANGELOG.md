@@ -8,6 +8,76 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-09-15
+
+### Added
+
+- `pandoc` in all four sandboxes, for converting between document formats
+  (e.g. Markdown, HTML, docx). Tracks the distribution version, like `rg`
+  or `jq`.
+- `SECURITY.md`: a "Why the wrapper is a plain shell script" section. Unlike
+  tools installed via `curl | sh` or a postinstall hook, `scripts/sbxagent`
+  has no install step, build step, or external dependencies, so its full
+  behaviour is readable end to end before it is trusted. Distinguishes this
+  from kit verification, which still needs signing because kits bundle setup
+  commands and get network access.
+- `.env` file support for `scripts/sbxagent`'s configuration variables
+  (`HASH_LENGTH`, `CROSS_SANDBOX_VISIBILITY`, `XDG_STATE_HOME`): copy
+  `.env.example` to `.env` at the repo root and edit it, for defaults that
+  persist across shells without exporting them for real. Weaker than a real
+  exported environment variable, stronger than the built-in default; `.env`
+  itself is gitignored and never committed.
+- `SBXAGENT_LITE` (default `true`): set `false` to install Playwright,
+  Chromium, mermaid-cli and XeTeX in the sandbox. Passed to the kit as
+  `--kit-arg lite=...` and exported inside the sandbox as `SBXAGENT_LITE`.
+- XeTeX (`texlive-xetex` plus the `texlive-fonts-recommended`,
+  `texlive-latex-extra` and `lmodern` packages pandoc lists for PDF output)
+  in all four sandboxes when `SBXAGENT_LITE=false`, so
+  `pandoc doc.md -o doc.pdf --pdf-engine=xelatex` works.
+
+### Changed
+
+- The pinned in-sandbox `sbx` CLI moved from `v0.42.1` to `v0.43.0` in all
+  four kits, with updated SHA-256 digests, and the release workflow's
+  host-side `sbx` moved with it. Neither of the upstream breaking changes
+  applies here: this repo has no `sbxenv.yaml` (so the `shareSkills` to
+  `skills` rename is moot) and registers `context7` and `github` as local
+  stdio MCP servers, so the `mcp:<server>:client_secret` rename touches no
+  stored secret.
+
+- Generated sandbox names are now truncated to the 63-character limit `sbx`
+  v0.43.0 enforces. A project directory whose basename exceeded roughly 44
+  characters used to produce a name the new validator rejects; the slug is
+  now cut to fit and any trailing hyphen left by the cut is stripped. The
+  path digest is unaffected, so truncated sibling directories still get
+  distinct names. Affected sandboxes get a new name and are recreated on the
+  next run.
+
+- From `sbx` v0.43.0, `sbxagent create` sandboxes stop by themselves once
+  idle, and host skills are shared into the sandbox read-only by default.
+  The wrapper passes no `--skills` flag and so takes that default.
+
+- All four kits: Playwright, Chromium and mermaid-cli are now opt-in. A
+  sandbox created without `SBXAGENT_LITE=false` no longer has `playwright`
+  or `mmdc`; existing sandboxes keep whatever they were built with until
+  removed and recreated.
+
+- All four kits: the wrapper-managed per-project state folder now lives under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/sbxagent/traces/<slug>-<hash>/<agent>/`
+  (an extra `traces/` level under `sbxagent/`), leaving room for future
+  non-trace state without mixing it into the same folder. Existing state
+  folders at the old path are not migrated and become stale; delete them by
+  hand if you want the space back.
+
+### Removed
+
+- All four kits: `mount-state.sh` no longer detects a symlinked stock trace
+  path and refuses early with `exit 2` (the safety net for sandboxes left
+  over from the pre-0.4.6 symlink design). Removed along with its test case
+  and the docs describing it; a sandbox still carrying that old symlink now
+  falls through to the ordinary bind-mount steps instead of an explicit
+  error.
+
 ## [0.4.6] - 2026-09-13
 
 ### Changed

@@ -4,17 +4,11 @@
 #   LINK    the agent's stock trace folder, e.g. ~/.codex/sessions
 #   SUBDIR  the folder under $SBXAGENT_STATE_DIR to relocate it onto
 #
-# A bind mount, not a symlink. An earlier version replaced LINK with a symlink
-# and left the sandbox unable to restart: the parent claude kit provisions
-# ~/.claude/projects as its own volume, and the runtime recreates that mount
-# destination on every start. It refuses to do so through a symlink, failing
-# with "No such file or directory", which surfaces to the user only as
-# "failed to start runtime: 500 Internal Server Error". Keeping LINK a real
-# directory keeps it a valid mount destination for the life of the sandbox.
-#
-# The trade is that a mount does not persist the way a symlink did, so this has
-# to run on every boot rather than once ever. It is idempotent: once bound,
-# LINK and TARGET are the same directory and it exits 0 having touched nothing.
+# A bind mount, not a symlink. LINK must stay a real directory — the parent kit
+# mounts its own volume there and the runtime recreates that mount destination
+# at every start, which it cannot do through a symlink. A bind mount does not
+# persist, so this runs on every boot; it is idempotent: once bound, LINK and
+# TARGET are the same directory and it exits 0 having touched nothing.
 #
 # No-op without SBXAGENT_STATE_DIR, so a sandbox created by plain `sbx run`
 # keeps the agent's default location. With it set, every failure is fatal and
@@ -40,11 +34,6 @@ same_fs() {
 	two="$(stat -c '%d:%i' "$2" 2>/dev/null || stat -f '%d:%i' "$2" 2>/dev/null)"
 	[ -n "${one}" ] && [ "${one}" = "${two}" ]
 }
-
-if [ -L "${link}" ]; then
-	echo "mount-state: ${link} is a symlink; this design needs it to stay a real directory. Remove and recreate the sandbox" >&2
-	exit 2
-fi
 
 mkdir -p "${target}" || {
 	echo "mount-state: could not create ${target}" >&2

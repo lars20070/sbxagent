@@ -11,7 +11,7 @@ KIT_NAME="${SANDBOX_ID}"
 KIT_NAME="${KIT_NAME%%-*}"
 [[ -n "${KIT_NAME}" ]] || KIT_NAME="sbxclaude"
 
-EXPECTED_SBX_VERSION="v0.42.1"
+EXPECTED_SBX_VERSION="v0.43.0"
 EXPECTED_RUFF_VERSION="0.16.2"
 EXPECTED_YAMLLINT_VERSION="1.38.0"
 EXPECTED_MARKDOWNLINT_VERSION="0.23.2"
@@ -74,6 +74,7 @@ check_tool python3 python3 --version
 check_tool shellcheck shellcheck --version
 check_tool git git --version
 check_tool tree tree --version
+check_tool pandoc pandoc --version
 # Inherited from the base image, not installed by any kit. Presence only:
 # go.mod picks the real version and `go` fetches it on demand.
 check_tool go go version
@@ -90,7 +91,6 @@ check_tool_version yamllint "${EXPECTED_YAMLLINT_VERSION}" yamllint --version
 check_tool_version markdownlint-cli2 "v${EXPECTED_MARKDOWNLINT_VERSION}" markdownlint-cli2 --version
 check_tool_version cspell "${EXPECTED_CSPELL_VERSION}" cspell --version
 check_tool_version sbx "${EXPECTED_SBX_VERSION}" sbx version
-check_tool_version playwright "Version ${EXPECTED_PLAYWRIGHT_VERSION}" playwright --version
 # sbxpi does not install this: Pi has no MCP support, so the binary would never
 # run. The sbxpi block below asserts it is absent.
 if [[ "${KIT_NAME}" != "sbxpi" ]]; then
@@ -98,10 +98,21 @@ if [[ "${KIT_NAME}" != "sbxpi" ]]; then
 		github-mcp-server --version
 fi
 
-# Chromium must actually launch, not just be present — this is what lets the
-# agent verify UI changes in a real browser. If this fails specifically on
-# sandbox/seccomp setup, retry chromium.launch() with { args: ['--no-sandbox'] }.
-CHROMIUM_VERSION="$(NODE_PATH="$(npm root -g)" node -e '
+# Kit-specific files below are written by `setup:`, which only re-runs on a
+# rebuild. A sandbox created before a kit change has none of them, and a bare
+# "file missing" would read as a broken test rather than a stale sandbox.
+REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
+
+# Playwright, Chromium, mermaid-cli and XeTeX are opt-in: the wrapper passes
+# SBXAGENT_LITE to the kit as --kit-arg lite=..., and the kit exports it back
+# as SBXAGENT_LITE so both directions can be asserted here.
+if [[ "${SBXAGENT_LITE:-}" == "false" ]]; then
+	check_tool_version playwright "Version ${EXPECTED_PLAYWRIGHT_VERSION}" playwright --version
+
+	# Chromium must actually launch, not just be present — this is what lets the
+	# agent verify UI changes in a real browser. If this fails specifically on
+	# sandbox/seccomp setup, retry chromium.launch() with { args: ['--no-sandbox'] }.
+	CHROMIUM_VERSION="$(NODE_PATH="$(npm root -g)" node -e '
 const { chromium } = require("playwright");
 (async () => {
   const browser = await chromium.launch();
@@ -109,21 +120,40 @@ const { chromium } = require("playwright");
   await browser.close();
 })();
 ' 2>&1)" || fail "chromium failed to launch: ${CHROMIUM_VERSION}"
-[[ -n "${CHROMIUM_VERSION}" ]] || fail "chromium launch produced no version output"
-pass "chromium launches headless (${CHROMIUM_VERSION})"
+	[[ -n "${CHROMIUM_VERSION}" ]] || fail "chromium launch produced no version output"
+	pass "chromium launches headless (${CHROMIUM_VERSION})"
 
-check_tool_version mmdc "${EXPECTED_MERMAID_VERSION}" mmdc --version
+	check_tool_version mmdc "${EXPECTED_MERMAID_VERSION}" mmdc --version
 
-# Rendering must actually work, not just report a version — this is what
-# proves the mmdc wrapper correctly reuses the Playwright Chromium instead of
-# needing its own.
-MMDC_TMPDIR="$(mktemp -d)"
-trap 'rm -rf "${MMDC_TMPDIR}"' EXIT
-printf 'graph TD\n  A --> B\n' >"${MMDC_TMPDIR}/diagram.mmd"
-mmdc -i "${MMDC_TMPDIR}/diagram.mmd" -o "${MMDC_TMPDIR}/diagram.png" >/dev/null 2>&1 ||
-	fail "mmdc failed to render a diagram"
-[[ -s "${MMDC_TMPDIR}/diagram.png" ]] || fail "mmdc produced an empty or missing PNG"
-pass "mmdc renders a diagram using the reused Playwright Chromium"
+	# Rendering must actually work, not just report a version — this is what
+	# proves the mmdc wrapper correctly reuses the Playwright Chromium instead of
+	# needing its own.
+	LITE_TMPDIR="$(mktemp -d)"
+	trap 'rm -rf "${LITE_TMPDIR}"' EXIT
+	printf 'graph TD\n  A --> B\n' >"${LITE_TMPDIR}/diagram.mmd"
+	mmdc -i "${LITE_TMPDIR}/diagram.mmd" -o "${LITE_TMPDIR}/diagram.png" >/dev/null 2>&1 ||
+		fail "mmdc failed to render a diagram"
+	[[ -s "${LITE_TMPDIR}/diagram.png" ]] || fail "mmdc produced an empty or missing PNG"
+	pass "mmdc renders a diagram using the reused Playwright Chromium"
+
+	check_tool xelatex xelatex --version
+
+	# The point of XeTeX here is pandoc PDF output, so prove that path end to
+	# end rather than just the engine binary.
+	printf '# Hello\n\nA paragraph.\n' >"${LITE_TMPDIR}/doc.md"
+	pandoc "${LITE_TMPDIR}/doc.md" -o "${LITE_TMPDIR}/doc.pdf" --pdf-engine=xelatex >/dev/null 2>&1 ||
+		fail "pandoc failed to render a PDF through xelatex"
+	[[ -s "${LITE_TMPDIR}/doc.pdf" ]] || fail "pandoc produced an empty or missing PDF"
+	pass "pandoc renders a PDF through xelatex"
+else
+	! command -v playwright >/dev/null 2>&1 ||
+		fail "playwright is installed but SBXAGENT_LITE is not false (${REBUILD_HINT})"
+	! command -v mmdc >/dev/null 2>&1 ||
+		fail "mmdc is installed but SBXAGENT_LITE is not false (${REBUILD_HINT})"
+	! command -v xelatex >/dev/null 2>&1 ||
+		fail "xelatex is installed but SBXAGENT_LITE is not false (${REBUILD_HINT})"
+	pass "playwright, mmdc and xelatex are not installed (SBXAGENT_LITE=${SBXAGENT_LITE:-unset})"
+fi
 
 CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 [[ -s "${CA_BUNDLE}" ]] || fail "CA certificate bundle is missing or empty"
@@ -137,11 +167,6 @@ printf '%s\n' "${INSTEAD_OF}" | grep -Fxq 'git@github.com:' ||
 printf '%s\n' "${INSTEAD_OF}" | grep -Fxq 'ssh://git@github.com/' ||
 	fail "missing insteadOf rewrite for ssh://git@github.com/"
 pass "GitHub SSH remotes rewrite to HTTPS"
-
-# Kit-specific files below are written by `setup:`, which only re-runs on a
-# rebuild. A sandbox created before a kit change has none of them, and a bare
-# "file missing" would read as a broken test rather than a stale sandbox.
-REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
 # The entrypoint relocates only the agent's native session-trace tree, by
 # bind-mounting this sandbox's writable subfolder in the shared project state
@@ -162,7 +187,7 @@ esac
 BIND_HINT="${REBUILD_HINT} — the bind is re-made at every start, not stored on disk, so a missing one means the startup step and the entrypoint both failed to run"
 [[ -n "${SBXAGENT_STATE_DIR:-}" ]] ||
 	fail "SBXAGENT_STATE_DIR is unset; this sandbox was not created by the wrapper"
-[[ "${SBXAGENT_STATE_DIR}" == */sbxagent/"${STATE_KEY}"/"${KIT_NAME}" ]] ||
+[[ "${SBXAGENT_STATE_DIR}" == */sbxagent/traces/"${STATE_KEY}"/"${KIT_NAME}" ]] ||
 	fail "SBXAGENT_STATE_DIR is ${SBXAGENT_STATE_DIR}, not this sandbox's state folder"
 TRACE_TARGET="${SBXAGENT_STATE_DIR}/${TRACE_SUBDIR}"
 [[ ! -L "${TRACE_LINK}" ]] ||

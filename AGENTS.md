@@ -19,6 +19,13 @@ the commit and push themselves.
   equals `name:` in the spec, the `sbx` positional operand, the sandbox-name
   prefix, and the command you type.
 - `kits/<command>/files/` — files copied into that sandbox at kit-build time.
+- `args:` in each spec is how a host-side toggle reaches setup: the wrapper
+  passes `--kit-arg name=value`, and `sbx` substitutes `${{ kit.args.name }}`
+  anywhere in the spec before decoding it. `SBXAGENT_LITE` → `lite` is the
+  only one today.
+- `.env.example` — template for a gitignored `.env` at the repo root: weaker
+  than a real exported env var, stronger than `scripts/sbxagent`'s hardcoded
+  defaults. Copy it to `.env` and edit; never commit `.env` itself.
 - `scripts/sbxagent` — wrapper CLI around `sbx` that creates, rebuilds, and
   re-attaches the per-project sandbox. It dispatches on `basename "$0"`, so it
   is invoked through the `scripts/sbxclaude`, `scripts/sbxcodex`,
