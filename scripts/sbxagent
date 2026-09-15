@@ -83,8 +83,8 @@ require_sbx() {
 # against the cwd.
 compute_state_mounts() {
 	case "${XDG_STATE_HOME:-}" in
-	/*) STATE_HOME="${XDG_STATE_HOME}/sbxagent" ;;
-	*) STATE_HOME="${HOME}/.local/state/sbxagent" ;;
+	/*) STATE_HOME="${XDG_STATE_HOME}/sbxagent/traces" ;;
+	*) STATE_HOME="${HOME}/.local/state/sbxagent/traces" ;;
 	esac
 	PROJECT_DIR="${STATE_HOME}/${SLUG:+${SLUG}-}${HASH}"
 	AGENT_DIR="${PROJECT_DIR}/${SELF}"

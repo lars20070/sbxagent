@@ -16,7 +16,7 @@ Where each agent's session trace ends up, and who else can read it. See
 
 Each agent saves its sessions where it always does, inside the sandbox. The
 wrapper makes that folder and a folder on your machine the same folder. The
-host folder is `~/.local/state/sbxagent/<slug>-<hash>/<agent>/`, for example
+host folder is `~/.local/state/sbxagent/traces/<slug>-<hash>/<agent>/`, for example
 `…/sbxclaude/`.
 
 So when the agent saves a session, the file is on your machine at once. Nothing
@@ -37,7 +37,7 @@ flowchart LR
   subgraph HOST["your machine"]
     direction TB
     WRAP["sbxclaude / sbxcodex<br/>sbxcursor / sbxpi"]
-    STATE["~/.local/state/sbxagent<br/>&lt;slug&gt;-&lt;hash&gt;/&lt;agent&gt;/"]
+    STATE["~/.local/state/sbxagent/traces<br/>&lt;slug&gt;-&lt;hash&gt;/&lt;agent&gt;/"]
   end
 
   subgraph VM["sbx sandbox"]
@@ -75,7 +75,7 @@ show up on the host. See [Under the hood](#under-the-hood) for the details.*
 Everything sits under one folder in your home directory:
 
 ```text
-~/.local/state/sbxagent/<slug>-<hash>/<agent>/
+~/.local/state/sbxagent/traces/<slug>-<hash>/<agent>/
 ```
 
 - `<slug>` is the name of your project folder. Anything that is not a letter,
@@ -95,27 +95,28 @@ it. Your home folder then looks like this:
 └── .local
     └── state
         └── sbxagent
-            └── weather-app-3f9a1c2e     ← <slug>-<hash>
-                ├── sbxclaude
-                │   └── projects
-                │       └── -Users-you-Code-weather-app
-                │           └── 8c1d2e7a-….jsonl
-                ├── sbxcodex
-                │   └── sessions
-                │       └── 2026
-                │           └── 09
-                │               └── 13
-                │                   └── rollout-2026-09-13T10-42-07-….jsonl
-                ├── sbxcursor
-                │   └── projects
-                │       └── Users-you-Code-weather-app
-                │           └── agent-transcripts
-                │               └── 5b7e…
-                │                   └── 5b7e….jsonl
-                └── sbxpi
-                    └── sessions
-                        └── --Users-you-Code-weather-app--
-                            └── 2026-09-13T10-42-07_….jsonl
+            └── traces
+                └── weather-app-3f9a1c2e     ← <slug>-<hash>
+                    ├── sbxclaude
+                    │   └── projects
+                    │       └── -Users-you-Code-weather-app
+                    │           └── 8c1d2e7a-….jsonl
+                    ├── sbxcodex
+                    │   └── sessions
+                    │       └── 2026
+                    │           └── 09
+                    │               └── 13
+                    │                   └── rollout-2026-09-13T10-42-07-….jsonl
+                    ├── sbxcursor
+                    │   └── projects
+                    │       └── Users-you-Code-weather-app
+                    │           └── agent-transcripts
+                    │               └── 5b7e…
+                    │                   └── 5b7e….jsonl
+                    └── sbxpi
+                        └── sessions
+                            └── --Users-you-Code-weather-app--
+                                └── 2026-09-13T10-42-07_….jsonl
 ```
 
 You do not have to work any of that out. In your project, run `sbxclaude name`
@@ -123,11 +124,11 @@ You do not have to work any of that out. In your project, run `sbxclaude name`
 `sbxclaude-<slug>-<hash>`. Drop the `sbxclaude-` prefix and you have the folder:
 
 ```bash
-cd ~/.local/state/sbxagent/"$(sbxclaude name | sed 's/^sbxclaude-//')"/sbxclaude
+cd ~/.local/state/sbxagent/traces/"$(sbxclaude name | sed 's/^sbxclaude-//')"/sbxclaude
 ```
 
-If you set `XDG_STATE_HOME`, the tree lives under `$XDG_STATE_HOME/sbxagent/`
-instead of `~/.local/state/sbxagent/`.
+If you set `XDG_STATE_HOME`, the tree lives under `$XDG_STATE_HOME/sbxagent/traces/`
+instead of `~/.local/state/sbxagent/traces/`.
 
 The wrapper keeps each agent's native session format and relocates its trace
 tree into that agent's state subfolder:

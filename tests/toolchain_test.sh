@@ -163,7 +163,7 @@ esac
 BIND_HINT="${REBUILD_HINT} — the bind is re-made at every start, not stored on disk, so a missing one means the startup step and the entrypoint both failed to run"
 [[ -n "${SBXAGENT_STATE_DIR:-}" ]] ||
 	fail "SBXAGENT_STATE_DIR is unset; this sandbox was not created by the wrapper"
-[[ "${SBXAGENT_STATE_DIR}" == */sbxagent/"${STATE_KEY}"/"${KIT_NAME}" ]] ||
+[[ "${SBXAGENT_STATE_DIR}" == */sbxagent/traces/"${STATE_KEY}"/"${KIT_NAME}" ]] ||
 	fail "SBXAGENT_STATE_DIR is ${SBXAGENT_STATE_DIR}, not this sandbox's state folder"
 TRACE_TARGET="${SBXAGENT_STATE_DIR}/${TRACE_SUBDIR}"
 [[ ! -L "${TRACE_LINK}" ]] ||

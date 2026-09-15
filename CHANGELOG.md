@@ -20,6 +20,15 @@ and this project adheres to
   from kit verification, which still needs signing because kits bundle setup
   commands and get network access.
 
+### Changed
+
+- All four kits: the wrapper-managed per-project state folder now lives under
+  `${XDG_STATE_HOME:-$HOME/.local/state}/sbxagent/traces/<slug>-<hash>/<agent>/`
+  (an extra `traces/` level under `sbxagent/`), leaving room for future
+  non-trace state without mixing it into the same folder. Existing state
+  folders at the old path are not migrated and become stale; delete them by
+  hand if you want the space back.
+
 ### Removed
 
 - All four kits: `mount-state.sh` no longer detects a symlinked stock trace

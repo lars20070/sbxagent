@@ -56,8 +56,8 @@ cd "${PROJECT}"
 
 SANDBOX="$("${WRAPPER}" name)"
 # Mirrors the wrapper's own layout: the sandbox name is <kit>-<slug>-<hash> and
-# the agent state folder is <state home>/sbxagent/<slug>-<hash>/<kit>.
-STATE_DIR="${XDG_STATE_HOME}/sbxagent/${SANDBOX#"${KIT}"-}/${KIT}"
+# the agent state folder is <state home>/sbxagent/traces/<slug>-<hash>/<kit>.
+STATE_DIR="${XDG_STATE_HOME}/sbxagent/traces/${SANDBOX#"${KIT}"-}/${KIT}"
 TARGET="${STATE_DIR}/${SUBDIR}"
 
 cleanup() {

@@ -164,7 +164,7 @@ export SBX_LOG
 # sandbox-creating call; point it into TEST_ROOT so the real machine's
 # ~/.local/state is never touched.
 export XDG_STATE_HOME="${TEST_ROOT}/xdg-state"
-STATE_ROOT="${XDG_STATE_HOME}/sbxagent"
+STATE_ROOT="${XDG_STATE_HOME}/sbxagent/traces"
 
 # Portable mode probe: BSD stat first, GNU fallback, same pattern as the
 # wrapper's shasum/sha256sum probe.

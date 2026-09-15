@@ -21,7 +21,7 @@ Every kit installs the same tools:
 The environment is the same in every sandbox. Your project is mounted as the
 workspace, so edits land on your real files. Each sandbox also gets a
 wrapper-managed state folder under
-`${XDG_STATE_HOME:-~/.local/state}/sbxagent/<slug>-<hash>/`, keyed by the
+`${XDG_STATE_HOME:-~/.local/state}/sbxagent/traces/<slug>-<hash>/`, keyed by the
 project directory and shared read-only across every agent's sandbox for it,
 with a per-agent subfolder (`sbxclaude/`, `sbxcodex/`, …) that only that
 agent's own sandbox can write. Set `CROSS_SANDBOX_VISIBILITY=false` when
