@@ -91,7 +91,6 @@ check_tool_version yamllint "${EXPECTED_YAMLLINT_VERSION}" yamllint --version
 check_tool_version markdownlint-cli2 "v${EXPECTED_MARKDOWNLINT_VERSION}" markdownlint-cli2 --version
 check_tool_version cspell "${EXPECTED_CSPELL_VERSION}" cspell --version
 check_tool_version sbx "${EXPECTED_SBX_VERSION}" sbx version
-check_tool_version playwright "Version ${EXPECTED_PLAYWRIGHT_VERSION}" playwright --version
 # sbxpi does not install this: Pi has no MCP support, so the binary would never
 # run. The sbxpi block below asserts it is absent.
 if [[ "${KIT_NAME}" != "sbxpi" ]]; then
@@ -99,10 +98,21 @@ if [[ "${KIT_NAME}" != "sbxpi" ]]; then
 		github-mcp-server --version
 fi
 
-# Chromium must actually launch, not just be present — this is what lets the
-# agent verify UI changes in a real browser. If this fails specifically on
-# sandbox/seccomp setup, retry chromium.launch() with { args: ['--no-sandbox'] }.
-CHROMIUM_VERSION="$(NODE_PATH="$(npm root -g)" node -e '
+# Kit-specific files below are written by `setup:`, which only re-runs on a
+# rebuild. A sandbox created before a kit change has none of them, and a bare
+# "file missing" would read as a broken test rather than a stale sandbox.
+REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
+
+# Playwright, Chromium and mermaid-cli are opt-in: the wrapper passes
+# SBXAGENT_LITE to the kit as --kit-arg lite=..., and the kit exports it back
+# as SBXAGENT_LITE so both directions can be asserted here.
+if [[ "${SBXAGENT_LITE:-}" == "false" ]]; then
+	check_tool_version playwright "Version ${EXPECTED_PLAYWRIGHT_VERSION}" playwright --version
+
+	# Chromium must actually launch, not just be present — this is what lets the
+	# agent verify UI changes in a real browser. If this fails specifically on
+	# sandbox/seccomp setup, retry chromium.launch() with { args: ['--no-sandbox'] }.
+	CHROMIUM_VERSION="$(NODE_PATH="$(npm root -g)" node -e '
 const { chromium } = require("playwright");
 (async () => {
   const browser = await chromium.launch();
@@ -110,21 +120,28 @@ const { chromium } = require("playwright");
   await browser.close();
 })();
 ' 2>&1)" || fail "chromium failed to launch: ${CHROMIUM_VERSION}"
-[[ -n "${CHROMIUM_VERSION}" ]] || fail "chromium launch produced no version output"
-pass "chromium launches headless (${CHROMIUM_VERSION})"
+	[[ -n "${CHROMIUM_VERSION}" ]] || fail "chromium launch produced no version output"
+	pass "chromium launches headless (${CHROMIUM_VERSION})"
 
-check_tool_version mmdc "${EXPECTED_MERMAID_VERSION}" mmdc --version
+	check_tool_version mmdc "${EXPECTED_MERMAID_VERSION}" mmdc --version
 
-# Rendering must actually work, not just report a version — this is what
-# proves the mmdc wrapper correctly reuses the Playwright Chromium instead of
-# needing its own.
-MMDC_TMPDIR="$(mktemp -d)"
-trap 'rm -rf "${MMDC_TMPDIR}"' EXIT
-printf 'graph TD\n  A --> B\n' >"${MMDC_TMPDIR}/diagram.mmd"
-mmdc -i "${MMDC_TMPDIR}/diagram.mmd" -o "${MMDC_TMPDIR}/diagram.png" >/dev/null 2>&1 ||
-	fail "mmdc failed to render a diagram"
-[[ -s "${MMDC_TMPDIR}/diagram.png" ]] || fail "mmdc produced an empty or missing PNG"
-pass "mmdc renders a diagram using the reused Playwright Chromium"
+	# Rendering must actually work, not just report a version — this is what
+	# proves the mmdc wrapper correctly reuses the Playwright Chromium instead of
+	# needing its own.
+	MMDC_TMPDIR="$(mktemp -d)"
+	trap 'rm -rf "${MMDC_TMPDIR}"' EXIT
+	printf 'graph TD\n  A --> B\n' >"${MMDC_TMPDIR}/diagram.mmd"
+	mmdc -i "${MMDC_TMPDIR}/diagram.mmd" -o "${MMDC_TMPDIR}/diagram.png" >/dev/null 2>&1 ||
+		fail "mmdc failed to render a diagram"
+	[[ -s "${MMDC_TMPDIR}/diagram.png" ]] || fail "mmdc produced an empty or missing PNG"
+	pass "mmdc renders a diagram using the reused Playwright Chromium"
+else
+	! command -v playwright >/dev/null 2>&1 ||
+		fail "playwright is installed but SBXAGENT_LITE is not false (${REBUILD_HINT})"
+	! command -v mmdc >/dev/null 2>&1 ||
+		fail "mmdc is installed but SBXAGENT_LITE is not false (${REBUILD_HINT})"
+	pass "playwright and mmdc are not installed (SBXAGENT_LITE=${SBXAGENT_LITE:-unset})"
+fi
 
 CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 [[ -s "${CA_BUNDLE}" ]] || fail "CA certificate bundle is missing or empty"
@@ -138,11 +155,6 @@ printf '%s\n' "${INSTEAD_OF}" | grep -Fxq 'git@github.com:' ||
 printf '%s\n' "${INSTEAD_OF}" | grep -Fxq 'ssh://git@github.com/' ||
 	fail "missing insteadOf rewrite for ssh://git@github.com/"
 pass "GitHub SSH remotes rewrite to HTTPS"
-
-# Kit-specific files below are written by `setup:`, which only re-runs on a
-# rebuild. A sandbox created before a kit change has none of them, and a bare
-# "file missing" would read as a broken test rather than a stale sandbox.
-REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
 # The entrypoint relocates only the agent's native session-trace tree, by
 # bind-mounting this sandbox's writable subfolder in the shared project state

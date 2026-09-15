@@ -25,8 +25,16 @@ and this project adheres to
   persist across shells without exporting them for real. Weaker than a real
   exported environment variable, stronger than the built-in default; `.env`
   itself is gitignored and never committed.
+- `SBXAGENT_LITE` (default `true`): set `false` to install Playwright,
+  Chromium and mermaid-cli in the sandbox. Passed to the kit as
+  `--kit-arg lite=...` and exported inside the sandbox as `SBXAGENT_LITE`.
 
 ### Changed
+
+- All four kits: Playwright, Chromium and mermaid-cli are now opt-in. A
+  sandbox created without `SBXAGENT_LITE=false` no longer has `playwright`
+  or `mmdc`; existing sandboxes keep whatever they were built with until
+  removed and recreated.
 
 - All four kits: the wrapper-managed per-project state folder now lives under
   `${XDG_STATE_HOME:-$HOME/.local/state}/sbxagent/traces/<slug>-<hash>/<agent>/`

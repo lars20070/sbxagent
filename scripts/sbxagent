@@ -66,6 +66,10 @@ export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
 # subfolder. Takes effect at create time.
 CROSS_SANDBOX_VISIBILITY="${CROSS_SANDBOX_VISIBILITY:-true}"
 
+# false also installs Playwright, Chromium and mermaid-cli. Takes effect at
+# create time; passed to the kit as --kit-arg lite=... (see args: in spec.yaml).
+SBXAGENT_LITE="${SBXAGENT_LITE:-true}"
+
 no_args() {
 	local command="$1"
 	shift
@@ -132,6 +136,10 @@ compute_state_mounts() {
 	false) PROJECT_MOUNT="" ;;
 	*) die "CROSS_SANDBOX_VISIBILITY must be true or false, not '${CROSS_SANDBOX_VISIBILITY}'" ;;
 	esac
+	case "${SBXAGENT_LITE}" in
+	true | false) ;;
+	*) die "SBXAGENT_LITE must be true or false, not '${SBXAGENT_LITE}'" ;;
+	esac
 	mkdir -p "${PROJECT_DIR}"
 	chmod 700 "${PROJECT_DIR}"
 	mkdir -p "${AGENT_DIR}"
@@ -190,7 +198,7 @@ case "${1:-}" in
 	fi
 	sbx kit validate "${KIT}" >/dev/null
 	compute_state_mounts
-	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
+	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 name)
 	shift
@@ -226,7 +234,7 @@ create)
 	no_args create "$@"
 	require_sbx
 	compute_state_mounts
-	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
+	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 rm)
 	shift

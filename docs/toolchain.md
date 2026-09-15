@@ -5,15 +5,15 @@ change them. See [README.md](../README.md) to get a sandbox running first.
 
 ## What each sandbox gets
 
-Every kit installs the same tools:
+Every kit installs the same tools (two of them opt-in):
 
 | Tool | For | Version |
 | --- | --- | --- |
 | `curl`, `jq`, `pandoc`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution |
 | `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below |
 | `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below |
-| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below |
-| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below |
+| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes; only with `SBXAGENT_LITE=false` | pinned below |
+| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium; only with `SBXAGENT_LITE=false` | pinned below |
 | `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below |
 | `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution |
 | `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image |

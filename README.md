@@ -26,7 +26,7 @@ flowchart LR
 
   subgraph VM["sbx sandbox"]
     AGENT["Claude Code, Codex,<br/>Cursor, Pi CLI"]
-    TOOLS["git, docker, rg, jq,<br/>ruff, playwright, ..."]
+    TOOLS["git, docker, rg, jq,<br/>ruff, pandoc, ..."]
     PROXY["credential + network<br/>allowlist proxy"]
   end
 
