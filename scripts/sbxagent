@@ -55,7 +55,7 @@ HASH_LENGTH="${HASH_LENGTH:-8}"
 
 # Upstream virtiofs cache bug: `cp` reading from the mounted workspace inside a
 # sandbox writes a hole (correct size, all NUL bytes); `cat` and `dd` are fine.
-# https://github.com/docker/sbx-releases/issues/526 — no fix as of sbx v0.42.1.
+# https://github.com/docker/sbx-releases/issues/526 — no fix as of sbx v0.43.0.
 # Must be set on the host before create. Revisit when bumping the pinned sbx
 # version; remove this export once #526 is fixed in that release.
 export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
@@ -187,6 +187,32 @@ elif command -v sha256sum >/dev/null 2>&1; then
 	HASH="$(printf '%s' "${DIR}" | sha256sum | cut -c "1-${HASH_LENGTH}")"
 else
 	die "shasum or sha256sum is required"
+fi
+# sbx v0.43.0 rejects a sandbox name longer than 63 characters or ending in a
+# hyphen or period. SELF and HASH are fixed, so the slug is what has to give:
+# cut it to whatever room is left, then re-strip trailing hyphens so a cut that
+# lands on one cannot produce an invalid name. Lossy on purpose — HASH still
+# carries the whole path, so two long sibling directories stay distinct. SLUG
+# also keys the state folder (compute_state_mounts), and cutting it here rather
+# than at the SANDBOX= line below keeps the two in lockstep, as docs/traces.md
+# documents: drop the "<command>-" prefix from a sandbox name and you have the
+# folder.
+SANDBOX_NAME_MAX=63
+# The shortest name this can produce, "<self>-<hash>", with the slug dropped entirely.
+name_floor=$((${#SELF} + 1 + ${#HASH}))
+if ((name_floor > SANDBOX_NAME_MAX)); then
+	die "HASH_LENGTH=${HASH_LENGTH} makes every sandbox name longer than ${SANDBOX_NAME_MAX} characters"
+fi
+# One more character than the floor goes to the hyphen a non-empty slug adds.
+slug_budget=$((SANDBOX_NAME_MAX - name_floor - 1))
+if ((slug_budget < 0)); then
+	slug_budget=0
+fi
+if ((${#SLUG} > slug_budget)); then
+	SLUG="${SLUG:0:${slug_budget}}"
+	while [[ "${SLUG%-}" != "${SLUG}" ]]; do
+		SLUG="${SLUG%-}"
+	done
 fi
 SANDBOX="${SELF}-${SLUG:+${SLUG}-}${HASH}"
 

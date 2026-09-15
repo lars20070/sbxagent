@@ -35,6 +35,26 @@ and this project adheres to
 
 ### Changed
 
+- The pinned in-sandbox `sbx` CLI moved from `v0.42.1` to `v0.43.0` in all
+  four kits, with updated SHA-256 digests, and the release workflow's
+  host-side `sbx` moved with it. Neither of the upstream breaking changes
+  applies here: this repo has no `sbxenv.yaml` (so the `shareSkills` to
+  `skills` rename is moot) and registers `context7` and `github` as local
+  stdio MCP servers, so the `mcp:<server>:client_secret` rename touches no
+  stored secret.
+
+- Generated sandbox names are now truncated to the 63-character limit `sbx`
+  v0.43.0 enforces. A project directory whose basename exceeded roughly 44
+  characters used to produce a name the new validator rejects; the slug is
+  now cut to fit and any trailing hyphen left by the cut is stripped. The
+  path digest is unaffected, so truncated sibling directories still get
+  distinct names. Affected sandboxes get a new name and are recreated on the
+  next run.
+
+- From `sbx` v0.43.0, `sbxagent create` sandboxes stop by themselves once
+  idle, and host skills are shared into the sandbox read-only by default.
+  The wrapper passes no `--skills` flag and so takes that default.
+
 - All four kits: Playwright, Chromium and mermaid-cli are now opt-in. A
   sandbox created without `SBXAGENT_LITE=false` no longer has `playwright`
   or `mmdc`; existing sandboxes keep whatever they were built with until

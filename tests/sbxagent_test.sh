@@ -191,7 +191,13 @@ WORK_A="${TEST_ROOT}/one/api"
 WORK_B="${TEST_ROOT}/two/api"
 EMPTY_SLUG="${TEST_ROOT}/..."
 LINK="${TEST_ROOT}/api-link"
-mkdir -p "${WORK_A}" "${WORK_B}" "${EMPTY_SLUG}"
+# Two basenames that overrun the 63-character sandbox-name limit sbx enforces.
+# The second is sized so the cut lands exactly on a hyphen, which would leave a
+# trailing hyphen -- also rejected -- if the wrapper did not re-strip afterwards.
+LONG_SLUG="${TEST_ROOT}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+LONG_SLUG_CUT_ON_HYPHEN="${TEST_ROOT}/ccccccccccccccccccccccccccccccccccccccccccc-tail"
+mkdir -p "${WORK_A}" "${WORK_B}" "${EMPTY_SLUG}" "${LONG_SLUG}" \
+	"${LONG_SLUG_CUT_ON_HYPHEN}"
 ln -s "${WORK_A}" "${LINK}"
 
 # Sandbox naming: derived from the canonical directory path, so it must be
@@ -213,6 +219,29 @@ assert_match "^sbxclaude-$(expected_slug "${WORK_A}")-[0-9a-f]{12}$" \
 	"${CUSTOM_HASH_NAME}" "custom hash length"
 assert_no_log "name"
 pass "name derivation is unique, stable, canonical, and configurable"
+
+# sbx rejects a sandbox name longer than 63 characters or ending in a hyphen or
+# period, so the slug is truncated to fit. The hash still carries the whole
+# path, so two truncated siblings stay distinct.
+clear_log
+LONG_NAME="$(run_claude "${LONG_SLUG}" name)"
+assert_match "^sbxclaude-a{44}-[0-9a-f]{8}$" "${LONG_NAME}" "truncated long name"
+[[ "${#LONG_NAME}" -le 63 ]] ||
+	fail "long basename produced a ${#LONG_NAME}-character name '${LONG_NAME}'"
+HYPHEN_CUT_NAME="$(run_claude "${LONG_SLUG_CUT_ON_HYPHEN}" name)"
+assert_match "^sbxclaude-c{43}-[0-9a-f]{8}$" \
+	"${HYPHEN_CUT_NAME}" "cut landing on a hyphen"
+# A hash long enough to overrun the limit on its own has nothing left to trim,
+# so the wrapper refuses rather than emitting a name sbx would reject.
+set +e
+OVERLONG_HASH_OUT="$(HASH_LENGTH=60 run_claude "${WORK_A}" name 2>&1)"
+OVERLONG_HASH_STATUS=$?
+set -e
+[[ "${OVERLONG_HASH_STATUS}" -ne 0 ]] ||
+	fail "HASH_LENGTH=60 unexpectedly produced '${OVERLONG_HASH_OUT}'"
+assert_match "63 characters" "${OVERLONG_HASH_OUT}" "overlong hash error"
+assert_no_log "name"
+pass "names are truncated to the 63-character limit without a trailing hyphen"
 
 # version: reads VERSION directly, needs no sbx call.
 clear_log
@@ -591,7 +620,7 @@ COPIED="${TEST_ROOT}/sbx-unknown-agent"
 # workspace file as fully sparse, so `cp` out of the workspace writes a
 # correctly-sized file of NUL bytes and this test would fail for a reason that
 # has nothing to do with dispatch. No `cp` flag avoids it; `cat` and `dd` are
-# unaffected. Open upstream, no fix as of sbx v0.42.1:
+# unaffected. Open upstream, no fix as of sbx v0.43.0:
 # https://github.com/docker/sbx-releases/issues/526
 cat "${AGENT_SCRIPT}" >"${COPIED}"
 chmod +x "${COPIED}"
