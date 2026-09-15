@@ -150,6 +150,10 @@
     "remountable",
     "bootstrapper",
     "pandoc",
-    "DOTENV"
+    "DOTENV",
+    "texlive",
+    "xetex",
+    "xelatex",
+    "lmodern"
   ]
 }

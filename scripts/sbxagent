@@ -66,8 +66,8 @@ export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
 # subfolder. Takes effect at create time.
 CROSS_SANDBOX_VISIBILITY="${CROSS_SANDBOX_VISIBILITY:-true}"
 
-# false also installs Playwright, Chromium and mermaid-cli. Takes effect at
-# create time; passed to the kit as --kit-arg lite=... (see args: in spec.yaml).
+# false also installs Playwright, Chromium, mermaid-cli and XeTeX. Takes effect
+# at create time; passed to the kit as --kit-arg lite=... (see args: in spec.yaml).
 SBXAGENT_LITE="${SBXAGENT_LITE:-true}"
 
 no_args() {

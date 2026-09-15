@@ -5,7 +5,7 @@ change them. See [README.md](../README.md) to get a sandbox running first.
 
 ## What each sandbox gets
 
-Every kit installs the same tools (two of them opt-in):
+Every kit installs the same tools (three of them opt-in):
 
 | Tool | For | Version |
 | --- | --- | --- |
@@ -14,6 +14,7 @@ Every kit installs the same tools (two of them opt-in):
 | `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below |
 | Playwright, with headless Chromium | loading pages and taking screenshots of UI changes; only with `SBXAGENT_LITE=false` | pinned below |
 | `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium; only with `SBXAGENT_LITE=false` | pinned below |
+| XeTeX (`texlive-xetex`, `texlive-fonts-recommended`, `texlive-latex-extra`, `lmodern`) | `pandoc … --pdf-engine=xelatex` PDF output; only with `SBXAGENT_LITE=false` | tracks the distribution |
 | `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below |
 | `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution |
 | `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image |

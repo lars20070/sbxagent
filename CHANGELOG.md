@@ -26,8 +26,12 @@ and this project adheres to
   exported environment variable, stronger than the built-in default; `.env`
   itself is gitignored and never committed.
 - `SBXAGENT_LITE` (default `true`): set `false` to install Playwright,
-  Chromium and mermaid-cli in the sandbox. Passed to the kit as
+  Chromium, mermaid-cli and XeTeX in the sandbox. Passed to the kit as
   `--kit-arg lite=...` and exported inside the sandbox as `SBXAGENT_LITE`.
+- XeTeX (`texlive-xetex` plus the `texlive-fonts-recommended`,
+  `texlive-latex-extra` and `lmodern` packages pandoc lists for PDF output)
+  in all four sandboxes when `SBXAGENT_LITE=false`, so
+  `pandoc doc.md -o doc.pdf --pdf-engine=xelatex` works.
 
 ### Changed
 

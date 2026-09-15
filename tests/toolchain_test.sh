@@ -103,7 +103,7 @@ fi
 # "file missing" would read as a broken test rather than a stale sandbox.
 REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
-# Playwright, Chromium and mermaid-cli are opt-in: the wrapper passes
+# Playwright, Chromium, mermaid-cli and XeTeX are opt-in: the wrapper passes
 # SBXAGENT_LITE to the kit as --kit-arg lite=..., and the kit exports it back
 # as SBXAGENT_LITE so both directions can be asserted here.
 if [[ "${SBXAGENT_LITE:-}" == "false" ]]; then
@@ -128,19 +128,31 @@ const { chromium } = require("playwright");
 	# Rendering must actually work, not just report a version — this is what
 	# proves the mmdc wrapper correctly reuses the Playwright Chromium instead of
 	# needing its own.
-	MMDC_TMPDIR="$(mktemp -d)"
-	trap 'rm -rf "${MMDC_TMPDIR}"' EXIT
-	printf 'graph TD\n  A --> B\n' >"${MMDC_TMPDIR}/diagram.mmd"
-	mmdc -i "${MMDC_TMPDIR}/diagram.mmd" -o "${MMDC_TMPDIR}/diagram.png" >/dev/null 2>&1 ||
+	LITE_TMPDIR="$(mktemp -d)"
+	trap 'rm -rf "${LITE_TMPDIR}"' EXIT
+	printf 'graph TD\n  A --> B\n' >"${LITE_TMPDIR}/diagram.mmd"
+	mmdc -i "${LITE_TMPDIR}/diagram.mmd" -o "${LITE_TMPDIR}/diagram.png" >/dev/null 2>&1 ||
 		fail "mmdc failed to render a diagram"
-	[[ -s "${MMDC_TMPDIR}/diagram.png" ]] || fail "mmdc produced an empty or missing PNG"
+	[[ -s "${LITE_TMPDIR}/diagram.png" ]] || fail "mmdc produced an empty or missing PNG"
 	pass "mmdc renders a diagram using the reused Playwright Chromium"
+
+	check_tool xelatex xelatex --version
+
+	# The point of XeTeX here is pandoc PDF output, so prove that path end to
+	# end rather than just the engine binary.
+	printf '# Hello\n\nA paragraph.\n' >"${LITE_TMPDIR}/doc.md"
+	pandoc "${LITE_TMPDIR}/doc.md" -o "${LITE_TMPDIR}/doc.pdf" --pdf-engine=xelatex >/dev/null 2>&1 ||
+		fail "pandoc failed to render a PDF through xelatex"
+	[[ -s "${LITE_TMPDIR}/doc.pdf" ]] || fail "pandoc produced an empty or missing PDF"
+	pass "pandoc renders a PDF through xelatex"
 else
 	! command -v playwright >/dev/null 2>&1 ||
 		fail "playwright is installed but SBXAGENT_LITE is not false (${REBUILD_HINT})"
 	! command -v mmdc >/dev/null 2>&1 ||
 		fail "mmdc is installed but SBXAGENT_LITE is not false (${REBUILD_HINT})"
-	pass "playwright and mmdc are not installed (SBXAGENT_LITE=${SBXAGENT_LITE:-unset})"
+	! command -v xelatex >/dev/null 2>&1 ||
+		fail "xelatex is installed but SBXAGENT_LITE is not false (${REBUILD_HINT})"
+	pass "playwright, mmdc and xelatex are not installed (SBXAGENT_LITE=${SBXAGENT_LITE:-unset})"
 fi
 
 CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"

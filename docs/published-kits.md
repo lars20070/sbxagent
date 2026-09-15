@@ -95,7 +95,7 @@ anything repeatable, or pin the digest to be certain:
 sbx run ghcr.io/lars20070/sbxclaude@sha256:<digest>
 ```
 
-Playwright, Chromium and mermaid-cli are opt-in. The wrapper turns
+Playwright, Chromium, mermaid-cli and XeTeX are opt-in. The wrapper turns
 `SBXAGENT_LITE=false` into a kit argument; without the wrapper, pass it
 yourself:
 

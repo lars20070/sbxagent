@@ -14,7 +14,7 @@ args:
   lite:
     default: "true"
     enum: ["true", "false"]
-    description: Skip Playwright, Chromium and mermaid-cli
+    description: Skip Playwright, Chromium, mermaid-cli and XeTeX
 
 environment:
   variables:
@@ -90,11 +90,12 @@ agentInstructions:
       PyYAML for YAML parsing (`import yaml`)
     - YAML: `yamllint`
     - Markdown and prose: `markdownlint-cli2`, `cspell`
-    - Browser and diagrams, only when the sandbox was created with
+    - Browser, diagrams and PDF, only when the sandbox was created with
       `SBXAGENT_LITE=false` (here it is `${{ kit.args.lite }}`): `playwright`
       with headless Chromium — load pages, screenshot them, read console
-      output to verify UI changes — and `mmdc` (mermaid-cli):
-      `mmdc -i diagram.mmd -o diagram.png`
+      output to verify UI changes — `mmdc` (mermaid-cli):
+      `mmdc -i diagram.mmd -o diagram.png` — and `xelatex`, so
+      `pandoc doc.md -o doc.pdf --pdf-engine=xelatex` works
     - Documents: `pandoc` — convert between document formats (e.g. Markdown,
       HTML, docx)
     - General: `git`, `docker`, `curl`, `node`, `npm`, `tree`
@@ -393,6 +394,23 @@ setup:
     - command: "npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1"
       user: "1000"
       description: Markdown and spelling linters
+    - command: |
+        set -eu
+        [ "${{ kit.args.lite }}" = "false" ] || exit 0
+        # Same retry and timeout bounds as the CLI tools step above, with a
+        # longer cap because TeX Live is a few hundred MB.
+        # --no-install-recommends skips the documentation packages, which
+        # would roughly double that.
+        timeout 1200 apt-get \
+          -o Acquire::Retries=3 \
+          -o Acquire::http::Timeout=30 \
+          -o Acquire::https::Timeout=30 \
+          install -y --no-install-recommends \
+          texlive-xetex \
+          texlive-fonts-recommended \
+          texlive-latex-extra \
+          lmodern
+      description: XeTeX for pandoc PDF output (SBXAGENT_LITE=false only)
     - command: |
         set -eu
         [ "${{ kit.args.lite }}" = "false" ] || exit 0
