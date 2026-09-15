@@ -1,6 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# One script, four commands. It is installed as a symlink named sbxclaude,
+# sbxcodex, sbxcursor or sbxpi, and dispatches on the name it was invoked as.
+# Read first because die() and the .env loader below both report errors
+# under this name.
+SELF="$(basename "$0")"
+
+die() {
+	echo "${SELF}: $*" >&2
+	exit 1
+}
+
+# Follow symlinks without GNU `readlink -f`: BSD readlink lacked -f before macOS 12.3, and the README installs
+# this script as a symlink, so the chain has to be walked to find the kit.
+resolve_dir() {
+	local path="$1"
+	local link
+	local hops=0
+	while [[ -L "${path}" ]]; do
+		((++hops <= 40)) || die "too many symlinks resolving ${1}"
+		link="$(readlink "${path}")" || return 1
+		case "${link}" in
+		/*) path="${link}" ;;
+		*) path="$(dirname "${path}")/${link}" ;;
+		esac
+	done
+	(cd "$(dirname "${path}")" && pwd -P)
+}
+
+SCRIPT_DIR="$(resolve_dir "${BASH_SOURCE[0]}")"
+REPO="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+
+# Config layer weaker than a real exported var, stronger than the defaults
+# below: source .env if present, then restore whatever was already exported
+# so a real env var always wins. `before` is a snapshot of `export -p`
+# output; re-evaluating it after sourcing overwrites anything .env changed
+# for a name that was already exported, and leaves untouched any new name
+# .env introduced. The `|| true` covers the rare case where something in the
+# snapshot is also readonly (e.g. a caller did `declare -rx FOO=...` before
+# invoking us) — eval fails just that one restore line, not the rest.
+ENV_FILE="${REPO}/.env"
+if [[ -r "${ENV_FILE}" ]]; then
+	before="$(export -p)"
+	set -a
+	# shellcheck disable=SC1090,SC1091
+	. "${ENV_FILE}"
+	set +a
+	eval "${before}" 2>/dev/null || true
+fi
+
 # Number of SHA-256 characters in generated sandbox and state-directory names.
 HASH_LENGTH="${HASH_LENGTH:-8}"
 
@@ -16,16 +65,6 @@ export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
 # alongside this agent's own read-write subfolder; false mounts only the
 # subfolder. Takes effect at create time.
 CROSS_SANDBOX_VISIBILITY="${CROSS_SANDBOX_VISIBILITY:-true}"
-
-# One script, four commands. It is installed as a symlink named sbxclaude,
-# sbxcodex, sbxcursor or sbxpi, and dispatches on the name it was invoked as.
-# See the SELF block below.
-SELF="$(basename "$0")"
-
-die() {
-	echo "${SELF}: $*" >&2
-	exit 1
-}
 
 no_args() {
 	local command="$1"
@@ -98,26 +137,6 @@ compute_state_mounts() {
 	mkdir -p "${AGENT_DIR}"
 	chmod 700 "${AGENT_DIR}"
 }
-
-# Follow symlinks without GNU `readlink -f`: BSD readlink lacked -f before macOS 12.3, and the README installs
-# this script as a symlink, so the chain has to be walked to find the kit.
-resolve_dir() {
-	local path="$1"
-	local link
-	local hops=0
-	while [[ -L "${path}" ]]; do
-		((++hops <= 40)) || die "too many symlinks resolving ${1}"
-		link="$(readlink "${path}")" || return 1
-		case "${link}" in
-		/*) path="${link}" ;;
-		*) path="$(dirname "${path}")/${link}" ;;
-		esac
-	done
-	(cd "$(dirname "${path}")" && pwd -P)
-}
-
-SCRIPT_DIR="$(resolve_dir "${BASH_SOURCE[0]}")"
-REPO="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 
 # Dispatch on the name we were invoked as. SELF is the basename of $0, taken
 # before resolve_dir walks the symlink chain — resolving first would erase the

@@ -18,7 +18,22 @@ SBX_LOG="${TEST_ROOT}/sbx.log"
 TESTS=0
 EXPECTED_VERSION="$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' "${ROOT}/VERSION")"
 
+# scripts/sbxagent loads ${ROOT}/.env if present, and every test below
+# invokes the wrapper against this real checkout — there is no sandboxed
+# REPO to point it at instead. Move any real .env a developer created via
+# `cp .env.example .env` out of the way for the whole suite, and put it
+# back (or remove a test-written one) on exit, so `make test-unit` never
+# reads or clobbers a real local .env.
+ENV_FILE="${ROOT}/.env"
+ENV_BACKUP="${TEST_ROOT}/env-backup"
+[[ ! -e "${ENV_FILE}" ]] || mv "${ENV_FILE}" "${ENV_BACKUP}"
+
 cleanup() {
+	if [[ -e "${ENV_BACKUP}" ]]; then
+		mv "${ENV_BACKUP}" "${ENV_FILE}"
+	else
+		rm -f "${ENV_FILE}"
+	fi
 	rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT
@@ -490,6 +505,37 @@ BOGUS_NAME="$(CROSS_SANDBOX_VISIBILITY=bogus run_claude "${WORK_B}" name)" ||
 	fail "'name' failed with a bad CROSS_SANDBOX_VISIBILITY"
 assert_eq "${NAME_B}" "${BOGUS_NAME}" "name with bad visibility value"
 pass "CROSS_SANDBOX_VISIBILITY=false drops the shared mount and rejects other values"
+
+# .env file: a config layer weaker than a real exported env var, stronger
+# than scripts/sbxagent's own defaults. ${ROOT}/.env is backed up for the
+# whole suite (see top of file); this is the only block that writes one, and
+# it removes it again immediately after so nothing later in the suite
+# observes it.
+WORK_ENV="${TEST_ROOT}/three/api"
+mkdir -p "${WORK_ENV}"
+cat >"${ENV_FILE}" <<'EOF'
+HASH_LENGTH=6
+CROSS_SANDBOX_VISIBILITY=false
+EOF
+
+clear_log
+DOTENV_NAME="$(run_claude "${WORK_ENV}" name)"
+assert_match "^sbxclaude-$(expected_slug "${WORK_ENV}")-[0-9a-f]{6}$" \
+	"${DOTENV_NAME}" ".env sets HASH_LENGTH when unset in real env"
+
+DOTENV_PROJECT_DIR="${STATE_ROOT}/${DOTENV_NAME#*-}"
+clear_log
+run_claude "${WORK_ENV}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t%s\t.\t%s' \
+	"${DOTENV_NAME}" "${DOTENV_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${DOTENV_PROJECT_DIR}/sbxclaude")" \
+	".env CROSS_SANDBOX_VISIBILITY=false drops the shared mount"
+
+ENV_OVERRIDE_NAME="$(HASH_LENGTH=9 run_claude "${WORK_ENV}" name)"
+assert_match "^sbxclaude-$(expected_slug "${WORK_ENV}")-[0-9a-f]{9}$" \
+	"${ENV_OVERRIDE_NAME}" "real env HASH_LENGTH beats .env"
+
+rm -f "${ENV_FILE}"
+pass ".env supplies defaults that real env still overrides"
 
 # The empty-slug guard applies to the project folder as well as the sandbox
 # name: with nothing left of the basename the key is the bare hash, never

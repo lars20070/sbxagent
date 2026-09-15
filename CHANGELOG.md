@@ -19,6 +19,12 @@ and this project adheres to
   behaviour is readable end to end before it is trusted. Distinguishes this
   from kit verification, which still needs signing because kits bundle setup
   commands and get network access.
+- `.env` file support for `scripts/sbxagent`'s configuration variables
+  (`HASH_LENGTH`, `CROSS_SANDBOX_VISIBILITY`, `XDG_STATE_HOME`): copy
+  `.env.example` to `.env` at the repo root and edit it, for defaults that
+  persist across shells without exporting them for real. Weaker than a real
+  exported environment variable, stronger than the built-in default; `.env`
+  itself is gitignored and never committed.
 
 ### Changed
 

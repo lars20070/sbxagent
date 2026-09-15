@@ -28,7 +28,18 @@ echo "$(gh auth token)" | sbx secret set github
 ## Environment variables
 
 Set before running `sbxclaude`, `sbxcodex`, `sbxcursor`, or `sbxpi` to change
-how `scripts/sbxagent` behaves.
+how `scripts/sbxagent` behaves. Three ways to set them, strongest first: a
+real exported shell variable, a `.env` file at the repo root, or the built-in
+default in the table below.
+
+`.env` is optional and gitignored — create one once per host with:
+
+```bash
+cp .env.example .env
+```
+
+then uncomment and edit whichever lines you want to change; anything left
+commented out keeps its default.
 
 | Var | Default | Does what |
 | --- | --- | --- |

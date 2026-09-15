@@ -149,6 +149,7 @@
     "mountpoint",
     "remountable",
     "bootstrapper",
-    "pandoc"
+    "pandoc",
+    "DOTENV"
   ]
 }
