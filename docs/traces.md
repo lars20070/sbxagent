@@ -127,8 +127,8 @@ You do not have to work any of that out. In your project, run `sbxclaude name`
 cd ~/.local/state/sbxagent/traces/"$(sbxclaude name | sed 's/^sbxclaude-//')"/sbxclaude
 ```
 
-If you set `XDG_STATE_HOME`, the tree lives under `$XDG_STATE_HOME/sbxagent/traces/`
-instead of `~/.local/state/sbxagent/traces/`.
+If you set `XDG_STATE_HOME` to an absolute path, the tree lives under
+`$XDG_STATE_HOME/sbxagent/traces/` instead of `~/.local/state/sbxagent/traces/`.
 
 The wrapper keeps each agent's native session format and relocates its trace
 tree into that agent's state subfolder:
