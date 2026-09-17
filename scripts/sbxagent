@@ -192,10 +192,10 @@ sbxpi) CLI="pi" ;;
 	# Deliberately no default agent: silently picking one is worse than failing.
 	echo "sbxagent: run this through an agent name, not directly." >&2
 	echo "Link it onto your PATH, once per agent you want:" >&2
-	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxclaude   # Claude Code" >&2
-	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxcodex    # Codex" >&2
-	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxcursor   # Cursor" >&2
-	echo "  ln -s ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxpi       # Pi" >&2
+	echo "  ln -sf ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxclaude   # Claude Code" >&2
+	echo "  ln -sf ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxcodex    # Codex" >&2
+	echo "  ln -sf ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxcursor   # Cursor" >&2
+	echo "  ln -sf ${SCRIPT_DIR}/sbxagent ~/.local/bin/sbxpi       # Pi" >&2
 	echo "Then run sbxclaude, sbxcodex, sbxcursor or sbxpi." >&2
 	exit 1
 	;;
