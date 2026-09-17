@@ -1,0 +1,20 @@
+schemaVersion: "2"
+kind: mixin
+name: open-network
+description: Turn the network allow list off — outbound egress is open
+
+# Stacked by scripts/sbxagent with --kit when NETWORK_ALLOWLIST=false.
+# Deny rules (org policy, local `sbx policy` denies) still win over this.
+permissions:
+  network:
+    allow:
+      - "**"
+
+environment:
+  variables:
+    NETWORK_ALLOWLIST: "false"
+
+# No agentInstructions here: each kit's own network paragraph already covers
+# both modes (it says egress is allowlisted by default but may have been
+# turned off with NETWORK_ALLOWLIST=false), so a second note stacked on top
+# would only risk drifting out of sync with it.

@@ -120,12 +120,14 @@ lint:
 	done
 	@echo "All lint checks passed."
 
-# Validate every sandbox kit spec against the current Sandbox Kit schema.
+# Validate every sandbox kit spec, and the open-network mixin that the wrapper
+# stacks with --kit, against the current Sandbox Kit schema.
 validate:
 	./scripts/sbxclaude kit validate
 	./scripts/sbxcodex kit validate
 	./scripts/sbxcursor kit validate
 	./scripts/sbxpi kit validate
+	sbx kit validate mixins/open-network
 
 # Rehearse the release publish path for every kit: stage a tracked-files-only
 # copy, validate and inspect it, and print what would be pushed. No network, no

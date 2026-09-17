@@ -19,6 +19,11 @@ the commit and push themselves.
   equals `name:` in the spec, the `sbx` positional operand, the sandbox-name
   prefix, and the command you type.
 - `kits/<command>/files/` — files copied into that sandbox at kit-build time.
+- `mixins/<name>/spec.yaml` — mixin kits (`kind: mixin`) that the wrapper
+  stacks onto a sandbox kit with `--kit`. They are not published, not
+  commands, and deliberately outside `kits/` so the `kits/*/` loops in
+  `Makefile` and `.github/workflows/release.yml` never see them. There is one:
+  `mixins/open-network`, stacked when `NETWORK_ALLOWLIST=false`.
 - `args:` in each spec is how a host-side toggle reaches setup: the wrapper
   passes `--kit-arg name=value`, and `sbx` substitutes `${{ kit.args.name }}`
   anywhere in the spec before decoding it. `SBXAGENT_LITE` → `lite` is the
@@ -55,6 +60,22 @@ check with no Docker, no `sbx login`, and no network, so there's no reason to
 skip it. Before finishing any task that touches `scripts/sbxagent` or any other
 shell script, run `make lint` — it runs `shellcheck` and `bash -n` over every
 tracked script.
+
+`make test-toolchain` only exercises whatever sandbox already exists, so
+`NETWORK_ALLOWLIST=false` and `SBXAGENT_LITE=false` behaviour is not
+automatically exercised anywhere — CI does not create a live sandbox at all.
+Before finishing any task that touches `mixins/open-network/`, the
+`NETWORK_ALLOWLIST` wiring in `scripts/sbxagent`, or the network-allowlist
+branch of `tests/toolchain_test.sh`, verify it for real, once, on the host:
+
+```bash
+./scripts/sbxclaude rm      # confirms (y/N)
+NETWORK_ALLOWLIST=false ./scripts/sbxclaude create
+make test-toolchain AGENT=claude
+```
+
+The user has to run this — it needs the host `sbx` CLI. Ask them to, and do
+not report the task done until it has passed at least once.
 
 ## Portability
 

@@ -1,8 +1,8 @@
 # sbxagent
 
 [![CI](https://github.com/lars20070/sbxagent/actions/workflows/ci.yml/badge.svg)](https://github.com/lars20070/sbxagent/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/lars20070/sbxagent?sort=semver)](https://github.com/lars20070/sbxagent/releases/latest)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/lars20070/sbxagent/badge)](https://scorecard.dev/viewer/?uri=github.com/lars20070/sbxagent)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/lars20070/sbxagent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 `sbxagent` runs a coding agent in an isolated sandbox, with a fixed toolchain
@@ -19,7 +19,7 @@ flowchart LR
   subgraph IN[" "]
     direction TB
     PROJ["your project<br/>(host working tree)"]
-    STATE["session traces<br/>~/.local/state/sbxagent"]
+    STATE["session traces<br> + message board<br/>~/.local/state/sbxagent"]
     DRV["scripts/sbxclaude<br/>scripts/sbxcodex<br/>scripts/sbxcursor<br/>scripts/sbxpi"]
     KIT["kits/*/spec.yaml<br/>kits/*/files/"]
   end
@@ -27,17 +27,17 @@ flowchart LR
   subgraph VM["sbx sandbox"]
     AGENT["Claude Code, Codex,<br/>Cursor, Pi CLI"]
     TOOLS["git, docker, rg, jq,<br/>ruff, pandoc, ..."]
-    PROXY["credential + network<br/>allowlist proxy"]
+    PROXY["network allowlist +<br/>credential proxy"]
   end
 
   subgraph NET[" "]
     direction TB
     LLM("Anthropic, OpenAI, <br/>OpenRouter, Ollama, ...")
-    GH("GitHub")
+    GH("GitHub, Context7, PyPI, ...")
   end
 
-  PROJ -.->|"mounted"| VM
-  STATE -.->|"mounted"| VM
+  PROJ -.->|"mounts"| VM
+  STATE -.->|"mounts"| VM
   DRV -->|"creates / attaches"| VM
   KIT -->|"builds"| VM
   AGENT -.->|"runs"| TOOLS
@@ -60,7 +60,7 @@ flowchart LR
   style NET fill:none,stroke:none
 ```
 
-<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) uses the pinned toolchain (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces.*
+<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board.*
 
 ## Contents
 
@@ -105,10 +105,10 @@ sbx login
 Then, on either platform:
 
 ```bash
-ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxclaude
-ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcodex
-ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcursor
-ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxpi
+ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxclaude
+ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcodex
+ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcursor
+ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxpi
 ```
 
 Link only the agents you want; each is independent. `sbxagent` deliberately has
@@ -187,9 +187,11 @@ A `yes` means a guard runs, not that it cannot be escaped.
 differ, and what every guard misses.
 
 The wrapper also preserves each agent's native session traces in its
-per-project state folder, where sibling agents can read them by default.
-[docs/traces.md](docs/traces.md) lists the paths and the
-create-time privacy setting.
+per-project state folder, where sibling agents can read them by default, and
+mounts a per-project message board every agent's sandbox can write to.
+[docs/traces.md](docs/traces.md) and
+[docs/messageboard.md](docs/messageboard.md) list the paths and the
+create-time privacy setting they share.
 
 ## Further documentation
 
@@ -198,6 +200,7 @@ create-time privacy setting.
 | [Host setup](docs/setup.md) | Host-side credentials: a GitHub token, an OpenRouter key, and optional local models through Ollama |
 | [Toolchain](docs/toolchain.md) | What is installed in every sandbox, which versions are pinned, and how to rebuild after changing one |
 | [Session traces](docs/traces.md) | Where each agent's session traces are kept, which sibling agents can read them, and how long they last |
+| [Message board](docs/messageboard.md) | The shared per-project folder every agent's sandbox can write to, and how to turn it off |
 | [Agent differences](docs/agents.md) | How strictly each agent enforces a blocked request, and how each wires up the GitHub MCP server |
 | [Published kits](docs/published-kits.md) | Running a kit from the registry without cloning this repository |
 

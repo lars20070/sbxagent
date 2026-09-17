@@ -8,6 +8,38 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-09-17
+
+### Added
+
+- A per-project message board at
+  `${XDG_STATE_HOME:-~/.local/state}/sbxagent/messageboard/<slug>-<hash>`,
+  mounted read-write at the same absolute path into every sandbox for that
+  project, so sibling agents have a shared place to leave each other notes.
+  `XDG_STATE_HOME` must be absolute, as XDG requires; a relative value is
+  ignored and the board falls back to `~/.local/state`.
+  Unlike session traces it is one folder with no per-agent subfolder, and it
+  needs no kit-side relocation — the wrapper mounts it directly. Gated by the
+  existing create-time `CROSS_SANDBOX_VISIBILITY` setting: `false` mounts no
+  board into a new sandbox but never deletes one already on the host. Nothing
+  writes to the board yet; see `docs/messageboard.md`.
+- `NETWORK_ALLOWLIST` host setting (env var or `.env`). `false` turns the
+  network allow list off at create time by stacking the new
+  `mixins/open-network` mixin kit, so the sandbox can reach any host that no
+  local deny rule blocks. Default `true` keeps the per-kit allow list. This
+  only widens what the kit itself allows: under organisation network
+  governance, only the organisation's own allow list grants access, so the
+  flag is a no-op there.
+
+### Fixed
+
+- The network-block guard no longer stops the turn on output that merely
+  quotes a block message. It matched the block strings anywhere in a tool's
+  output, so a successful fetch of release notes or docs that mention
+  `Blocked by org policy` read as a block. Block strings must now start a
+  line, as the proxy's real message does; a `WebFetch` that returned HTTP 403
+  still escalates wherever the message appears in its body.
+
 ## [0.4.7] - 2026-09-15
 
 ### Added

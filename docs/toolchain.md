@@ -5,19 +5,20 @@ change them. See [README.md](../README.md) to get a sandbox running first.
 
 ## What each sandbox gets
 
-Every kit installs the same tools (three of them opt-in):
+Every kit installs the same tools (three of them only with `SBXAGENT_LITE=false`;
+here it is `false`):
 
-| Tool | For | Version |
-| --- | --- | --- |
-| `curl`, `jq`, `pandoc`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution |
-| `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below |
-| `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below |
-| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes; only with `SBXAGENT_LITE=false` | pinned below |
-| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium; only with `SBXAGENT_LITE=false` | pinned below |
-| XeTeX (`texlive-xetex`, `texlive-fonts-recommended`, `texlive-latex-extra`, `lmodern`) | `pandoc … --pdf-engine=xelatex` PDF output; only with `SBXAGENT_LITE=false` | tracks the distribution |
-| `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below |
-| `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution |
-| `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image |
+| Tool | For | Version | `SBXAGENT_LITE` |
+| --- | --- | --- | --- |
+| `curl`, `jq`, `pandoc`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution | either |
+| `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below | either |
+| `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below | either |
+| `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below | either |
+| `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution | either |
+| `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image | either |
+| Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below | `false` |
+| `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below | `false` |
+| XeTeX (`texlive-xetex`, `texlive-fonts-recommended`, `texlive-latex-extra`, `lmodern`) | `pandoc … --pdf-engine=xelatex` PDF output | tracks the distribution | `false` |
 
 The environment is the same in every sandbox. Your project is mounted as the
 workspace, so edits land on your real files. Each sandbox also gets a
@@ -25,13 +26,20 @@ wrapper-managed state folder under
 `${XDG_STATE_HOME:-~/.local/state}/sbxagent/traces/<slug>-<hash>/`, keyed by the
 project directory and shared read-only across every agent's sandbox for it,
 with a per-agent subfolder (`sbxclaude/`, `sbxcodex/`, …) that only that
-agent's own sandbox can write. Set `CROSS_SANDBOX_VISIBILITY=false` when
-creating a sandbox to mount only its own subfolder and hide the other agents'.
+agent's own sandbox can write. Alongside it, a sibling
+`${XDG_STATE_HOME:-~/.local/state}/sbxagent/messageboard/<slug>-<hash>/` is
+mounted read-write and shared by every agent's sandbox for the project — one
+folder, no per-agent subfolders (see
+[messageboard.md](messageboard.md)). Set `CROSS_SANDBOX_VISIBILITY=false` when
+creating a sandbox to mount only its own trace subfolder, hiding the other
+agents' and the message board; an existing board on the host is not deleted.
 Other projects' folders are never mounted, and `rm` leaves all of this in
 place. Inside you get passwordless `sudo` and
 Docker, every host CPU, and half the host memory capped at 32 GiB.
 
-Network access is an allowlist, not the open internet. Every kit rewrites
+Network access is an allowlist, not the open internet, unless the sandbox was
+created with `NETWORK_ALLOWLIST=false` — that stacks the `mixins/open-network`
+mixin kit, which allows every host (deny rules still win). Every kit rewrites
 GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
 allowlisted port 443 without changing the host checkout. On `sbxclaude`,
 `sbxcodex` and `sbxpi`, a root-owned guard catches a blocked request and prints
@@ -115,7 +123,9 @@ sbxclaude rm   # confirms (y/N)
 sbxclaude      # recreates from the kit and attaches
 ```
 
-Pin bumps in `kits/*/spec.yaml` only take effect after this rebuild.
+Pin bumps in `kits/*/spec.yaml` only take effect after this rebuild, and so
+do the create-time settings `SBXAGENT_LITE`, `CROSS_SANDBOX_VISIBILITY` and
+`NETWORK_ALLOWLIST`.
 
 Codex signs itself in on first run and stores that login inside its sandbox, so
 a `sbxcodex rm` costs you one sign-in on the next start. Claude and Cursor are

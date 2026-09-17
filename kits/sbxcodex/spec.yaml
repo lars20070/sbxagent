@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxcodex
-version: "0.4.7"
+version: "0.4.8"
 displayName: Codex with custom toolchain
 description: Codex with custom toolchain
 
@@ -72,8 +72,10 @@ agentInstructions:
     workspace, so file edits modify the host working tree. `sudo` is
     passwordless, and a sandbox-local Docker daemon is available.
 
-    Network egress is allowlisted. If a network request fails because its host
-    is blocked, stop and report it — do not run `sbx policy` inside the
+    Network egress is allowlisted by default; this sandbox may instead have
+    been created with `NETWORK_ALLOWLIST=false`, which turns that allow list
+    off. Either way, if a network request fails because its host is blocked,
+    stop and report it — do not run `sbx policy` inside the
     sandbox, and do not work around a block by mirroring, vendoring, retrying
     against a different host, or dropping the step. A managed hook watches for
     this: on a block it replaces the tool output with a stop notice that names
@@ -289,6 +291,12 @@ setup:
           and ((.tool_input.command // "")
                | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"));
 
+        # A WebFetch that came back HTTP 403 is a block on its face, whatever its
+        # body happens to look like, so it drops the line anchor below. Wrapped in an
+        # array so a non-object tool_response yields false rather than nothing — an
+        # empty result would make the whole pipeline emit nothing and fail open.
+        def http_403: [ .tool_response? | objects | .code? ] | any(. == 403);
+
         def stop($why; $tell):
           { continue: false,
             stopReason:
@@ -300,12 +308,18 @@ setup:
         # emit no output at all (fail open). Bind hosts up front so each branch
         # below can use them — jq does not keep `as` bindings from an `if` condition.
         haystack as $out
-        | (($out | capture("Blocked by local rule for (?<h>[^\\s]+)").h) // null) as $denied
-        | (($out | capture("Blocked by network policy: domain (?<h>[^\\s]+)").h) // null) as $host
+        # A real block message starts its own line. The same words quoted inside prose
+        # or markdown — release notes, our own docs, a grep hit — sit mid-line and must
+        # not fire; that false positive stopped two real turns. jq's `^` means start of
+        # string, not start of line, and the "m" flag does not change that (it only
+        # makes `.` match newlines), so match an explicit line break instead.
+        | (if .tool_name == "WebFetch" and http_403 then "" else "(^|\\n)[ \\t]*" end) as $anchor
+        | (($out | capture($anchor + "Blocked by local rule for (?<h>[^\\s]+)").h) // null) as $denied
+        | (($out | capture($anchor + "Blocked by network policy: domain (?<h>[^\\s]+)").h) // null) as $host
         | if self_reference then
             {}
           # Org policy: user cannot lift this; do not suggest `sbx policy allow`.
-          elif $out | test("Blocked by org policy") then
+          elif $out | test($anchor + "Blocked by org policy") then
             stop("A network request was blocked by your organisation's policy.";
                  "Blocked by org policy.\n"
                  + "Your company policy is blocking this request — contact IT if you need access.")
@@ -323,7 +337,7 @@ setup:
                  "Blocked host: \($host)\n"
                  + "Run on your host:  sbx policy allow network \"\($host)\"")
           # Block string present but host not parseable.
-          elif $out | test("Blocked by (network policy|local rule for)") then
+          elif $out | test($anchor + "Blocked by (network policy|local rule for)") then
             stop("A network request was blocked by the sandbox network policy.";
                  "A network request was blocked by the sandbox network policy.\n"
                  + "See the tool output above for the host, then allow it with:\n"

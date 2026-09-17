@@ -1,4 +1,6 @@
-Network egress from this sandbox is allowlisted, and a guard enforces it.
+Network egress from this sandbox is allowlisted by default; it may instead
+have been created with `NETWORK_ALLOWLIST=false`, which turns that allow list
+off. Either way, a guard enforces what remains blocked.
 
 When a request is blocked by policy, that is a decision to respect, not an
 obstacle to route around. Do not retry it, mirror or vendor the resource,
