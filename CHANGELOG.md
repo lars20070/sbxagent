@@ -14,6 +14,8 @@ and this project adheres to
   `${XDG_STATE_HOME:-~/.local/state}/sbxagent/messageboard/<slug>-<hash>`,
   mounted read-write at the same absolute path into every sandbox for that
   project, so sibling agents have a shared place to leave each other notes.
+  `XDG_STATE_HOME` must be absolute, as XDG requires; a relative value is
+  ignored and the board falls back to `~/.local/state`.
   Unlike session traces it is one folder with no per-agent subfolder, and it
   needs no kit-side relocation — the wrapper mounts it directly. Gated by the
   existing create-time `CROSS_SANDBOX_VISIBILITY` setting: `false` mounts no
