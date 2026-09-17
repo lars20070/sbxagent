@@ -37,8 +37,8 @@ flowchart LR
     GH("GitHub, Context7, PyPI, ...")
   end
 
-  PROJ -.->|"mounted"| VM
-  STATE -.->|"mounted"| VM
+  PROJ -.->|"mounts"| VM
+  STATE -.->|"mounts"| VM
   DRV -->|"creates / attaches"| VM
   KIT -->|"builds"| VM
   AGENT -.->|"runs"| TOOLS
