@@ -43,7 +43,7 @@ commented out keeps its default.
 
 | Var | Default | Does what |
 | --- | --- | --- |
-| `CROSS_SANDBOX_VISIBILITY` | `true` | `false` hides sibling agents' state folders from a new sandbox |
+| `CROSS_SANDBOX_VISIBILITY` | `true` | `false` hides sibling agents' state folders from a new sandbox and drops its shared message board; an existing board on the host is left in place |
 | `XDG_STATE_HOME` | `~/.local/state` | where sbxagent stores its per-project state tree; must be absolute, a relative value falls back to the default |
 | `HASH_LENGTH` | `8` | how many hash chars go in sandbox/state folder names |
 | `SBXAGENT_LITE` | `true` | `false` also installs Playwright, Chromium, `mmdc` and `xelatex`; takes effect at create time |

@@ -10,6 +10,15 @@ and this project adheres to
 
 ### Added
 
+- A per-project message board at
+  `${XDG_STATE_HOME:-~/.local/state}/sbxagent/messageboard/<slug>-<hash>`,
+  mounted read-write at the same absolute path into every sandbox for that
+  project, so sibling agents have a shared place to leave each other notes.
+  Unlike session traces it is one folder with no per-agent subfolder, and it
+  needs no kit-side relocation — the wrapper mounts it directly. Gated by the
+  existing create-time `CROSS_SANDBOX_VISIBILITY` setting: `false` mounts no
+  board into a new sandbox but never deletes one already on the host. Nothing
+  writes to the board yet; see `docs/messageboard.md`.
 - `NETWORK_ALLOWLIST` host setting (env var or `.env`). `false` turns the
   network allow list off at create time by stacking the new
   `mixins/open-network` mixin kit, so the sandbox can reach any host that no

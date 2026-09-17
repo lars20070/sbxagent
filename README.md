@@ -189,9 +189,11 @@ A `yes` means a guard runs, not that it cannot be escaped.
 differ, and what every guard misses.
 
 The wrapper also preserves each agent's native session traces in its
-per-project state folder, where sibling agents can read them by default.
-[docs/traces.md](docs/traces.md) lists the paths and the
-create-time privacy setting.
+per-project state folder, where sibling agents can read them by default, and
+mounts a per-project message board every agent's sandbox can write to.
+[docs/traces.md](docs/traces.md) and
+[docs/messageboard.md](docs/messageboard.md) list the paths and the
+create-time privacy setting they share.
 
 ## Further documentation
 
@@ -200,6 +202,7 @@ create-time privacy setting.
 | [Host setup](docs/setup.md) | Host-side credentials: a GitHub token, an OpenRouter key, and optional local models through Ollama |
 | [Toolchain](docs/toolchain.md) | What is installed in every sandbox, which versions are pinned, and how to rebuild after changing one |
 | [Session traces](docs/traces.md) | Where each agent's session traces are kept, which sibling agents can read them, and how long they last |
+| [Message board](docs/messageboard.md) | The shared per-project folder every agent's sandbox can write to, and how to turn it off |
 | [Agent differences](docs/agents.md) | How strictly each agent enforces a blocked request, and how each wires up the GitHub MCP server |
 | [Published kits](docs/published-kits.md) | Running a kit from the registry without cloning this repository |
 
