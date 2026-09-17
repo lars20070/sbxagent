@@ -1,0 +1,23 @@
+schemaVersion: "2"
+kind: mixin
+name: open-network
+description: Turn the network allow list off — outbound egress is open
+
+# Stacked by scripts/sbxagent with --kit when NETWORK_ALLOWLIST=false.
+# Deny rules (org policy, local `sbx policy` denies) still win over this.
+permissions:
+  network:
+    allow:
+      - "**"
+
+environment:
+  variables:
+    NETWORK_ALLOWLIST: "false"
+
+agentInstructions:
+  content: |
+    ## Network
+    This sandbox was created with NETWORK_ALLOWLIST=false: the
+    allow list is off and outbound egress is open. A request can still be
+    blocked by an organisation policy or a local deny rule — report those
+    exactly as described above.

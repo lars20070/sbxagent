@@ -159,6 +159,22 @@ CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 [[ -s "${CA_BUNDLE}" ]] || fail "CA certificate bundle is missing or empty"
 pass "CA certificate bundle is available"
 
+# The network allow list is opt-out: the wrapper stacks mixins/open-network
+# with --kit when NETWORK_ALLOWLIST=false, and that mixin exports the flag
+# back so both directions can be asserted here. example.com is on no kit's
+# allow list, so it is reachable only when the allow list is off. A
+# host-side deny rule for it would fail the false branch — remove it first.
+NETWORK_PROBE_STATUS="$(curl -sI -o /dev/null -w '%{http_code}' --max-time 20 https://example.com 2>/dev/null)" || true
+if [[ "${NETWORK_ALLOWLIST:-}" == "false" ]]; then
+	[[ "${NETWORK_PROBE_STATUS}" == "200" ]] ||
+		fail "example.com returned '${NETWORK_PROBE_STATUS}', not 200, with NETWORK_ALLOWLIST=false (${REBUILD_HINT})"
+	pass "the network allow list is off: example.com is reachable"
+else
+	[[ "${NETWORK_PROBE_STATUS}" == "403" ]] ||
+		fail "example.com returned '${NETWORK_PROBE_STATUS}', not the proxy's 403, with NETWORK_ALLOWLIST=${NETWORK_ALLOWLIST:-unset} (${REBUILD_HINT})"
+	pass "the network allow list is on: example.com is blocked (NETWORK_ALLOWLIST=${NETWORK_ALLOWLIST:-unset})"
+fi
+
 # Sandbox policy allows github.com:443 but not SSH port 22; the kit rewrites
 # GitHub SSH remotes to HTTPS so fetches stay on the allowlist.
 INSTEAD_OF="$(git config --global --get-all url.https://github.com/.insteadOf || true)"

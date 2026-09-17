@@ -29,6 +29,8 @@ Inside that boundary the agent can still:
   See [docs/setup.md](docs/setup.md).
 - **Reach every host on the network allowlist.** Each kit's
   `permissions.network.allow` in `kits/<name>/spec.yaml` is the complete list.
+  A sandbox created with `NETWORK_ALLOWLIST=false` opts out of that list and
+  can reach any host that no deny rule blocks.
 
 The network-block guard is a courtesy, not a wall, and it lands with
 different force in each agent: Claude Code is a hard stop, Codex is soft

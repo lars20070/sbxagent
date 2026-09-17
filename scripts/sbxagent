@@ -70,6 +70,11 @@ CROSS_SANDBOX_VISIBILITY="${CROSS_SANDBOX_VISIBILITY:-true}"
 # at create time; passed to the kit as --kit-arg lite=... (see args: in spec.yaml).
 SBXAGENT_LITE="${SBXAGENT_LITE:-true}"
 
+# false turns the network allow list off: the mixin kit in mixins/open-network
+# is stacked with --kit, so the sandbox can reach any host (org-policy and
+# local deny rules still apply). Takes effect at create time.
+NETWORK_ALLOWLIST="${NETWORK_ALLOWLIST:-true}"
+
 no_args() {
 	local command="$1"
 	shift
@@ -121,9 +126,10 @@ require_sbx() {
 # so the kit can relocate that agent's native session-trace directory into it.
 # PROJECT_MOUNT is the read-only mount operand for PROJECT_DIR, or empty when
 # CROSS_SANDBOX_VISIBILITY is false. STATE_HOME itself is never mounted, so
-# other projects' state stays invisible. XDG requires an absolute
-# XDG_STATE_HOME; a relative value is treated as unset rather than resolved
-# against the cwd.
+# other projects' state stays invisible. NETWORK_KIT is the mixin kit directory
+# stacked with --kit, or empty when NETWORK_ALLOWLIST is true. XDG requires an
+# absolute XDG_STATE_HOME; a relative value is treated as unset rather than
+# resolved against the cwd.
 compute_state_mounts() {
 	case "${XDG_STATE_HOME:-}" in
 	/*) STATE_HOME="${XDG_STATE_HOME}/sbxagent/traces" ;;
@@ -139,6 +145,11 @@ compute_state_mounts() {
 	case "${SBXAGENT_LITE}" in
 	true | false) ;;
 	*) die "SBXAGENT_LITE must be true or false, not '${SBXAGENT_LITE}'" ;;
+	esac
+	case "${NETWORK_ALLOWLIST}" in
+	true) NETWORK_KIT="" ;;
+	false) NETWORK_KIT="${REPO}/mixins/open-network" ;;
+	*) die "NETWORK_ALLOWLIST must be true or false, not '${NETWORK_ALLOWLIST}'" ;;
 	esac
 	mkdir -p "${PROJECT_DIR}"
 	chmod 700 "${PROJECT_DIR}"
@@ -224,7 +235,7 @@ case "${1:-}" in
 	fi
 	sbx kit validate "${KIT}" >/dev/null
 	compute_state_mounts
-	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
+	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 name)
 	shift
@@ -260,7 +271,7 @@ create)
 	no_args create "$@"
 	require_sbx
 	compute_state_mounts
-	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
+	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} "${AGENT_DIR}"
 	;;
 rm)
 	shift

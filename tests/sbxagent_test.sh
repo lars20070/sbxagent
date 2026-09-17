@@ -548,6 +548,25 @@ LITE_BOGUS_NAME="$(SBXAGENT_LITE=bogus run_claude "${WORK_B}" name)" ||
 assert_eq "${NAME_B}" "${LITE_BOGUS_NAME}" "name with bad SBXAGENT_LITE value"
 pass "SBXAGENT_LITE is passed as a kit arg and rejects other values"
 
+# NETWORK_ALLOWLIST=false stacks the open-network mixin kit with --kit on
+# both creating paths; the default true adds nothing, which every create/run
+# argv above already asserts. A bad value is rejected only on those paths.
+OPEN_NETWORK_KIT="${ROOT}/mixins/open-network"
+clear_log
+NETWORK_ALLOWLIST=false run_claude "${WORK_B}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s' \
+	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create with NETWORK_ALLOWLIST=false"
+clear_log
+NETWORK_ALLOWLIST=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
+assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s' \
+	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" \
+	"${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "new sandbox attach with NETWORK_ALLOWLIST=false"
+NETWORK_ALLOWLIST=bogus reject_without_call "${WORK_B}" create
+NETWORK_BOGUS_NAME="$(NETWORK_ALLOWLIST=bogus run_claude "${WORK_B}" name)" ||
+	fail "'name' failed with a bad NETWORK_ALLOWLIST"
+assert_eq "${NAME_B}" "${NETWORK_BOGUS_NAME}" "name with bad NETWORK_ALLOWLIST value"
+pass "NETWORK_ALLOWLIST=false stacks the open-network mixin and rejects other values"
+
 # .env file: a config layer weaker than a real exported env var, stronger
 # than scripts/sbxagent's own defaults. ${ROOT}/.env is backed up for the
 # whole suite (see top of file); this is the only block that writes one, and
@@ -559,6 +578,7 @@ cat >"${ENV_FILE}" <<'EOF'
 HASH_LENGTH=6
 CROSS_SANDBOX_VISIBILITY=false
 SBXAGENT_LITE=false
+NETWORK_ALLOWLIST=false
 EOF
 
 clear_log
@@ -569,9 +589,15 @@ assert_match "^sbxclaude-$(expected_slug "${WORK_ENV}")-[0-9a-f]{6}$" \
 DOTENV_PROJECT_DIR="${STATE_ROOT}/${DOTENV_NAME#*-}"
 clear_log
 run_claude "${WORK_ENV}" create >/dev/null
+assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t--kit\t%s\t%s\t.\t%s' \
+	"${DOTENV_NAME}" "${DOTENV_PROJECT_DIR}/sbxclaude" "${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${DOTENV_PROJECT_DIR}/sbxclaude")" \
+	".env CROSS_SANDBOX_VISIBILITY=false drops the shared mount, SBXAGENT_LITE=false reaches the kit, NETWORK_ALLOWLIST=false stacks the mixin"
+
+clear_log
+NETWORK_ALLOWLIST=true run_claude "${WORK_ENV}" create >/dev/null
 assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s' \
 	"${DOTENV_NAME}" "${DOTENV_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${DOTENV_PROJECT_DIR}/sbxclaude")" \
-	".env CROSS_SANDBOX_VISIBILITY=false drops the shared mount and SBXAGENT_LITE=false reaches the kit"
+	"real env NETWORK_ALLOWLIST=true beats .env"
 
 ENV_OVERRIDE_NAME="$(HASH_LENGTH=9 run_claude "${WORK_ENV}" name)"
 assert_match "^sbxclaude-$(expected_slug "${WORK_ENV}")-[0-9a-f]{9}$" \

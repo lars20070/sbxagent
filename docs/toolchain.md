@@ -32,7 +32,9 @@ Other projects' folders are never mounted, and `rm` leaves all of this in
 place. Inside you get passwordless `sudo` and
 Docker, every host CPU, and half the host memory capped at 32 GiB.
 
-Network access is an allowlist, not the open internet. Every kit rewrites
+Network access is an allowlist, not the open internet, unless the sandbox was
+created with `NETWORK_ALLOWLIST=false` — that stacks the `mixins/open-network`
+mixin kit, which allows every host (deny rules still win). Every kit rewrites
 GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
 allowlisted port 443 without changing the host checkout. On `sbxclaude`,
 `sbxcodex` and `sbxpi`, a root-owned guard catches a blocked request and prints
@@ -116,7 +118,9 @@ sbxclaude rm   # confirms (y/N)
 sbxclaude      # recreates from the kit and attaches
 ```
 
-Pin bumps in `kits/*/spec.yaml` only take effect after this rebuild.
+Pin bumps in `kits/*/spec.yaml` only take effect after this rebuild, and so
+do the create-time settings `SBXAGENT_LITE`, `CROSS_SANDBOX_VISIBILITY` and
+`NETWORK_ALLOWLIST`.
 
 Codex signs itself in on first run and stores that login inside its sandbox, so
 a `sbxcodex rm` costs you one sign-in on the next start. Claude and Cursor are

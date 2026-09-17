@@ -19,6 +19,11 @@ the commit and push themselves.
   equals `name:` in the spec, the `sbx` positional operand, the sandbox-name
   prefix, and the command you type.
 - `kits/<command>/files/` — files copied into that sandbox at kit-build time.
+- `mixins/<name>/spec.yaml` — mixin kits (`kind: mixin`) that the wrapper
+  stacks onto a sandbox kit with `--kit`. They are not published, not
+  commands, and deliberately outside `kits/` so the `kits/*/` loops in
+  `Makefile` and `.github/workflows/release.yml` never see them. There is one:
+  `mixins/open-network`, stacked when `NETWORK_ALLOWLIST=false`.
 - `args:` in each spec is how a host-side toggle reaches setup: the wrapper
   passes `--kit-arg name=value`, and `sbx` substitutes `${{ kit.args.name }}`
   anywhere in the spec before decoding it. `SBXAGENT_LITE` → `lite` is the
