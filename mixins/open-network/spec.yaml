@@ -14,10 +14,7 @@ environment:
   variables:
     NETWORK_ALLOWLIST: "false"
 
-agentInstructions:
-  content: |
-    ## Network
-    This sandbox was created with NETWORK_ALLOWLIST=false: the
-    allow list is off and outbound egress is open. A request can still be
-    blocked by an organisation policy or a local deny rule — report those
-    exactly as described above.
+# No agentInstructions here: each kit's own network paragraph already covers
+# both modes (it says egress is allowlisted by default but may have been
+# turned off with NETWORK_ALLOWLIST=false), so a second note stacked on top
+# would only risk drifting out of sync with it.

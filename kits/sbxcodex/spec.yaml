@@ -72,8 +72,10 @@ agentInstructions:
     workspace, so file edits modify the host working tree. `sudo` is
     passwordless, and a sandbox-local Docker daemon is available.
 
-    Network egress is allowlisted. If a network request fails because its host
-    is blocked, stop and report it — do not run `sbx policy` inside the
+    Network egress is allowlisted by default; this sandbox may instead have
+    been created with `NETWORK_ALLOWLIST=false`, which turns that allow list
+    off. Either way, if a network request fails because its host is blocked,
+    stop and report it — do not run `sbx policy` inside the
     sandbox, and do not work around a block by mirroring, vendoring, retrying
     against a different host, or dropping the step. A managed hook watches for
     this: on a block it replaces the tool output with a stop notice that names

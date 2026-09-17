@@ -61,6 +61,22 @@ skip it. Before finishing any task that touches `scripts/sbxagent` or any other
 shell script, run `make lint` — it runs `shellcheck` and `bash -n` over every
 tracked script.
 
+`make test-toolchain` only exercises whatever sandbox already exists, so
+`NETWORK_ALLOWLIST=false` and `SBXAGENT_LITE=false` behaviour is not
+automatically exercised anywhere — CI does not create a live sandbox at all.
+Before finishing any task that touches `mixins/open-network/`, the
+`NETWORK_ALLOWLIST` wiring in `scripts/sbxagent`, or the network-allowlist
+branch of `tests/toolchain_test.sh`, verify it for real, once, on the host:
+
+```bash
+./scripts/sbxclaude rm      # confirms (y/N)
+NETWORK_ALLOWLIST=false ./scripts/sbxclaude create
+make test-toolchain AGENT=claude
+```
+
+The user has to run this — it needs the host `sbx` CLI. Ask them to, and do
+not report the task done until it has passed at least once.
+
 ## Portability
 
 The wrapper has to run unchanged on macOS and Linux hosts.

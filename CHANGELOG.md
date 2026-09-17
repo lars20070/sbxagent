@@ -13,8 +13,10 @@ and this project adheres to
 - `NETWORK_ALLOWLIST` host setting (env var or `.env`). `false` turns the
   network allow list off at create time by stacking the new
   `mixins/open-network` mixin kit, so the sandbox can reach any host that no
-  organisation-policy or local deny rule blocks. Default `true` keeps the
-  per-kit allow list.
+  local deny rule blocks. Default `true` keeps the per-kit allow list. This
+  only widens what the kit itself allows: under organisation network
+  governance, only the organisation's own allow list grants access, so the
+  flag is a no-op there.
 
 ### Fixed
 

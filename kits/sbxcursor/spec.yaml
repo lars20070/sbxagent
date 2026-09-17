@@ -73,8 +73,10 @@ agentInstructions:
     workspace, so file edits modify the host working tree. `sudo` is
     passwordless, and a sandbox-local Docker daemon is available.
 
-    Network egress is allowlisted. If a network request fails because its host
-    is blocked, stop and ask the user to lift it on the host — the response
+    Network egress is allowlisted by default; this sandbox may instead have
+    been created with `NETWORK_ALLOWLIST=false`, which turns that allow list
+    off. Either way, if a network request fails because its host is blocked,
+    stop and ask the user to lift it on the host — the response
     body says which: `sbx policy allow network "<host>"` for a default-deny,
     `sbx policy rm network --resource "<host>"` for a local deny (deny beats
     allow), or contact IT for organisation policy. Do not run `sbx policy`
