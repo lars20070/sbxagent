@@ -58,48 +58,54 @@ compute_state_mounts() {
 }
 ```
 
-Add a parallel `MESSAGEBOARD_HOME`/`MESSAGEBOARD_DIR`/`MESSAGEBOARD_MOUNT`
-block, following the same `XDG_STATE_HOME` handling as `STATE_HOME` but under
-a `messageboard` subfolder instead of `traces`, and fold its
-creation/mount-operand decision into the existing `CROSS_SANDBOX_VISIBILITY`
-case statement (mounted read-write — no `:ro` suffix — only created when
-visibility is `true`, since it's otherwise unused):
+Add a parallel `MESSAGEBOARD_HOME`/`MESSAGEBOARD_DIR` block, following the
+same `XDG_STATE_HOME` handling as `STATE_HOME` but under a `messageboard`
+subfolder instead of `traces`, and fold its creation/mount-operand decision
+into the existing `CROSS_SANDBOX_VISIBILITY` case statement.
+
+Only **one** variable is needed here, not the `PROJECT_DIR`/`PROJECT_MOUNT`
+pair traces uses — `MESSAGEBOARD_DIR` doubles as both the mkdir/chmod target
+and the mount operand itself. That split exists for traces because (a)
+`PROJECT_DIR` is needed even when nothing is mounted, since `AGENT_DIR` sits
+inside it, and (b) `PROJECT_MOUNT` adds a `:ro` suffix `PROJECT_DIR` doesn't
+have. Neither applies here: the messageboard mount is always read-write (no
+suffix), and nothing else is nested inside it, so `MESSAGEBOARD_DIR` is
+simply set to the empty string when unused:
 
 ```bash
 	case "${XDG_STATE_HOME:-}" in
 	/*) MESSAGEBOARD_HOME="${XDG_STATE_HOME}/sbxagent/messageboard" ;;
 	*) MESSAGEBOARD_HOME="${HOME}/.local/state/sbxagent/messageboard" ;;
 	esac
-	MESSAGEBOARD_DIR="${MESSAGEBOARD_HOME}/${SLUG:+${SLUG}-}${HASH}"
 	case "${CROSS_SANDBOX_VISIBILITY}" in
 	true)
 		PROJECT_MOUNT="${PROJECT_DIR}:ro"
-		MESSAGEBOARD_MOUNT="${MESSAGEBOARD_DIR}"
+		MESSAGEBOARD_DIR="${MESSAGEBOARD_HOME}/${SLUG:+${SLUG}-}${HASH}"
 		mkdir -p "${MESSAGEBOARD_DIR}"
 		chmod 700 "${MESSAGEBOARD_DIR}"
 		;;
 	false)
 		PROJECT_MOUNT=""
-		MESSAGEBOARD_MOUNT=""
+		MESSAGEBOARD_DIR=""
 		;;
 	*) die "CROSS_SANDBOX_VISIBILITY must be true or false, not '${CROSS_SANDBOX_VISIBILITY}'" ;;
 	esac
 ```
 
 Update the function's header comment (lines 122–132) to describe
-`MESSAGEBOARD_DIR`/`MESSAGEBOARD_MOUNT` alongside the existing variables —
-one project-wide folder, read-write, mounted only when
-`CROSS_SANDBOX_VISIBILITY` is `true`, never created or mounted when `false`.
+`MESSAGEBOARD_DIR` alongside the existing variables — one project-wide
+folder, read-write, computed/created/mounted only when
+`CROSS_SANDBOX_VISIBILITY` is `true`, empty (so unmounted) when `false`.
 
 ### 2. `scripts/sbxagent` — the two `sbx` invocations
 
-Insert `${MESSAGEBOARD_MOUNT:+"${MESSAGEBOARD_MOUNT}"}` right after
+Insert `${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"}` right after
 `${PROJECT_MOUNT:+"${PROJECT_MOUNT}"}` and before `"${AGENT_DIR}"`, in both
 call sites:
 
 - attach/`run`, line 238:
   ```bash
-  exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_MOUNT:+"${MESSAGEBOARD_MOUNT}"} "${AGENT_DIR}"
+  exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"} "${AGENT_DIR}"
   ```
 - `create`, line 274: identical change.
 
