@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-09-17
+
 ### Added
 
 - A per-project message board at
