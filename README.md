@@ -1,6 +1,7 @@
 # sbxagent
 
 [![CI](https://github.com/lars20070/sbxagent/actions/workflows/ci.yml/badge.svg)](https://github.com/lars20070/sbxagent/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/lars20070/sbxagent?sort=semver)](https://github.com/lars20070/sbxagent/releases/latest)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/lars20070/sbxagent/badge)](https://scorecard.dev/viewer/?uri=github.com/lars20070/sbxagent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -18,7 +19,7 @@ flowchart LR
   subgraph IN[" "]
     direction TB
     PROJ["your project<br/>(host working tree)"]
-    STATE["session traces<br/>~/.local/state/sbxagent"]
+    STATE["session traces<br> + message board<br/>~/.local/state/sbxagent"]
     DRV["scripts/sbxclaude<br/>scripts/sbxcodex<br/>scripts/sbxcursor<br/>scripts/sbxpi"]
     KIT["kits/*/spec.yaml<br/>kits/*/files/"]
   end
@@ -26,13 +27,14 @@ flowchart LR
   subgraph VM["sbx sandbox"]
     AGENT["Claude Code, Codex,<br/>Cursor, Pi CLI"]
     TOOLS["git, docker, rg, jq,<br/>ruff, pandoc, ..."]
-    PROXY["credential + network<br/>allowlist proxy"]
+    PROXY["network allowlist +<br/>credential proxy"]
+    SKILLS["skills<br>/read-traces<br>/read-message-board<br>/write-message-board"]
   end
 
   subgraph NET[" "]
     direction TB
     LLM("Anthropic, OpenAI, <br/>OpenRouter, Ollama, ...")
-    GH("GitHub")
+    GH("GitHub, Context7, PyPI, ...")
   end
 
   PROJ -.->|"mounted"| VM
@@ -41,6 +43,7 @@ flowchart LR
   KIT -->|"builds"| VM
   AGENT -.->|"runs"| TOOLS
   AGENT -->|"via proxy"| PROXY
+  AGENT -.->|"uses"| SKILLS
   PROXY -->|"allowlisted"| LLM & GH
   AGENT ==>|"edits"| PROJ
 
@@ -51,7 +54,7 @@ flowchart LR
   classDef ext     fill:#F0F0EE,stroke:#7A8482,stroke-width:1.5px,color:#3A4250
   class PROJ,STATE data
   class KIT,DRV host
-  class TOOLS,PROXY helper
+  class TOOLS,PROXY,SKILLS helper
   class AGENT agent
   class GH,LLM ext
   style VM fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px
