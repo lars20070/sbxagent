@@ -107,10 +107,10 @@ sbx login
 Then, on either platform:
 
 ```bash
-ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxclaude
-ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcodex
-ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcursor
-ln -s /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxpi
+ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxclaude
+ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcodex
+ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcursor
+ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxpi
 ```
 
 Link only the agents you want; each is independent. `sbxagent` deliberately has
