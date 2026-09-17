@@ -128,11 +128,23 @@ Also add, mirroring the existing `PROJECT_DIR`/`STATE_ROOT` setup (line 181–18
 - A `MESSAGEBOARD_ROOT="${XDG_STATE_HOME}/sbxagent/messageboard"` and
   `MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${NAME_A#*-}"`-style helper near the
   existing `PROJECT_DIR` computation.
-- New assertions parallel to the `CROSS_SANDBOX_VISIBILITY` block (lines
-  514–536): `MESSAGEBOARD_DIR` exists with mode `700` when
-  `CROSS_SANDBOX_VISIBILITY=true` (the default already covers this via the
-  main flow), and does **not** exist when `CROSS_SANDBOX_VISIBILITY=false`
-  (parallel to today's check that `PROJECT_DIR`'s read-only mount is dropped).
+- In the existing `CROSS_SANDBOX_VISIBILITY=false` block (lines 514–536,
+  reusing `WORK_B`): only the argv assertion — that the mount operand for
+  `MESSAGEBOARD_DIR` is absent. **Not** a "directory does not exist" check
+  here: the default-visibility `create` for `WORK_B` immediately above it
+  (line 507) already creates `WORK_B`'s messageboard directory, so asserting
+  non-existence against the same fixture would be asserting something the
+  test itself just made false. `CROSS_SANDBOX_VISIBILITY=false` must not
+  create or mount the directory for a *new* sandbox, but it must not delete
+  a messageboard that already exists on the host either — so the directory
+  legitimately still being there is correct behavior, not a bug.
+- The actual "does not exist" assertion belongs in the `.env` fixture block
+  (lines 570–607), which uses `WORK_ENV`/`DOTENV_PROJECT_DIR` — a project key
+  never touched before that point in the suite. Its `.env` already sets
+  `CROSS_SANDBOX_VISIBILITY=false` and its `create` call (line 591) is the
+  *first* create for that key, so asserting `MESSAGEBOARD_DIR` for
+  `DOTENV_PROJECT_DIR` doesn't exist there is a true test of "never created,"
+  not "created then hidden."
 - Confirm two sibling agents for the same project (e.g. `sbxclaude` and
   `sbxcodex` — same pattern as the existing `PROJECT_DIR` "shared across
   agents" assertions around lines 253–403) resolve to the identical
@@ -150,9 +162,12 @@ relocation mechanism, which this feature doesn't use.
   (`~/.local/state/sbxagent/messageboard/<slug>-<hash>`), that it's shared
   read-write across every agent's sandbox for the project, that it's gated by
   `CROSS_SANDBOX_VISIBILITY` (link to `docs/traces.md` for that flag's full
-  semantics rather than repeating them), and a one-line note that nothing
-  reads or writes to it yet — the skills referenced in `README.md`'s diagram
-  are future work.
+  semantics rather than repeating them) — including that `false` only
+  affects a *new* sandbox: it stops that sandbox from creating or mounting
+  the directory, it does not delete a messageboard that already exists on
+  the host from an earlier, visible sandbox — and a one-line note that
+  nothing reads or writes to it yet — the skills referenced in `README.md`'s
+  diagram are future work.
 - **`README.md`**: add a row for `docs/messageboard.md` to the doc-index
   table (next to the existing `docs/traces.md` row, ~line 202).
 - **`docs/toolchain.md`** (~lines 23–33): extend the paragraph describing the
@@ -182,8 +197,11 @@ relocation mechanism, which this feature doesn't use.
 - Manual, on the host (needs the real `sbx` CLI, so ask the user to run it):
   1. `NETWORK_ALLOWLIST=true CROSS_SANDBOX_VISIBILITY=true ./scripts/sbxclaude create` (or plain `./scripts/sbxclaude`), then confirm
      `ls ~/.local/state/sbxagent/messageboard/<slug>-<hash>` exists on the
-     host, and from inside the sandbox (`sbxclaude exec -- touch ...`) confirm
-     a file written there lands on the host and vice versa.
+     host, and from inside the sandbox
+     (`./scripts/sbxclaude exec touch <absolute-messageboard-path>/probe` —
+     note `scripts/sbxagent`'s `exec` rejects a first argument starting with
+     `-`, so a `--` separator is not accepted; pass the command directly)
+     confirm a file written there lands on the host and vice versa.
   2. Start a second agent's sandbox for the same project (e.g.
      `./scripts/sbxcodex`) and confirm it sees the same folder and the same
      file.
