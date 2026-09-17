@@ -183,7 +183,7 @@ STATE_ROOT="${XDG_STATE_HOME}/sbxagent/traces"
 # The messageboard tree is a sibling of traces under the same XDG root: one
 # folder per project, shared read-write by every agent's sandbox for it, with
 # no per-agent subfolder.
-MESSAGEBOARD_ROOT="${XDG_STATE_HOME}/sbxagent/messageboard"
+MESSAGEBOARD_ROOT="${XDG_STATE_HOME}/sbxagent/messageboards"
 
 # Portable mode probe: BSD stat first, GNU fallback, same pattern as the
 # wrapper's shasum/sha256sum probe.

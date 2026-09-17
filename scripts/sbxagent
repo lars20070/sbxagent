@@ -126,7 +126,7 @@ require_sbx() {
 # sandbox is created, so the kit can relocate that agent's native session-trace
 # directory into it. PROJECT_MOUNT is the read-only mount operand for
 # PROJECT_DIR, or empty when CROSS_SANDBOX_VISIBILITY is false. MESSAGEBOARD_DIR
-# is one project-wide folder under a sibling messageboard/ tree, mounted
+# is one project-wide folder under a sibling messageboards/ tree, mounted
 # read-write so every agent's sandbox for this project can post to it, and is its
 # own mount operand: unlike PROJECT_DIR it needs no :ro suffix and nothing nests
 # inside it, so it is simply empty — neither created nor mounted — when
@@ -142,8 +142,8 @@ compute_state_mounts() {
 	*) STATE_HOME="${HOME}/.local/state/sbxagent/traces" ;;
 	esac
 	case "${XDG_STATE_HOME:-}" in
-	/*) MESSAGEBOARD_HOME="${XDG_STATE_HOME}/sbxagent/messageboard" ;;
-	*) MESSAGEBOARD_HOME="${HOME}/.local/state/sbxagent/messageboard" ;;
+	/*) MESSAGEBOARD_HOME="${XDG_STATE_HOME}/sbxagent/messageboards" ;;
+	*) MESSAGEBOARD_HOME="${HOME}/.local/state/sbxagent/messageboards" ;;
 	esac
 	PROJECT_DIR="${STATE_HOME}/${SLUG:+${SLUG}-}${HASH}"
 	AGENT_DIR="${PROJECT_DIR}/${SELF}"

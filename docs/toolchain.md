@@ -27,7 +27,7 @@ wrapper-managed state folder under
 project directory and shared read-only across every agent's sandbox for it,
 with a per-agent subfolder (`sbxclaude/`, `sbxcodex/`, …) that only that
 agent's own sandbox can write. Alongside it, a sibling
-`${XDG_STATE_HOME:-~/.local/state}/sbxagent/messageboard/<slug>-<hash>/` is
+`${XDG_STATE_HOME:-~/.local/state}/sbxagent/messageboards/<slug>-<hash>/` is
 mounted read-write and shared by every agent's sandbox for the project — one
 folder, no per-agent subfolders (see
 [messageboard.md](messageboard.md)). Set `CROSS_SANDBOX_VISIBILITY=false` when
