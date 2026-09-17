@@ -28,7 +28,6 @@ flowchart LR
     AGENT["Claude Code, Codex,<br/>Cursor, Pi CLI"]
     TOOLS["git, docker, rg, jq,<br/>ruff, pandoc, ..."]
     PROXY["network allowlist +<br/>credential proxy"]
-    SKILLS["skills<br>/read-traces<br>/read-message-board<br>/write-message-board"]
   end
 
   subgraph NET[" "]
@@ -43,7 +42,6 @@ flowchart LR
   KIT -->|"builds"| VM
   AGENT -.->|"runs"| TOOLS
   AGENT -->|"via proxy"| PROXY
-  AGENT -.->|"uses"| SKILLS
   PROXY -->|"allowlisted"| LLM & GH
   AGENT ==>|"edits"| PROJ
 
@@ -54,7 +52,7 @@ flowchart LR
   classDef ext     fill:#F0F0EE,stroke:#7A8482,stroke-width:1.5px,color:#3A4250
   class PROJ,STATE data
   class KIT,DRV host
-  class TOOLS,PROXY,SKILLS helper
+  class TOOLS,PROXY helper
   class AGENT agent
   class GH,LLM ext
   style VM fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px
@@ -62,7 +60,7 @@ flowchart LR
   style NET fill:none,stroke:none
 ```
 
-<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) runs pinned tools (teal), uses skills to check session traces and message board, and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board.*
+<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board.*
 
 ## Contents
 
