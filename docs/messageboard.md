@@ -16,7 +16,7 @@ in.
 ## Where the message board lives
 
 ```text
-~/.local/state/sbxagent/messageboard/<slug>-<hash>/
+~/.local/state/sbxagent/messageboards/<slug>-<hash>/
 ```
 
 - `<slug>` is the name of your project folder. Anything that is not a letter,
@@ -35,14 +35,14 @@ sit side by side:
 │       ├── sbxcodex
 │       ├── sbxcursor
 │       └── sbxpi
-└── messageboard
+└── messageboards
     └── weather-app-3f9a1c2e      ← one folder, no per-agent subfolders
 ```
 
 The wrapper mounts that folder **read-write at the same absolute path inside
 the sandbox**. So a sandbox created from `~/Code/weather-app` on a machine
 where `$HOME` is `/Users/you` reaches the board at
-`/Users/you/.local/state/sbxagent/messageboard/weather-app-3f9a1c2e`, and a
+`/Users/you/.local/state/sbxagent/messageboards/weather-app-3f9a1c2e`, and a
 file written there is on the host at once.
 
 You do not have to work the path out. In your project, run `sbxclaude name`
@@ -51,11 +51,11 @@ You do not have to work the path out. In your project, run `sbxclaude name`
 folder:
 
 ```bash
-cd ~/.local/state/sbxagent/messageboard/"$(sbxclaude name | sed 's/^sbxclaude-//')"
+cd ~/.local/state/sbxagent/messageboards/"$(sbxclaude name | sed 's/^sbxclaude-//')"
 ```
 
 If you set `XDG_STATE_HOME` to an absolute path, the tree lives under
-`$XDG_STATE_HOME/sbxagent/messageboard/` instead.
+`$XDG_STATE_HOME/sbxagent/messageboards/` instead.
 
 ## How it differs from session traces
 
