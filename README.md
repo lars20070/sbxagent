@@ -14,7 +14,7 @@ flowchart LR
   subgraph IN[" "]
     direction TB
     PROJ["your project<br/>(host working tree)"]
-    STATE["session traces<br> + message board<br/>~/.local/state/sbxagent"]
+    STATE["session traces<br/>+ message board<br/>~/.local/state/sbxagent"]
     DRV["scripts/sbxclaude<br/>scripts/sbxcodex<br/>scripts/sbxcursor<br/>scripts/sbxpi"]
     KIT["kits/*/spec.yaml<br/>kits/*/files/"]
   end
@@ -73,32 +73,32 @@ flowchart LR
 
 ## Quick start
 
-There are two different ways to start a sandbox. Both require `sbx` to be installed, see [details below](#install-sbx).
+There are two ways to start a sandbox. Both need `sbx` installed and signed in; see [details below](#install-sbx). `sbxcodex` below stands for any of the four agents: swap in `sbxclaude`, `sbxcursor` or `sbxpi`.
 
 ### (1) Run a published sandbox kit directly
 
 ```bash
 sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'
-sbx run ghcr.io/lars20070/sbxcodex:latest    # Or sbxclaude, sbxcursor, sbxpi 
+sbx run ghcr.io/lars20070/sbxcodex:latest
 ```
 
-Nothing to clone or to install. Run these two commands from the project directory you want the agent to work in. The first line runs once per host and allows `sbx` to load kits from this publisher. The second line builds a sandbox for the current directory and attaches to it. Swap `sbxcodex` for `sbxclaude`, `sbxcursor` or `sbxpi`. See [further details here](docs/published-kits.md).
+Nothing to clone or install on the host. Run these two commands from the project directory you want the agent to work in. The first line runs once per host and allows `sbx` to load kits from this publisher. The second line builds a sandbox for the current directory and attaches to it. See [further details here](docs/published-kits.md).
 
 ### (2) Clone the repo and use the wrapper
 
 ```bash
 git clone https://github.com/lars20070/sbxagent.git
-ln -sf "$PWD/sbxagent/scripts/sbxagent" ~/.local/bin/sbxcodex    # Or sbxclaude, sbxcursor, sbxpi
+ln -sf "$PWD/sbxagent/scripts/sbxagent" ~/.local/bin/sbxcodex
 cd /path/to/your/project
-sbxcodex    # Or sbxclaude, sbxcursor, sbxpi
+sbxcodex
 ```
 
-More convenience for a little setup. Link `scripts/sbxagent` onto your `PATH` under the name of each agent you want. Then run that name from any project directory. The first run builds a sandbox for that directory and attaches to it. Later runs re-attach to the same sandbox, so your work carries over. Link `sbxclaude`, `sbxcursor` and `sbxpi` the same way; each is independent. `sbxagent` deliberately has no default agent — run it under its own name and it refuses, rather than silently picking one for you.
+A little setup buys more convenience. Link `scripts/sbxagent` into a directory on your `PATH` (such as `~/.local/bin`) under the name of each agent you want, one link per agent. Then run that name from any project directory. The first run builds a sandbox for that directory and attaches to it. Later runs re-attach to the same sandbox, so your work carries over. `sbxagent` deliberately has no default agent — run it under its own name and it refuses, rather than silently picking one for you.
 
 The wrapper adds what the published kit alone does not: one sandbox per project directory, re-attach, a host state folder that preserves each agent's session traces and hosts a message board, and the subcommands [discussed below](#commands). To enter the sandbox with a Bash shell:
 
 ```bash
-sbxcodex exec bash    # Or sbxclaude, sbxcursor, sbxpi
+sbxcodex exec bash
 ```
 
 ## Install sbx
@@ -142,14 +142,14 @@ All four commands take the same signatures. `sbx<agent>` below is any of `sbxcla
 | `sbx<agent> kit validate` | Check the kit against the current schema |
 | `sbx<agent> help` | Show usage |
 
-The wrapper accepts only these signatures. It does not forward prompts or agent flags. Use `sbx` and the name directly for anything outside the table. For example
+The wrapper accepts only these signatures. It does not forward prompts or agent flags. Use `sbx` and the name directly for anything outside the table. For example:
 
 ```bash
 S="$(sbxclaude name)"
 sbx inspect "${S}"
 ```
 
-None of this table applies to a sandbox started from a published kit; see [Run a published kit](#1-run-a-published-kit).
+None of this table applies to a sandbox started from a published kit; see [(1) above](#1-run-a-published-sandbox-kit-directly).
 
 ## Supported agents
 
