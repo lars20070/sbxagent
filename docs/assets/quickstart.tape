@@ -23,12 +23,11 @@ Type "cd $(mktemp -d) && clear"  Enter
 Show
 
 Type "sbx login" Sleep 400ms  Enter  Sleep 3s
-Type "ln -sf /Users/lars/Code/sbxagent/scripts/sbxagent ~/.local/bin/sbxcodex" Sleep 400ms  Enter  Sleep 2000ms
-Type "sbxcodex version"  Sleep 400ms  Enter  Sleep 2000ms
+Type `sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'` Sleep 400ms  Enter  Sleep 3s
 Type "sbx secret set openai --oauth" Sleep 400ms  Enter  Sleep 2000ms
 Type "N" Sleep 400ms  Enter  Sleep 900ms
 
-Type "sbxcodex"  Sleep 400ms  Enter
+Type "sbx run ghcr.io/lars20070/sbxcodex:latest"  Sleep 400ms  Enter
 Sleep 6s                                   # Show the first lines of progress
 Hide
 Sleep 480s                                 # Cold build measured at ~5 min
@@ -38,4 +37,4 @@ Sleep 3s                                   # Let the result sit on screen
 Sleep 400ms  Enter
 Sleep 3s
 Type "What is the capital of France?" Sleep 400ms Enter
-Sleep 3s
+Sleep 6s
