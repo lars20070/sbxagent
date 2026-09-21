@@ -8,6 +8,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The pinned in-sandbox `sbx` CLI moved from `v0.43.0` to `v0.45.0` in all
+  four kits, with updated SHA-256 digests, and the release workflow's
+  host-side `sbx` moved with it. There was no `v0.44.0` release, so this
+  carries everything since `v0.43.0`. None of the upstream breaking changes
+  applies here: nothing in this repo runs the removed `sbx mcp catalog`, and
+  nothing scripts `sbx secret rm` or `sbx mcp rm`, which now error on a
+  missing target. The kits stay on `schemaVersion: "2"`, which `v0.45.0`
+  continues to support; its new v3 kits have no published spec yet and are
+  not accepted by `sbx kit validate`.
+
 ## [0.4.8] - 2026-09-17
 
 ### Added

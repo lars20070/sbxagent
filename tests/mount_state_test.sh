@@ -294,7 +294,7 @@ done
 # start: the entrypoint is the agent launch command, so it never runs for a
 # `sbx exec` session or a sandbox that is started but not attached; the startup
 # step does run per start but is known not to replay after a daemon restart
-# (docker/sbx-releases #420) or when `sbx exec` starts a stopped sandbox (#479).
+# (docker/sbx-releases #420, still open as of sbx v0.45.0).
 # Dropping either one reintroduces a silent hole — traces written to an unbound
 # stock path, with no error, lost when the sandbox goes away — so assert both
 # are present rather than trusting a comment to keep them there.

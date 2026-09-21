@@ -122,9 +122,11 @@ jobs:
           sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
           echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
 
-      # The darwin archive has no install.sh and a different layout: the binary
-      # sits at bin/sbx, so extract it and put that bin on PATH. Homebrew is
-      # avoided here because `brew trust docker/tap` prompts.
+      # The darwin archive has no install.sh and a different layout: since
+      # v0.45.0 it is a signed Sbx.app bundle plus a bin/ directory whose
+      # bin/sbx is a relative symlink into the bundle, so extract the whole
+      # archive and put that bin on PATH. Homebrew is avoided here because
+      # `brew trust docker/tap` prompts.
       - name: Install sbx CLI
         if: runner.os == 'macOS'
         run: |

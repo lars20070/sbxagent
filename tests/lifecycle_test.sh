@@ -62,7 +62,12 @@ TARGET="${STATE_DIR}/${SUBDIR}"
 
 cleanup() {
 	cd "${TEST_ROOT}"
-	sbx rm "${SANDBOX}" >/dev/null 2>&1 || true
+	# --force: this is automated cleanup of a disposable sandbox, and from sbx
+	# v0.45.0 a removal prompt that is declined (or never answered) exits
+	# non-zero, which `|| true` would hide and leave the sandbox behind. The
+	# wrapper's own `rm` deliberately never passes --force (see the unit test
+	# in sbxagent_test.sh); only this trap does.
+	sbx rm --force "${SANDBOX}" >/dev/null 2>&1 || true
 	rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT
