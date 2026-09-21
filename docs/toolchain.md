@@ -73,14 +73,14 @@ adds two of its own, for Pi and its Context7 package.
 | Tool | Where pinned | Version |
 | --- | --- | --- |
 | `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.45.0` (SHA-256 verified) |
-| `ruff` | `kits/*/spec.yaml` | `0.16.2` |
+| `ruff` | `kits/*/spec.yaml` | `0.16.8` |
 | `yamllint` | `kits/*/spec.yaml` | `1.38.0` |
-| `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.2` |
-| `cspell` | `kits/*/spec.yaml`, CI | `10.0.1` |
-| `playwright` (+ Chromium) | `kits/*/spec.yaml` | `1.62.1` |
-| `mermaid-cli` (`mmdc`) | `kits/*/spec.yaml` | `11.16.0` |
-| Context7 MCP | `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `kits/*/` MCP configs | `4.0.0` |
-| `github-mcp-server` | `kits/*/spec.yaml`, except `sbxpi` | `1.11.0` (SHA-256 verified) |
+| `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.3` |
+| `cspell` | `kits/*/spec.yaml`, CI | `10.3.3` |
+| `playwright` (+ Chromium) | `kits/*/spec.yaml` | `1.63.0` |
+| `mermaid-cli` (`mmdc`) | `kits/*/spec.yaml` | `11.17.0` |
+| Context7 MCP | `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `kits/*/` MCP configs | `4.1.1` |
+| `github-mcp-server` | `kits/*/spec.yaml`, except `sbxpi` | `1.12.2` (SHA-256 verified) |
 | `@earendil-works/pi-coding-agent` | `kits/sbxpi/spec.yaml` | `0.84.4` |
 | `@upstash/context7-pi` | `kits/sbxpi/spec.yaml` | `0.1.2` |
 | `esbuild` (TypeScript lint) | `Makefile` | `0.28.2`, fetched via `npx` |

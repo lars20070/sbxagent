@@ -220,15 +220,15 @@ setup:
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v1.11.0 release assets.
+        # Digests of the v1.12.2 release assets.
         case "$arch" in
           amd64)
             asset="Linux_x86_64"
-            expected_sha256="3b73bb7be0c8b043f861e90410df8ebdfc71b83128c54ced75fb32c4ff697fc5"
+            expected_sha256="95843162759da2c31dde082dd145be35db82164594796c294414b69790c2290e"
             ;;
           arm64)
             asset="Linux_arm64"
-            expected_sha256="3f7615254f6b619469c471c5d275029299ff7431c93d6075496ea4b2eec020cb"
+            expected_sha256="2b30f9fcc061b57456cbe38ddc0f13c88863bad49557508a9196f2d1c4cb17a5"
             ;;
           *)
             echo "unsupported architecture for github-mcp-server: $arch" >&2
@@ -238,7 +238,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/github/github-mcp-server/releases/download/v1.11.0/github-mcp-server_${asset}.tar.gz" \
+          "https://github.com/github/github-mcp-server/releases/download/v1.12.2/github-mcp-server_${asset}.tar.gz" \
           -o "$tmp/gms.tar.gz"
         actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
@@ -253,13 +253,13 @@ setup:
     # specific — it installs /etc/claude-code/managed-settings.json with Claude
     # Code hook JSON, and Cursor exposes no verified equivalent. See the
     # agentInstructions above, which ask for the same behaviour unenforced.
-    - command: "uv tool install ruff@0.16.2"
+    - command: "uv tool install ruff@0.16.8"
       user: "1000"
       description: Ruff
     - command: "uv tool install yamllint@1.38.0"
       user: "1000"
       description: yamllint
-    - command: "npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1"
+    - command: "npm install --global markdownlint-cli2@0.23.3 cspell@10.3.3"
       user: "1000"
       description: Markdown and spelling linters
     - command: |
@@ -282,7 +282,7 @@ setup:
     - command: |
         set -eu
         [ "${{ kit.args.lite }}" = "false" ] || exit 0
-        npm install --global playwright@1.62.1
+        npm install --global playwright@1.63.0
         playwright install --with-deps chromium
       user: "1000"
       description: Playwright with headless Chromium (SBXAGENT_LITE=false only)
@@ -291,7 +291,7 @@ setup:
         [ "${{ kit.args.lite }}" = "false" ] || exit 0
         # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
         # reuses the one Playwright just installed, below.
-        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.16.0
+        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.17.0
         chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
           'console.log(require("playwright").chromium.executablePath())')"
         mmdc_bin="$(command -v mmdc)"

@@ -145,7 +145,7 @@ jobs:
           restore-keys: ${{ runner.os }}-npm-
 
       - name: Install lint tools
-        run: npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1 esbuild@0.28.2
+        run: npm install --global markdownlint-cli2@0.23.3 cspell@10.3.3 esbuild@0.28.2
 
       - name: Lint (includes the version-agreement check)
         run: make lint ESBUILD=esbuild

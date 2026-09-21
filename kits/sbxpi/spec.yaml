@@ -484,7 +484,7 @@ setup:
         grep -q "network-block\.jq" /usr/local/lib/sbxagent/network-block.ts
         grep -q "export default function" /usr/local/lib/sbxagent/network-block.ts
       description: Network-block escalation guard
-    - command: "uv tool install ruff@0.16.2"
+    - command: "uv tool install ruff@0.16.8"
       user: "1000"
       description: Ruff
     - command: "uv tool install yamllint@1.38.0"
@@ -500,7 +500,7 @@ setup:
         npm config set https-proxy "$HTTP_PROXY"
       user: "1000"
       description: Point npm at the sandbox proxy
-    - command: "npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1"
+    - command: "npm install --global markdownlint-cli2@0.23.3 cspell@10.3.3"
       user: "1000"
       description: Markdown and spelling linters
     - command: |
@@ -523,7 +523,7 @@ setup:
     - command: |
         set -eu
         [ "${{ kit.args.lite }}" = "false" ] || exit 0
-        npm install --global playwright@1.62.1
+        npm install --global playwright@1.63.0
         playwright install --with-deps chromium
       user: "1000"
       description: Playwright with headless Chromium (SBXAGENT_LITE=false only)
@@ -532,7 +532,7 @@ setup:
         [ "${{ kit.args.lite }}" = "false" ] || exit 0
         # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
         # reuses the one Playwright just installed, above.
-        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.16.0
+        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.17.0
         chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
           'console.log(require("playwright").chromium.executablePath())')"
         mmdc_bin="$(command -v mmdc)"

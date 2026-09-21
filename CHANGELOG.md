@@ -19,6 +19,14 @@ and this project adheres to
   missing target. The kits stay on `schemaVersion: "2"`, which `v0.45.0`
   continues to support; its new v3 kits have no published spec yet and are
   not accepted by `sbx kit validate`.
+- Routine pin bumps across all four kits, none a new major: Ruff `0.16.2`
+  → `0.16.8`, markdownlint-cli2 `0.23.2` → `0.23.3`, CSpell `10.0.1` →
+  `10.3.3` (CI installs the same two), Playwright `1.62.1` → `1.63.0` and
+  mermaid-cli `11.16.0` → `11.17.0` (`SBXAGENT_LITE=false` only), the
+  Context7 MCP server `4.0.0` → `4.1.1` in every sandbox and host MCP
+  config, and `github-mcp-server` `1.11.0` → `1.12.2` with new SHA-256
+  digests in the three kits that install it. Pi stays at `0.84.4`: `0.87.0`
+  changes extension loading and session handling and needs its own trial.
 
 ## [0.4.8] - 2026-09-17
 
