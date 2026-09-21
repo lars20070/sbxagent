@@ -9,7 +9,7 @@ network policy, credentials and agent instructions — but not the wrapper, so
 you get no per-project sandbox naming and none of the `sbx<agent>` subcommands.
 
 You need the `sbx` CLI installed and signed in. See
-[Install](../README.md#install).
+[Install sbx](../README.md#install-sbx).
 
 Every release publishes the four kits to GitHub Container Registry as OCI
 artifacts, one package per kit, named after the command it corresponds to:

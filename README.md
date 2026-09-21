@@ -5,14 +5,9 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/lars20070/sbxagent/badge)](https://scorecard.dev/viewer/?uri=github.com/lars20070/sbxagent)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-`sbxagent` runs a coding agent in an isolated sandbox, with a fixed toolchain
-already installed. Think of it as a customized version of
-[`sbx run claude`](https://docs.docker.com/ai/sandboxes/agents/claude-code/), [`sbx run codex`](https://docs.docker.com/ai/sandboxes/agents/codex/) and so on.
+`sbxagent` runs a coding agent in an isolated sandbox, with a fixed toolchain already installed. Think of it as a customized version of [`sbx run claude`](https://docs.docker.com/ai/sandboxes/agents/claude-code/), [`sbx run codex`](https://docs.docker.com/ai/sandboxes/agents/codex/) and so on.
 
-A single script `sbxagent` serves four different commands — `sbxclaude`, `sbxcodex`, `sbxcursor` and
-`sbxpi` — by dispatching on the name it was invoked as. Each gets its own
-sandbox and its own credentials, so all four can run against the same project
-at once.
+A single script `sbxagent` serves four different commands — `sbxclaude`, `sbxcodex`, `sbxcursor` and `sbxpi` — by dispatching on the name it was invoked as. Each gets its own sandbox and its own credentials, so all four can run against the same project at once.
 
 ```mermaid
 flowchart LR
@@ -64,8 +59,8 @@ flowchart LR
 
 ## Contents
 
-- [Install](#install)
 - [Quick start](#quick-start)
+- [Install sbx](#install-sbx)
 - [Commands](#commands)
 - [Supported agents](#supported-agents)
 - [Further documentation](#further-documentation)
@@ -76,14 +71,48 @@ flowchart LR
 
 ![sbxcodex quickstart](docs/assets/quickstart.gif)
 
-## Install
+## Quick start
 
-You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with
-KVM available. Docker Desktop is not required. Install the `sbx` CLI, sign in,
-and link `scripts/sbxagent` onto your `PATH` once per agent you want.
+Both ways below need the `sbx` CLI installed and signed in — see [Install sbx](#install-sbx). Then pick one.
 
-> **sbx v0.45.0 is required.** sbx is
-> experimental. A later version may break `sbxagent`.
+### (1) Run a published kit
+
+Nothing to clone. From the project directory you want the agent to work in:
+
+```bash
+sbx login
+sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'
+sbx run ghcr.io/lars20070/sbxcodex:latest
+```
+
+The first line runs once per host: a kit's setup runs as root inside the sandbox, so `sbx` loads kits only from allow-listed prefixes. The second line builds a sandbox for the current directory and attaches to it. Swap `sbxcodex` for `sbxclaude`, `sbxcursor` or `sbxpi`.
+
+`latest` is always the newest release. Pin `:<version>` or a digest for anything repeatable. You get the kit — the toolchain, network policy, credentials and agent instructions — but not the wrapper: no per-project sandbox naming, no host state folder, and none of the `sbx<agent>` subcommands. [docs/published-kits.md](docs/published-kits.md) covers checking the signature, pinning a digest, and `--kit-arg lite=false` for the full toolchain.
+
+### Clone the repo and use the wrapper
+
+More convenience for a little setup. Link `scripts/sbxagent` onto your `PATH` under the name of each agent you want, then run that name from any project directory:
+
+```bash
+git clone https://github.com/lars20070/sbxagent.git
+ln -sf "$PWD/sbxagent/scripts/sbxagent" ~/.local/bin/sbxcodex
+cd /path/to/your/project
+sbxcodex
+```
+
+The first run builds a sandbox for that directory and attaches to it. Later runs re-attach to the same sandbox, so your work carries over. Link `sbxclaude`, `sbxcursor` and `sbxpi` the same way; each is independent. `sbxagent` deliberately has no default agent — run it under its own name and it refuses, rather than silently picking one for you.
+
+The wrapper adds what the published kit alone does not: one sandbox per project directory, re-attach, a host state folder that preserves each agent's session traces and hosts a message board, and the subcommands in [Commands](#commands). To enter the sandbox with a Bash shell:
+
+```bash
+sbxcodex exec bash
+```
+
+## Install sbx
+
+You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with KVM available. Docker Desktop is not required. Install the `sbx` CLI and sign in.
+
+> **sbx v0.45.0 is required.** sbx is experimental. A later version may break `sbxagent`.
 
 [macOS:](https://docs.docker.com/ai/sandboxes/install/#install-on-macos)
 
@@ -102,40 +131,9 @@ sudo usermod -aG kvm "$USER" && newgrp kvm
 sbx login
 ```
 
-Then, on either platform:
-
-```bash
-ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxclaude
-ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcodex
-ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxcursor
-ln -sf /path_to_sbxagent_repo/scripts/sbxagent ~/.local/bin/sbxpi
-```
-
-Link only the agents you want; each is independent. `sbxagent` deliberately has
-no default agent — run it under its own name and it refuses, rather than
-silently picking one for you.
-
-## Quick start
-
-Run the command for the agent you want, from any project directory:
-
-```bash
-sbxclaude     # or sbxcodex, sbxcursor, or sbxpi
-```
-
-The first run builds a sandbox for that directory and attaches to it. Later
-runs re-attach to the same sandbox, so your work carries over.
-
-To enter the sandbox with a Bash shell:
-
-```bash
-sbxclaude exec bash
-```
-
 ## Commands
 
-All four commands take the same signatures. `sbx<agent>` below is any of
-`sbxclaude`, `sbxcodex`, `sbxcursor` or `sbxpi`.
+All four commands take the same signatures. `sbx<agent>` below is any of `sbxclaude`, `sbxcodex`, `sbxcursor` or `sbxpi`.
 
 | Command | Effect |
 | --- | --- |
@@ -151,21 +149,14 @@ All four commands take the same signatures. `sbx<agent>` below is any of
 | `sbx<agent> kit validate` | Check the kit against the current schema |
 | `sbx<agent> help` | Show usage |
 
-The wrapper accepts only these signatures. It does not forward prompts or agent
-flags. Use `sbx` and the name directly for anything outside the table. For
-example
+The wrapper accepts only these signatures. It does not forward prompts or agent flags. Use `sbx` and the name directly for anything outside the table. For example
 
 ```bash
 S="$(sbxclaude name)"
 sbx inspect "${S}"
 ```
 
-You can skip the wrapper altogether. Every release publishes the four kits to a
-registry, so `sbx run <kit-ref>` builds the same sandbox — toolchain, network
-policy, credentials and agent instructions — without cloning this repository.
-You give up the per-project sandbox naming and every subcommand in the table
-above. [docs/published-kits.md](docs/published-kits.md) names the packages,
-shows how to verify the signature, and covers stacking your own kit on top.
+None of this table applies to a sandbox started from a published kit; see [Run a published kit](#1-run-a-published-kit).
 
 ## Supported agents
 
@@ -176,22 +167,11 @@ shows how to verify the signature, and covers stacking your own kit on top.
 | Cursor | `sbxcursor` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
 | Pi | `sbxpi` | `AGENTS.md` | none | yes |
 
-`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` ships
-no Pi agent, so the kit builds on the bare `shell-docker` template and installs
-everything itself. And Pi has **no MCP support at all**, so the kit lists no
-MCP config; its model and provider settings live in
-`~/.pi/agent/models.json` and `~/.pi/agent/settings.json` instead.
+`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` ships no Pi agent, so the kit builds on the bare `shell-docker` template and installs everything itself. And Pi has **no MCP support at all**, so the kit lists no MCP config; its model and provider settings live in `~/.pi/agent/models.json` and `~/.pi/agent/settings.json` instead.
 
-A `yes` means a guard runs, not that it cannot be escaped.
-[docs/agents.md](docs/agents.md) says how strong each one is, why the four CLIs
-differ, and what every guard misses.
+A `yes` means a guard runs, not that it cannot be escaped. [docs/agents.md](docs/agents.md) says how strong each one is, why the four CLIs differ, and what every guard misses.
 
-The wrapper also preserves each agent's native session traces in its
-per-project state folder, where sibling agents can read them by default, and
-mounts a per-project message board every agent's sandbox can write to.
-[docs/traces.md](docs/traces.md) and
-[docs/messageboard.md](docs/messageboard.md) list the paths and the
-create-time privacy setting they share.
+The wrapper also preserves each agent's native session traces in its per-project state folder, where sibling agents can read them by default, and mounts a per-project message board every agent's sandbox can write to. [docs/traces.md](docs/traces.md) and [docs/messageboard.md](docs/messageboard.md) list the paths and the create-time privacy setting they share.
 
 ## Further documentation
 
@@ -206,10 +186,8 @@ create-time privacy setting they share.
 
 ## Support
 
-Bugs and questions go to the
-[issue tracker](https://github.com/lars20070/sbxagent/issues).
+Bugs and questions go to the [issue tracker](https://github.com/lars20070/sbxagent/issues).
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for the threat model, how to report a
-vulnerability, and how to verify what you run.
+See [SECURITY.md](SECURITY.md) for the threat model, how to report a vulnerability, and how to verify what you run.
