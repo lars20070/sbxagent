@@ -8,8 +8,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-09-21
+
+### Added
+
+- `read-claude-code-session-traces`, a repository skill for reading Claude Code
+  JSONL session transcripts: render a session readable, search across session
+  history, and account for its tokens and cost. It ships the transcript schema
+  as a reference plus `index`, `transcript`, `search` and `audit` scripts, and
+  pairs with the session traces the sandboxes already preserve
+  (see `docs/traces.md`).
+
 ### Changed
 
+- **The message board moved from `messageboard/` to `messageboards/`.** The
+  per-project board is now at
+  `${XDG_STATE_HOME:-~/.local/state}/sbxagent/messageboards/<slug>-<hash>`,
+  matching the plural `traces/` sibling next to it. A board created under the
+  0.4.8 path is not migrated and becomes stale; move or delete it by hand.
+  Existing sandboxes keep the old mount until they are removed and recreated.
 - The pinned in-sandbox `sbx` CLI moved from `v0.43.0` to `v0.45.0` in all
   four kits, with updated SHA-256 digests, and the release workflow's
   host-side `sbx` moved with it. There was no `v0.44.0` release, so this
