@@ -3,7 +3,7 @@
 
 [mcp_servers.context7]
 command = "npx"
-args = ["-y", "@upstash/context7-mcp@4.0.0"]
+args = ["-y", "@upstash/context7-mcp@4.1.1"]
 
 # Requires github-mcp-server on PATH. Before starting Codex, export
 # GITHUB_PERSONAL_ACCESS_TOKEN="$GITHUB_TOKEN" if using the other agents' token.

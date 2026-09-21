@@ -9,7 +9,7 @@ network policy, credentials and agent instructions — but not the wrapper, so
 you get no per-project sandbox naming and none of the `sbx<agent>` subcommands.
 
 You need the `sbx` CLI installed and signed in. See
-[Install](../README.md#install).
+[Install sbx](../README.md#install-sbx).
 
 Every release publishes the four kits to GitHub Container Registry as OCI
 artifacts, one package per kit, named after the command it corresponds to:
@@ -113,7 +113,7 @@ sbx run ghcr.io/lars20070/sbxclaude:<version> --kit ./my-extras
 ```
 
 You cannot yet **derive** a kit from one. The spec has a `mixins:` field for
-exactly that, but as of `sbx` v0.43.0 it is accepted and then ignored —
+exactly that, but as of `sbx` v0.45.0 it is accepted and then ignored —
 `sbx kit validate` says so out loud:
 
 ```text

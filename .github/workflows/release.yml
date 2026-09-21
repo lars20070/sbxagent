@@ -145,7 +145,7 @@ jobs:
           restore-keys: ${{ runner.os }}-npm-
 
       - name: Install lint tools
-        run: npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1 esbuild@0.28.2
+        run: npm install --global markdownlint-cli2@0.23.3 cspell@10.3.3 esbuild@0.28.2
 
       - name: Lint (includes the version-agreement check)
         run: make lint ESBUILD=esbuild
@@ -200,13 +200,13 @@ jobs:
       # Digest-checked, also unlike ci.yml: this binary runs install.sh under sudo
       # and then pushes and signs every published kit, so the archive is
       # verified before anything in it is extracted or executed. The digest is
-      # the one the kits pin for the same v0.43.0 Linux archive — the generic
+      # the one the kits pin for the same v0.45.0 Linux archive — the generic
       # and -amd64 assets are byte-identical — so bump SBX_VERSION and
       # SBX_SHA256 together, alongside the kits (docs/toolchain.md).
       - name: Install sbx CLI
         env:
-          SBX_VERSION: v0.43.0
-          SBX_SHA256: 3eb15b8444e969aaa8d637250bef0f2bf90cb030aba0a7016a56b8e5fcdd25fe
+          SBX_VERSION: v0.45.0
+          SBX_SHA256: 77f3c36e63a60a034fa53b5a9e49c20c52c350a91b380ebd96281460a5270341
         run: |
           set -euo pipefail
           curl -fsSL \

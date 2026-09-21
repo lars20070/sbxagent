@@ -266,15 +266,14 @@ drops it. Each kit calls `mount-state.sh` from two places, and needs both:
 - A `setup.startup` step, which the runtime runs at every start. It covers
   sessions that never launch the agent, such as `sbxclaude exec bash`.
 - The `sandbox.entrypoint` wrapper, which runs the script just before
-  `exec claude "$@"` (or `codex`, `cursor-agent`, `pi`). It covers the starts
-  where a startup step is known not to run: after a daemon restart
-  (docker/sbx-releases #420) and when `sbx exec` wakes a stopped sandbox
-  (#479).
+  `exec claude "$@"` (or `codex`, `cursor-agent`, `pi`). It covers the one
+  start where a startup step is known not to run: after a daemon restart
+  (docker/sbx-releases #420, still open as of sbx v0.45.0).
 
 Whichever runs first does the work. The other hits the match in step 3 and
 exits `0`.
 
-Once docker/sbx-releases #420 and #479 are fixed, the startup step alone
+Once docker/sbx-releases #420 is fixed, the startup step alone
 reaches every start, and the entrypoint call goes. The script then runs
 exactly once per boot, so step 3 goes with it — nothing can be bound already —
 and the flow shrinks to this:

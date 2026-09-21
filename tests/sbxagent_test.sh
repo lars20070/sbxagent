@@ -183,7 +183,7 @@ STATE_ROOT="${XDG_STATE_HOME}/sbxagent/traces"
 # The messageboard tree is a sibling of traces under the same XDG root: one
 # folder per project, shared read-write by every agent's sandbox for it, with
 # no per-agent subfolder.
-MESSAGEBOARD_ROOT="${XDG_STATE_HOME}/sbxagent/messageboard"
+MESSAGEBOARD_ROOT="${XDG_STATE_HOME}/sbxagent/messageboards"
 
 # Portable mode probe: BSD stat first, GNU fallback, same pattern as the
 # wrapper's shasum/sha256sum probe.
@@ -682,7 +682,7 @@ COPIED="${TEST_ROOT}/sbx-unknown-agent"
 # workspace file as fully sparse, so `cp` out of the workspace writes a
 # correctly-sized file of NUL bytes and this test would fail for a reason that
 # has nothing to do with dispatch. No `cp` flag avoids it; `cat` and `dd` are
-# unaffected. Open upstream, no fix as of sbx v0.43.0:
+# unaffected. Open upstream, no fix as of sbx v0.45.0:
 # https://github.com/docker/sbx-releases/issues/526
 cat "${AGENT_SCRIPT}" >"${COPIED}"
 chmod +x "${COPIED}"

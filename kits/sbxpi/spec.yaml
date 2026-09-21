@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxpi
-version: "0.4.8"
+version: "0.4.9"
 displayName: Pi with custom toolchain
 description: Pi with custom toolchain
 
@@ -230,13 +230,13 @@ setup:
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.43.0 release assets.
+        # Digests of the v0.45.0 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="3eb15b8444e969aaa8d637250bef0f2bf90cb030aba0a7016a56b8e5fcdd25fe"
+            expected_sha256="77f3c36e63a60a034fa53b5a9e49c20c52c350a91b380ebd96281460a5270341"
             ;;
           arm64)
-            expected_sha256="31ae3a88cc083743e59569fedd6a1f527b3bdd6c567d58e5bc60c6c0af19a540"
+            expected_sha256="cbaf3746cbf0ac84f899a03fc9a281d6b011c73b1ebb1155893f13f49203f140"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -246,7 +246,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.43.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.45.0/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
@@ -484,7 +484,7 @@ setup:
         grep -q "network-block\.jq" /usr/local/lib/sbxagent/network-block.ts
         grep -q "export default function" /usr/local/lib/sbxagent/network-block.ts
       description: Network-block escalation guard
-    - command: "uv tool install ruff@0.16.2"
+    - command: "uv tool install ruff@0.16.8"
       user: "1000"
       description: Ruff
     - command: "uv tool install yamllint@1.38.0"
@@ -500,7 +500,7 @@ setup:
         npm config set https-proxy "$HTTP_PROXY"
       user: "1000"
       description: Point npm at the sandbox proxy
-    - command: "npm install --global markdownlint-cli2@0.23.2 cspell@10.0.1"
+    - command: "npm install --global markdownlint-cli2@0.23.3 cspell@10.3.3"
       user: "1000"
       description: Markdown and spelling linters
     - command: |
@@ -523,7 +523,7 @@ setup:
     - command: |
         set -eu
         [ "${{ kit.args.lite }}" = "false" ] || exit 0
-        npm install --global playwright@1.62.1
+        npm install --global playwright@1.63.0
         playwright install --with-deps chromium
       user: "1000"
       description: Playwright with headless Chromium (SBXAGENT_LITE=false only)
@@ -532,7 +532,7 @@ setup:
         [ "${{ kit.args.lite }}" = "false" ] || exit 0
         # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
         # reuses the one Playwright just installed, above.
-        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.16.0
+        PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.17.0
         chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
           'console.log(require("playwright").chromium.executablePath())')"
         mmdc_bin="$(command -v mmdc)"
@@ -591,9 +591,9 @@ setup:
     # Both call sites are deliberate and neither is sufficient on its own: a
     # startup step runs on every sandbox start, so it covers `sbx exec` and any
     # session that never attaches — which the entrypoint, being the agent launch
-    # command, cannot reach. The entrypoint in turn covers the starts where a
-    # startup step is known not to replay: docker/sbx-releases #420 (after a
-    # daemon restart) and #479 (`sbx exec` starting a stopped sandbox).
+    # command, cannot reach. The entrypoint in turn covers the one start where
+    # a startup step is known not to replay: after a daemon restart
+    # (docker/sbx-releases #420, still open as of sbx v0.45.0).
     # mount-state.sh is idempotent — once bound it exits 0 having touched
     # nothing — so whichever of the two runs second is a no-op.
     #

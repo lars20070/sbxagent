@@ -8,6 +8,43 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-09-21
+
+### Added
+
+- `read-claude-code-session-traces`, a repository skill for reading Claude Code
+  JSONL session transcripts: render a session readable, search across session
+  history, and account for its tokens and cost. It ships the transcript schema
+  as a reference plus `index`, `transcript`, `search` and `audit` scripts, and
+  pairs with the session traces the sandboxes already preserve
+  (see `docs/traces.md`).
+
+### Changed
+
+- **The message board moved from `messageboard/` to `messageboards/`.** The
+  per-project board is now at
+  `${XDG_STATE_HOME:-~/.local/state}/sbxagent/messageboards/<slug>-<hash>`,
+  matching the plural `traces/` sibling next to it. A board created under the
+  0.4.8 path is not migrated and becomes stale; move or delete it by hand.
+  Existing sandboxes keep the old mount until they are removed and recreated.
+- The pinned in-sandbox `sbx` CLI moved from `v0.43.0` to `v0.45.0` in all
+  four kits, with updated SHA-256 digests, and the release workflow's
+  host-side `sbx` moved with it. There was no `v0.44.0` release, so this
+  carries everything since `v0.43.0`. None of the upstream breaking changes
+  applies here: nothing in this repo runs the removed `sbx mcp catalog`, and
+  nothing scripts `sbx secret rm` or `sbx mcp rm`, which now error on a
+  missing target. The kits stay on `schemaVersion: "2"`, which `v0.45.0`
+  continues to support; its new v3 kits have no published spec yet and are
+  not accepted by `sbx kit validate`.
+- Routine pin bumps across all four kits, none a new major: Ruff `0.16.2`
+  → `0.16.8`, markdownlint-cli2 `0.23.2` → `0.23.3`, CSpell `10.0.1` →
+  `10.3.3` (CI installs the same two), Playwright `1.62.1` → `1.63.0` and
+  mermaid-cli `11.16.0` → `11.17.0` (`SBXAGENT_LITE=false` only), the
+  Context7 MCP server `4.0.0` → `4.1.1` in every sandbox and host MCP
+  config, and `github-mcp-server` `1.11.0` → `1.12.2` with new SHA-256
+  digests in the three kits that install it. Pi stays at `0.84.4`: `0.87.0`
+  changes extension loading and session handling and needs its own trial.
+
 ## [0.4.8] - 2026-09-17
 
 ### Added
