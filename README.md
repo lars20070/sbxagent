@@ -73,39 +73,32 @@ flowchart LR
 
 ## Quick start
 
-Both ways below need the `sbx` CLI installed and signed in — see [Install sbx](#install-sbx). Then pick one.
+There are two different ways to start a sandbox. Both require `sbx` to be installed, see [details below](#install-sbx).
 
-### (1) Run a published kit
-
-Nothing to clone. From the project directory you want the agent to work in:
+### (1) Run a published sandbox kit directly
 
 ```bash
-sbx login
 sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'
-sbx run ghcr.io/lars20070/sbxcodex:latest
+sbx run ghcr.io/lars20070/sbxcodex:latest    # Or sbxclaude, sbxcursor, sbxpi 
 ```
 
-The first line runs once per host: a kit's setup runs as root inside the sandbox, so `sbx` loads kits only from allow-listed prefixes. The second line builds a sandbox for the current directory and attaches to it. Swap `sbxcodex` for `sbxclaude`, `sbxcursor` or `sbxpi`.
+Nothing to clone or to install. Run these two commands from the project directory you want the agent to work in. The first line runs once per host and allows `sbx` to load kits from this publisher. The second line builds a sandbox for the current directory and attaches to it. Swap `sbxcodex` for `sbxclaude`, `sbxcursor` or `sbxpi`. See [further details here](docs/published-kits.md).
 
-`latest` is always the newest release. Pin `:<version>` or a digest for anything repeatable. You get the kit — the toolchain, network policy, credentials and agent instructions — but not the wrapper: no per-project sandbox naming, no host state folder, and none of the `sbx<agent>` subcommands. [docs/published-kits.md](docs/published-kits.md) covers checking the signature, pinning a digest, and `--kit-arg lite=false` for the full toolchain.
-
-### Clone the repo and use the wrapper
-
-More convenience for a little setup. Link `scripts/sbxagent` onto your `PATH` under the name of each agent you want, then run that name from any project directory:
+### (2) Clone the repo and use the wrapper
 
 ```bash
 git clone https://github.com/lars20070/sbxagent.git
-ln -sf "$PWD/sbxagent/scripts/sbxagent" ~/.local/bin/sbxcodex
+ln -sf "$PWD/sbxagent/scripts/sbxagent" ~/.local/bin/sbxcodex    # Or sbxclaude, sbxcursor, sbxpi
 cd /path/to/your/project
-sbxcodex
+sbxcodex    # Or sbxclaude, sbxcursor, sbxpi
 ```
 
-The first run builds a sandbox for that directory and attaches to it. Later runs re-attach to the same sandbox, so your work carries over. Link `sbxclaude`, `sbxcursor` and `sbxpi` the same way; each is independent. `sbxagent` deliberately has no default agent — run it under its own name and it refuses, rather than silently picking one for you.
+More convenience for a little setup. Link `scripts/sbxagent` onto your `PATH` under the name of each agent you want. Then run that name from any project directory. The first run builds a sandbox for that directory and attaches to it. Later runs re-attach to the same sandbox, so your work carries over. Link `sbxclaude`, `sbxcursor` and `sbxpi` the same way; each is independent. `sbxagent` deliberately has no default agent — run it under its own name and it refuses, rather than silently picking one for you.
 
-The wrapper adds what the published kit alone does not: one sandbox per project directory, re-attach, a host state folder that preserves each agent's session traces and hosts a message board, and the subcommands in [Commands](#commands). To enter the sandbox with a Bash shell:
+The wrapper adds what the published kit alone does not: one sandbox per project directory, re-attach, a host state folder that preserves each agent's session traces and hosts a message board, and the subcommands [discussed below](#commands). To enter the sandbox with a Bash shell:
 
 ```bash
-sbxcodex exec bash
+sbxcodex exec bash    # Or sbxclaude, sbxcursor, sbxpi
 ```
 
 ## Install sbx
