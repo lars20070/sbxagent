@@ -157,6 +157,8 @@
     "lmodern",
     "messageboard",
     "messageboards",
-    "subfolders"
+    "subfolders",
+    "lseek",
+    "ENOTEMPTY"
   ]
 }
