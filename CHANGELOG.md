@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-09-29
+
 ### Added
 
 - `read-pi-session-traces`, a repository skill for exploring the Pi session
