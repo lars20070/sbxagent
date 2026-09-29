@@ -152,6 +152,14 @@ complexity). No standalone "lineage" script; folds into `index.sh`.
     └── audit.sh
 ```
 
+| Script | Purpose | Example |
+| --- | --- | --- |
+| `common.sh` | Sourced-only helper library: error/argument helpers, `header_of()`, `feed()` (safe streaming of a live-appended file), and the shared `JQ_PRELUDE` (`entry_cost`, `entry_tokens`, `is_prompt`, `is_header`, etc.) that every other script reuses so cost/token rules can't drift apart between scripts. | Not run directly — `. "$(dirname "$0")/common.sh"` at the top of each other script. |
+| `index.sh` | "What sessions exist" — lists every session in a trace directory as one table (start, span, prompt count, cost, fork lineage), grouped and sorted so related/forked sessions sit together. | `index.sh ~/.local/state/sbxagent/traces/sbxagent-9df4f2fe/sbxpi/sessions/--Users-lars-Code-sbxagent--` — one directory in, one summary table out, no flags. |
+| `transcript.sh` | "What happened in this one" — renders a single session file as readable Markdown, walking the `id`/`parentId` tree from a chosen branch (or the last one) so retried/abandoned branches don't get spliced into the output. | `transcript.sh --thinking session.jsonl` — one `.jsonl` file in, Markdown on stdout; `--leaf ID` picks a specific branch instead of the default (last) one. |
+| `search.sh` | "Where did I say/do X across everything" — greps across every session in a directory (`rg` first for cheap candidates, `jq` only decodes the actual hits) and prints a short context excerpt per match. | `search.sh -i sessions/--Users-lars-Code-sbxagent-- "docker sandbox"` — a directory plus a search term, matching lines with context printed per session. |
+| `audit.sh` | "What did it cost" — sums tokens/dollars and tool call/failure counts across a directory or one file, with an explicit per-model breakdown and warnings for known gaps (unattributed usage, forked-session double-counting). | `audit.sh session.jsonl` — one file (or a whole directory) in, a cost/token/tool-usage report out; `--json` for machine-readable output. |
+
 ### `SKILL.md`
 
 Frontmatter: `name: read-pi-session-traces`, a "pushy" `description` (per
