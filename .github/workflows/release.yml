@@ -147,6 +147,11 @@ jobs:
       - name: Install lint tools
         run: npm install --global markdownlint-cli2@0.23.3 cspell@10.3.3 esbuild@0.28.2
 
+      # Same pin as ci.yml's lint job (docker/sbx-releases kits install this
+      # same version via `uv tool install ruff@…`); bump them together.
+      - name: Install Ruff
+        run: pipx install ruff==0.16.8
+
       - name: Lint (includes the version-agreement check)
         run: make lint ESBUILD=esbuild
 
