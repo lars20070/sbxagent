@@ -54,9 +54,18 @@ class Output:
         self.shown = 0
         self.stopped_by = None
 
+    def room(self):
+        """Characters still free for items, or None when output is uncapped."""
+        if not self.cap:
+            return None
+        return self.cap - SUMMARY_RESERVE - self.used
+
     def add(self, record):
-        rendered = self.render(record)
-        if self.cap and self.used + len(rendered) + SUMMARY_RESERVE > self.cap:
+        return self.add_rendered(self.render(record))
+
+    def add_rendered(self, rendered):
+        room = self.room()
+        if room is not None and len(rendered) > room:
             self.stopped_by = "item-too-large" if self.shown == 0 else "output-limit"
             return False
         sys.stdout.write(rendered)
@@ -249,6 +258,72 @@ def _branch_note(obj, tree):
     return "adds an abandoned-branch summary to model context"
 
 
+def _show_entry(stream, session, tree, path, index, latest_compaction, args, warnings):
+    """Project path[index] with its path annotations, or None if unreadable."""
+    node = path[index]
+    record = read_at(stream, node.line, node.offset)
+    if record is None:
+        warnings.add(
+            session.path,
+            node.line,
+            "entry no longer parses; did the file change?",
+        )
+        return None
+    projected = project_entry(
+        record,
+        args.max_field_chars,
+        thinking=args.thinking,
+        tools=not args.no_tools,
+    )
+    children = tree.children.get(node.id, [])
+    if len(children) > 1:
+        on_path = path[index + 1].id if index + 1 < len(path) else None
+        projected["branchPoint"] = {
+            "children": len(children),
+            "others": [clip(child, ID_CHARS) for child in children if child != on_path][
+                :MAX_LISTED
+            ],
+        }
+    if node.type == "compaction":
+        projected["context"] = _compaction_note(
+            record.obj, node, path, latest_compaction
+        )
+    elif node.type == "branch_summary":
+        projected["context"] = _branch_note(record.obj, tree)
+    return projected
+
+
+def _fit_window(size, anchor, low, high, room):
+    """Grow a contiguous [start, end) slice outward from anchor while it fits.
+
+    Nearest entries win, alternating sides and starting before the anchor. A
+    side stops at the first entry that does not fit, so the slice stays
+    contiguous. Returns None when the anchor alone does not fit.
+    """
+    used = size(anchor)
+    if used > room:
+        return None
+    start, end = anchor, anchor + 1
+    grow_before, grow_after = start > low, end < high
+    before_turn = True
+    while grow_before or grow_after:
+        take_before = grow_before and (before_turn or not grow_after)
+        cost = size(start - 1 if take_before else end)
+        fits = used + cost <= room
+        if fits:
+            used += cost
+            if take_before:
+                start -= 1
+            else:
+                end += 1
+        if take_before:
+            grow_before = fits and start > low
+        else:
+            grow_after = fits and end < high
+        before_turn = not take_before
+    return start, end
+
+
 def cmd_show(args):
     session = select_one(args.path, args.session)
     warnings = Warnings()
@@ -267,8 +342,10 @@ def cmd_show(args):
                 selected=0,
                 shown=0,
                 omitted=0,
-                before=0,
-                after=0,
+                entriesBefore=0,
+                entriesAfter=0,
+                anchor=None,
+                anchorShown=False,
             )
         )
         return EXIT_OK
@@ -281,10 +358,14 @@ def cmd_show(args):
         target = tree.by_line.get(args.line)
         if target is None:
             raise UsageError(f"no entry starts at line {args.line}")
+    # The anchor is the entry the caller cares about most; it is the first to
+    # claim the output budget, and context is added around it while it fits.
     if target is None:
         leaf = leaf or tree.order[-1]
         path = tree.ancestry(leaf.id)
-        chosen = path if args.all else path[-(args.tail or 20) :]
+        low = 0 if args.all else max(0, len(path) - (args.tail or 20))
+        high = len(path)
+        anchor = low if args.all else high - 1
     else:
         if leaf:
             path = tree.ancestry(leaf.id)
@@ -296,55 +377,54 @@ def cmd_show(args):
             if target.id not in {node.id for node in path}:
                 leaf = tree.latest_leaf_below(target.id)
                 path = tree.ancestry(leaf.id)
-        index = [node.id for node in path].index(target.id)
-        chosen = path[max(0, index - args.before) : index + args.after + 1]
+        anchor = [node.id for node in path].index(target.id)
+        low = max(0, anchor - args.before)
+        high = min(len(path), anchor + args.after + 1)
 
-    positions = {node.id: index for index, node in enumerate(path)}
-    start = positions[chosen[0].id]
-    entries_before = start
-    entries_after = len(path) - start - len(chosen)
     latest_compaction = next(
         (node for node in reversed(path) if node.type == "compaction"), None
     )
+    stopped = None
     shown = 0
+    anchor_shown = False
     with open(session.path, "rb") as stream:
-        for node in chosen:
-            record = read_at(stream, node.line, node.offset)
-            if record is None:
-                warnings.add(
-                    session.path,
-                    node.line,
-                    "entry no longer parses; did the file change?",
-                )
-                continue
-            projected = project_entry(
-                record,
-                args.max_field_chars,
-                thinking=args.thinking,
-                tools=not args.no_tools,
+
+        def render(index):
+            projected = _show_entry(
+                stream, session, tree, path, index, latest_compaction, args, warnings
             )
-            children = tree.children.get(node.id, [])
-            if len(children) > 1:
-                index = positions[node.id]
-                on_path = path[index + 1].id if index + 1 < len(path) else None
-                projected["branchPoint"] = {
-                    "children": len(children),
-                    "others": [
-                        clip(child, ID_CHARS) for child in children if child != on_path
-                    ][:MAX_LISTED],
-                }
-            if node.type == "compaction":
-                projected["context"] = _compaction_note(
-                    record.obj, node, path, latest_compaction
-                )
-            elif node.type == "branch_summary":
-                projected["context"] = _branch_note(record.obj, tree)
-            if not out.add(projected):
+            return None if projected is None else out.render(projected)
+
+        rendered = {}
+        room = out.room()
+        if room is None:
+            start, end = low, high
+        else:
+            # Render lazily while growing, so memory stays within the cap.
+            def size(index):
+                if index not in rendered:
+                    rendered[index] = render(index)
+                return len(rendered[index] or "")
+
+            window = _fit_window(size, anchor, low, high, room)
+            if window is None:
+                stopped = "item-too-large"
+                start = end = anchor
+            else:
+                start, end = window
+                if (start, end) != (low, high):
+                    stopped = "output-limit"
+        for index in range(start, end):
+            text = rendered[index] if index in rendered else render(index)
+            if text is None:
+                continue
+            if not out.add_rendered(text):
                 break
             shown += 1
-    omitted = len(chosen) - shown
+            anchor_shown = anchor_shown or index == anchor
+    omitted = (high - low) - shown
     warnings_shown = out.warnings(warnings)
-    stopped = out.stopped_by
+    stopped = stopped or out.stopped_by
     out.summary(
         _summary(
             "show",
@@ -353,11 +433,13 @@ def cmd_show(args):
             warnings.count,
             warnings_shown,
             pathLength=len(path),
-            selected=len(chosen),
+            selected=high - low,
             shown=shown,
             omitted=omitted,
-            entriesBefore=entries_before,
-            entriesAfter=entries_after,
+            entriesBefore=start,
+            entriesAfter=len(path) - end,
+            anchor=clip(path[anchor].id, ID_CHARS),
+            anchorShown=anchor_shown,
         )
     )
     return EXIT_OK

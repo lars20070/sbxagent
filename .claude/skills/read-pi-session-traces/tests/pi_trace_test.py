@@ -414,6 +414,113 @@ class BudgetAndRobustnessTests(TempCase):
         clipped = records(run("show", path, "--all", "--max-field-chars", 10, "--json"))
         self.assertIn("clipped", clipped[0]["content"][0]["text"])
 
+    def bulky(self, trace):
+        # Four arguments clipped at 2,000 chars each keep one entry near 8,000.
+        return trace.assistant(
+            [
+                tool_call(
+                    f"call-{len(trace.entries)}-{n}", "write", {"body": "y" * 5000}
+                )
+                for n in range(4)
+            ]
+        )
+
+    def test_show_keeps_the_anchor_and_trims_context_around_it(self):
+        trace = Trace("anchor")
+        order = [trace.user("go")]
+        order += [self.bulky(trace) for _ in range(3)]
+        answer = trace.assistant([text("final answer")])
+        order.append(answer)
+        path = trace.write(self.folder)
+
+        for selector in (("--entry", answer), ()):
+            result = run("show", path, *selector)
+            self.assertLessEqual(len(result.stdout), 20000)
+            self.assertRegex(result.stdout, rf"(?m)^L\d+  {answer}  ")
+            self.assertIn(f"anchor={answer} anchorShown=True", result.stdout)
+            self.assertIn("stoppedBy=output-limit", result.stdout)
+
+            result = run("show", path, *selector, "--json")
+            self.assertLessEqual(len(result.stdout), 20000)
+            output = records(result)
+            ids = [entry["id"] for entry in kind(output, "entry")]
+            # The newest entries win: older context is dropped from the front.
+            self.assertLess(len(ids), len(order))
+            self.assertEqual(ids, order[-len(ids) :])
+            summary = output[-1]
+            self.assertEqual(
+                (summary["anchor"], summary["anchorShown"]), (answer, True)
+            )
+            self.assertEqual(summary["stoppedBy"], "output-limit")
+            self.assertEqual(summary["entriesBefore"], len(order) - len(ids))
+            self.assertEqual(summary["entriesAfter"], 0)
+
+        # Continuing backward from the first printed entry leaves no gap; only
+        # that entry, the new anchor, is printed twice.
+        earlier = records(
+            run("show", path, "--entry", ids[0], "--before", 5, "--after", 0, "--json")
+        )
+        earlier_ids = [entry["id"] for entry in kind(earlier, "entry")]
+        self.assertEqual(earlier_ids[-1], ids[0])
+        joined = earlier_ids[:-1] + ids
+        self.assertEqual(joined, order[-len(joined) :])
+
+    def test_show_grows_past_a_side_that_no_longer_fits(self):
+        trace = Trace("after")
+        order = [trace.user("go"), trace.assistant([text("picked")])]
+        picked = order[-1]
+        order += [self.bulky(trace) for _ in range(4)]
+        path = trace.write(self.folder)
+
+        output = records(run("show", path, "--entry", picked, "--json"))
+        ids = [entry["id"] for entry in kind(output, "entry")]
+        self.assertLess(len(ids), len(order))
+        self.assertEqual(ids, order[: len(ids)])
+        summary = output[-1]
+        self.assertEqual((summary["anchor"], summary["anchorShown"]), (picked, True))
+        self.assertEqual(
+            (summary["entriesBefore"], summary["entriesAfter"]), (0, 6 - len(ids))
+        )
+
+        later = records(
+            run("show", path, "--entry", ids[-1], "--before", 0, "--after", 5, "--json")
+        )
+        later_ids = [entry["id"] for entry in kind(later, "entry")]
+        self.assertEqual(later_ids[0], ids[-1])
+        joined = ids + later_ids[1:]
+        self.assertEqual(joined, order[: len(joined)])
+
+    def test_show_anchor_too_large_and_empty_session(self):
+        trace = Trace("huge")
+        trace.user("small")
+        huge = trace.user("x" * 30000)
+        last = trace.user("after")
+        path = trace.write(self.folder)
+
+        result = run("show", path, "--entry", huge, "--max-field-chars", 0)
+        self.assertLessEqual(len(result.stdout), 20000)
+        self.assertIn(f"anchor={huge} anchorShown=False", result.stdout)
+        self.assertIn("stoppedBy=item-too-large", result.stdout)
+        output = records(
+            run("show", path, "--entry", huge, "--max-field-chars", 0, "--json")
+        )
+        self.assertEqual(kind(output, "entry"), [])
+        self.assertEqual(output[-1]["stoppedBy"], "item-too-large")
+        self.assertEqual(
+            (output[-1]["anchor"], output[-1]["anchorShown"]), (huge, False)
+        )
+
+        # The tail keeps its leaf; the oversized entry before it stops that
+        # side, so the small entry beyond it is not printed out of order.
+        output = records(run("show", path, "--max-field-chars", 0, "--json"))
+        self.assertEqual([entry["id"] for entry in kind(output, "entry")], [last])
+        self.assertEqual(output[-1]["stoppedBy"], "output-limit")
+
+        empty = Trace("empty").write(self.folder)
+        summary = records(run("show", empty, "--json"))[-1]
+        self.assertEqual((summary["entriesBefore"], summary["entriesAfter"]), (0, 0))
+        self.assertEqual((summary["anchor"], summary["anchorShown"]), (None, False))
+
     def test_malformed_partial_records_and_argument_errors(self):
         trace = Trace("broken")
         trace.user("good")

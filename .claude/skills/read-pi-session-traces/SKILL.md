@@ -59,17 +59,30 @@ disables it. A full branch export is therefore:
 python3 "$t" show FILE --all --unlimited --max-field-chars 0
 ```
 
-Records are never rewritten to squeeze them into the cap. If the next record
-does not fit, output stops. If the first record does not fit, no item is emitted
-and `stoppedBy` is `item-too-large`.
+Records are never rewritten to squeeze them into the cap. For `sessions`,
+`search`, and `inspect`, output stops at the first record that does not fit. If
+the first record does not fit, no item is emitted and `stoppedBy` is
+`item-too-large`.
+
+`show` fills the budget from an anchor instead: the `--entry`/`--line` target,
+the newest entry of the `--tail` window, or the first entry with `--all`. The
+anchor goes first. Context then grows outward from it, nearest first and
+alternating sides, until the next entry on a side does not fit. So whenever
+`show` prints anything, the anchor is included, and entries still print in
+path order. If the anchor alone does not fit, no item is emitted and
+`stoppedBy` is `item-too-large`. The summary names the `anchor` and reports
+`anchorShown`. Defaults are `--before 3` and `--after 5`, or `--tail 20` when
+no entry is selected.
 
 There are no generated continuation commands. Calculate them from counts:
 
 - `sessions` and `inspect`: next `--skip` is `skip + shown`.
 - `search`: next `--skip` is `skipped + hits`.
-- `show`: use the first or last emitted entry id with `--entry`, and set
-  `--before`/`--after` for the next slice. Add `--leaf ID` when preserving a
-  non-default branch matters.
+- `show`: `entriesBefore` and `entriesAfter` count the path entries outside
+  what was printed. To go back, pass the first printed id with `--entry` and
+  `--before N --after 0`. To go forward, pass the last printed id with
+  `--before 0 --after N`. That id prints again, as the new anchor. Add
+  `--leaf ID` when preserving a non-default branch matters.
 
 ## Pi 0.84.4 traps
 
