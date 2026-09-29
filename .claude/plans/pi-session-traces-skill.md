@@ -3,112 +3,115 @@
 ## Context
 
 This repo already ships a skill, `read-claude-code-session-traces`, that lets
-a coding agent efficiently explore Claude Code's own JSONL session traces
-(list sessions, render one as readable markdown, grep across all of them,
-and account for cost/tokens) without ever slurping a huge file into context.
+a coding agent explore Claude Code's own JSONL session traces without
+slurping a huge file into context.
 
 `sbxpi` (this repo's wrapper for the "Pi" coding agent,
 github.com/earendil-works/pi) writes its own session traces in a different
 on-disk format, to a different path
 (`~/.local/state/sbxagent/traces/<slug>-<hash>/sbxpi/sessions/--<escaped-cwd>--/<timestamp>_<id>.jsonl`,
-documented in `docs/traces.md`). No tooling in this repo currently reads Pi's
-trace *content* — only the Claude skill exists. The user wants a sibling
-skill, `read-pi-session-traces`, giving the same exploration power for Pi
-traces, built the same way `skill-creator` prescribes and structurally
-mirroring the Claude skill where Pi's format actually matches it — but not
-where it doesn't.
+documented in `docs/traces.md`). No tooling in this repo reads Pi's trace
+*content* yet. The goal is a sibling skill, `read-pi-session-traces`, that
+lets a coding agent explore even huge Pi traces effectively, built the way
+`skill-creator` prescribes, with `references/` and `scripts/` subfolders.
 
-**This plan was independently reviewed and revised.** The first draft relied
-on public docs fetched from Pi's `main` branch and one 18-line real trace
-file, which produced several wrong or incomplete claims. Every claim below
-has now been checked against the *exact pinned version this repo actually
-runs* (`@earendil-works/pi-coding-agent@0.84.4`, tag `v0.84.4`, commit
-`b79e4cc834970cca69daebffab7df1da7d1e52c4`, confirmed via
-`kits/sbxpi/spec.yaml:554` and cross-checked against the npm registry's
-`gitHead` for that version). Where a fact differs between the pinned version
-and current `main`, both are stated explicitly.
+The plan has been through two reviews:
+
+1. **`review-plan.md`** corrected the Pi format facts. Every claim below is
+   checked against the *exact pinned version this repo runs*
+   (`@earendil-works/pi-coding-agent@0.84.4`, tag `v0.84.4`, commit
+   `b79e4cc834970cca69daebffab7df1da7d1e52c4`, from
+   `kits/sbxpi/spec.yaml:554`, cross-checked against the npm registry's
+   `gitHead`). Where the pinned version and current `main` differ, both are
+   stated.
+2. **`review-scripts.md`** replaced the first draft's five shell scripts
+   (a copy of the Claude sibling's `index`/`transcript`/`search`/`audit` +
+   `common.sh` split) with **one Python command, `pi-trace.py`, with four
+   subcommands — `sessions`, `search`, `show`, `inspect`** — shaped around
+   how an agent actually investigates a large trace. Adopted as the design.
+
+It also asked again for saved automated tests. You had said to skip them,
+then chose to add them, since in Python they cost little more than the
+manual checks (see Automated tests).
 
 ## Compatibility scope
 
-**Baseline: Pi `0.84.4` (tag `v0.84.4`).** This is what `sbxpi` actually
-installs and what any real trace file on this machine was written by. All
-"confirmed" claims below are checked against this exact tag unless marked
-otherwise.
+**Baseline: Pi `0.84.4` (tag `v0.84.4`).** This is what `sbxpi` installs and
+what every real trace on this machine was written by.
 
 Known additions on `main` (currently `0.87.1`) that do **not** exist at
-`0.84.4` and will not appear in a real trace from this repo's sandboxes,
-unless `PI_VERSION` in `kits/sbxpi/spec.yaml` is bumped later:
-- A top-level `UsageEntry` (`type: "usage"`, with its own `kind`/`provider`/
-  `model`/`usage`/`note` fields) — added after 0.84.4, exact version
-  unconfirmed by changelog text but present on `main`
+`0.84.4`, and will not appear in traces from this repo's sandboxes unless
+`PI_VERSION` in `kits/sbxpi/spec.yaml` is bumped:
+- A top-level `UsageEntry` (`type: "usage"`, with `kind`/`provider`/`model`/
+  `usage`/`note`) — present on `main`; the version that added it is not
+  named in the changelog
   ([`session-manager.ts` on `main`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/session-manager.ts)).
 - A `ContextEditEntry` (`type: "context_edit"`) — added in **0.87.0**, per
   [`CHANGELOG.md`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md):
   "Added `ContextEditEntry` to the exported `SessionEntry` union."
 - `CompactionEntry.systemMessage` — added in **0.86.0**, per the same
-  changelog: "Added transcript-backed mid-conversation system prompt and
-  tool changes... see [Entry Types](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/session-format.md#entry-types)."
-- `packages/coding-agent/docs/message-types.md` — a `main`-only doc; does
-  not exist at `0.84.4` (the message-shape facts below come from reading the
-  actual `0.84.4` source directly instead).
+  changelog ("transcript-backed mid-conversation system prompt and tool
+  changes", see [Entry Types](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/session-format.md#entry-types)).
+- `packages/coding-agent/docs/message-types.md` — a `main`-only doc; the
+  message facts below come from the `0.84.4` source instead.
 
-**Policy:** every script must treat an entry `type` or message `role` it
-doesn't recognise as safe, generic, forward-compatible input (render a
-clipped placeholder, never error) — this already covers all three additions
-above without special-casing them for *rendering*. `audit.sh` gets one
-explicit, deliberate exception: it recognises a top-level `usage` entry
-defensively for **cost/token counting only**, since if one ever appears it
-represents real, uncounted spend — see the `audit.sh` section.
+**Policy:** every subcommand treats an entry `type`, message `role` or
+content-block `type` it doesn't recognise as normal, forward-compatible
+input: it gets a safe metadata-only projection and never causes an error.
+That already covers all three additions above. One deliberate exception:
+`inspect` counts a top-level `usage` entry in a `standalone` usage bucket,
+because ignoring real spend is worse than ignoring an entry type.
 
 ## What we know about Pi's trace format
 
-**Path** (already documented in `docs/traces.md`, unchanged from the first
-draft):
+**Path** (documented in `docs/traces.md`):
 ```
 ~/.local/state/sbxagent/traces/<slug>-<hash>/sbxpi/sessions/--<escaped-cwd>--/<timestamp>_<id>.jsonl
 ```
-`sbxpi name` (the shared `name` subcommand in `scripts/sbxagent`, confirmed
-present) prints `sbxpi-<slug>-<hash>` — drop the `sbxpi-` prefix to get the
-state folder. If `XDG_STATE_HOME` is set to an absolute path, the tree lives
-there instead of `~/.local/state` — `docs/traces.md` already documents this
-override; `SKILL.md`'s path template must mention it too, not just the
-default.
+`sbxpi name` (the shared `name` subcommand in `scripts/sbxagent`) prints
+`sbxpi-<slug>-<hash>`; drop the `sbxpi-` prefix to get the state folder. If
+`XDG_STATE_HOME` is an absolute path, the tree lives there instead of
+`~/.local/state` — `SKILL.md` must say so, as `docs/traces.md` does. The
+`sessions/` root holds no `.jsonl` files directly, only `--<escaped-cwd>--`
+folders, so every command must recurse.
 
-**Sources**, all re-checked at the pinned tag unless marked `[main]`:
-- [`packages/coding-agent/docs/session-format.md`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/docs/session-format.md) — prose overview of the on-disk format, tree structure, `buildContextEntries`/`buildSessionProjection`.
-- [`packages/coding-agent/docs/json.md`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/docs/json.md) — **this documents the live `pi --mode json` RPC/event stream over stdout (`agent_start`, `message_update`, etc.), not the persisted `.jsonl` session file.** It is only useful here for the session-header shape, which the live stream's first line also emits. Do not cite it as a source for message/entry shapes.
-- [`packages/coding-agent/src/core/session-manager.ts`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/src/core/session-manager.ts) — `SessionHeader`, `SessionEntryBase`, and all `SessionEntry` variants except the message/content shapes themselves (those live elsewhere, below).
-- [`packages/ai/src/types.ts`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/ai/src/types.ts) — the real `UserMessage`/`AssistantMessage`/`ToolResultMessage`/content-block (`TextContent`/`ThinkingContent`/`ImageContent`) definitions. **`session-manager.ts` only imports these; it does not define them.**
-- [`packages/coding-agent/src/core/messages.ts`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/src/core/messages.ts) — the `BashExecutionMessage` and `CustomMessage` roles, which extend the base `Message` union at the agent level.
-- [`packages/coding-agent/src/core/tools/bash.ts`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/src/core/tools/bash.ts) — the agentic `bash` tool's `BashToolDetails` (`truncation`, `fullOutputPath`).
+**Sources**, all at the pinned tag unless marked `[main]`:
+- [`packages/coding-agent/docs/session-format.md`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/docs/session-format.md) — prose overview of the on-disk format, the tree, `buildContextEntries`/`buildSessionProjection`.
+- [`packages/coding-agent/docs/json.md`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/docs/json.md) — **documents the live `pi --mode json` event stream on stdout (`agent_start`, `message_update`, …), not the persisted `.jsonl` file.** Useful only for the header shape, which the stream's first line shares. Not a source for entry or message shapes.
+- [`packages/coding-agent/src/core/session-manager.ts`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/src/core/session-manager.ts) — `SessionHeader`, `SessionEntryBase`, and every `SessionEntry` variant. It imports, but does not define, the message and content types.
+- [`packages/ai/src/types.ts`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/ai/src/types.ts) — `UserMessage`, `AssistantMessage`, `ToolResultMessage`, `TextContent`, `ThinkingContent`, `ImageContent`.
+- [`packages/coding-agent/src/core/messages.ts`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/src/core/messages.ts) — the `bashExecution` and `custom` message roles.
+- [`packages/coding-agent/src/core/tools/bash.ts`](https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/src/core/tools/bash.ts) — the `bash` tool's `BashToolDetails` (`truncation`, `fullOutputPath`).
 
-Plus one real sample file (18 lines: 1 header, 1 `model_change`, 1
-`thinking_level_change`, 15 `message`, all one strictly linear chain, no
-branching/compaction/fork) at
-`/Users/lars/.local/state/sbxagent/traces/sbxagent-9df4f2fe/sbxpi/sessions/--Users-lars-Code-sbxagent--/2026-09-17T09-32-45-253Z_01a0aeb6-1b45-7013-ab4d-5454a1b5680f.jsonl`.
+**Real samples** — two files, both in
+`/Users/lars/.local/state/sbxagent/traces/sbxagent-9df4f2fe/sbxpi/sessions/--Users-lars-Code-sbxagent--/`:
+- `2026-09-17T09-32-45-253Z_01a0aeb6-1b45-7013-ab4d-5454a1b5680f.jsonl` — 77 KB, 18 lines (header, `model_change`, `thinking_level_change`, 15 `message`).
+- `2026-09-29T07-16-21-607Z_01a0ec05-8be7-7fdf-977d-88b479c0286d.jsonl` — 215 KB, 33 lines (header, `model_change`, `thinking_level_change`, 30 `message`: 2 user, 9 assistant, 19 toolResult; 25 text and 19 toolCall blocks). Largest single record 38,554 bytes.
 
-**Confirmed facts** (revised from the first draft — corrections marked):
+Both are one straight chain: no branches, thinking, images, compaction,
+truncation fields or forks; model `openrouter/qwen/qwen3-coder-next`.
 
-- Line 1 is a header: `{"type":"session","version":3,"id":"uuid","timestamp":"...","cwd":"/path","parentSession"?}`. **The header is not a tree node** — it has no `parentId` at all, unlike every real entry. *(Correction: the first draft's "every line is a tree node" conflated the header with the entries that follow it. All tree/timing/leaf logic must explicitly exclude `.type == "session"`, not just "not add a filter".)*
-- Every entry after the header has `type`, `id`, `parentId` (nullable — root entries have `parentId: null`), `timestamp` — and every entry type, including `custom`/`session_info`/`model_change`, participates in this tree. This part of the original claim holds; it's the header that's the exception, not the rule.
-- `message` entries wrap a `Message` (from `packages/ai`) whose `role` is `user` / `assistant` / `toolResult`, **plus two agent-level extension roles, `bashExecution` and `custom`** (from `messages.ts`), which real trace files can contain (the `!` bash-command shortcut and custom extensions produce these). *(Correction: the first draft only accounted for 3 roles.)* Treat `bashExecution`/`custom` with a safe generic render, same as any other type we don't have a dedicated renderer for.
-- `UserMessage.content` is **`string | (TextContent | ImageContent)[]`** — a plain string is valid, not just an array. *(Correction: the first draft asserted "always an array" from the one sample, which happened to only contain the array form.)* Every place that reads `.message.content` must handle both shapes.
-- `AssistantMessage.content` is `(TextContent | ThinkingContent | ToolCall)[]`, plus sibling fields `api`, `provider`, `model`, `usage`, `stopReason`, `responseId` on `.message` itself.
-- `ThinkingContent` is confirmed: `{type: "thinking", thinking: string, thinkingSignature?: string, redacted?: boolean}`. *(Correction: the first draft called this "unconfirmed" — it's real, at the pinned version.)* Render `.thinking` text; never print `thinkingSignature`; if `redacted` is true, render a placeholder instead of the text, mirroring how the Claude Code sibling skill treats redacted thinking.
-- `ImageContent` is confirmed: `{type: "image", data: <base64>, mimeType: string}`. *(New — the first draft didn't cover image blocks at all.)* **Never render `data`.** Show `mimeType` and an approximate size (`(data length / 4) * 3` bytes, or just the base64 char count) instead.
-- `ToolResultMessage` is `{role: "toolResult", toolCallId, toolName, content: (TextContent|ImageContent)[], details?, usage?: Usage, addedToolNames?, isError, timestamp}`. **`usage` is a real, optional field** representing "usage from the tool execution itself... not part of main LLM context accounting" (source comment) — e.g. a tool that itself calls a model. *(Correction: the first draft said only assistant/compaction/branch_summary can carry usage; tool results are a fourth source and must be summed too, kept in a separate bucket since the source explicitly says it's not part of main context accounting.)*
-- **Tool results are not always fully inline.** The agentic `bash` tool's result can carry `details: {truncation?: {truncated: boolean, ...}, fullOutputPath?: string}`, and a `bashExecution` message (the `!`-prefix shortcut) has its own top-level `truncated: boolean` / `fullOutputPath?: string` fields. *(Correction: the first draft's "tool results are always inline, no offload mechanism" was disproven by these two real, pinned-version fields — this was a load-bearing simplification that justified deleting all offload-awareness from `transcript.sh`; that deletion must be partially undone.)* There is still no *generic* Pi-wide sidecar convention the way Claude Code has one for every tool — only these two specific message shapes carry a truncation/path pair.
-- Cost/token usage's exact real shape (on `message.usage` for assistant entries, unchanged from the first draft): `{input, output, cacheRead, cacheWrite, reasoning, totalTokens, cost: {input, output, cacheRead, cacheWrite, total}}`. **Use `totalTokens` as given; never recompute it by summing `input + output + reasoning` yourself** — the review flagged a real risk of double-counting `reasoning` if it's already folded into `output`/`totalTokens` upstream, and Pi doesn't document the inclusion relationship anywhere accessible. Report `reasoning` purely as an informational breakdown figure, not as an addend.
-- **There is no single authoritative session-total cost record**, and now there are *four* possible carriers of `usage`/`usage.cost` per entry, not three: `message` (assistant role), `message` (toolResult role, its own separate bucket), `compaction`, `branch_summary`. A reader must sum across all of them; missing any one undercounts.
-- Two different timestamp shapes coexist: the entry-level ISO-with-millis `timestamp` (use for ordering/diffing), and a *nested* `message.timestamp`, which is raw epoch **milliseconds** (unchanged from first draft).
-- **Fork and continue are precisely defined, not unconfirmed** (this is the biggest correction). `SessionHeader.parentSession` is confirmed present at `0.84.4`. The fork/continue *implementation* was verified against current `main` (commit `8562bcf`, functions `SessionManager.forkFrom`/`continueRecent`) — the field's purpose and shape are stable back to `0.84.4`, though the literal implementation line numbers weren't separately re-diffed against the old tag:
-  - **Continue (`pi -c`) reopens the same file.** No new file, no `parentSession` involved.
-  - **Fork (`pi --fork <path>`) creates a brand-new file, writes a header whose `parentSession` is the source file's resolved path, and then physically copies every non-header entry from the source file into the new file.** `parentSession` is always a file path in every code path that sets it — never a bare session id.
-  - **Consequence 1:** a forked child file already contains a full copy of its parent's history up to the fork point. `transcript.sh` staying file-local (as designed) is correct and does not double-render anything. But `index.sh`'s lineage display must say "forked from" and make clear the child is a *copy*, not a continuation, so a user doesn't expect `transcript.sh` on the parent-then-child to read like one continuous conversation with no overlap.
-  - **Consequence 2:** summing `audit.sh` over every file in a directory **double-counts** any cost that was copied into a fork. This must be a documented, explicit caveat, not solved via automatic deduplication (out of scope — see Known limitations).
-- Pi's own reader tolerates malformed lines: `parseSessionEntryLine()` wraps `JSON.parse` in a try/catch and silently drops any line that fails to parse — **whether or not it's newline-terminated** — rather than treating a complete-but-malformed line as a hard error. It also self-heals a missing trailing newline by appending one. *(This directly informs `common.sh`'s `feed()` — see below: our reader should warn-and-skip on any unparseable line, matching Pi's own tolerance, not hard-fail on a complete-but-malformed one.)* The writer does always build each line as `` `${JSON.stringify(entry)}\n` `` in a single call, so the *design intent* is that every complete line is well-formed and LF-terminated; only a crash mid-write produces a genuine partial tail.
-- Pi's own `buildContextEntries()`/`buildSessionProjection()` (in `session-manager.ts`) reconstruct "what the model actually saw" by walking leaf→root, folding compaction, and (on `main`, via `context_edit`) applying replacements/omissions — which is **not** the same thing as a raw root-to-leaf dump of every stored entry. Re-implementing this projection in `jq`/`awk` is out of scope for this skill's first version (see Known limitations); `transcript.sh` renders the **raw stored history**, annotated at compaction boundaries, and must say so plainly rather than imply it equals model-visible context.
-- `CustomMessageEntry` and `LabelEntry` (both `session_info`-adjacent bookkeeping-ish types) are fully specified at `0.84.4`, contrary to the first draft's "fields not fully captured" hedge — that hedge was a limitation of an earlier lookup, not a real gap in Pi's schema:
+**Confirmed facts:**
+
+- Line 1 is a header: `{"type":"session","version":3,"id":"uuid","timestamp":"...","cwd":"/path","parentSession"?}`. **The header is not a tree node** — it has no `parentId`. Every tree, leaf and timing computation excludes it; header fields are read separately.
+- Every entry after the header has `type`, `id`, `parentId` (nullable; roots have `null`) and `timestamp`, and every entry type — including `custom`, `session_info`, `model_change` — is a node in that tree.
+- `message` entries wrap a message whose `role` is `user`, `assistant` or `toolResult` (from `packages/ai`), **or one of two agent-level roles, `bashExecution` and `custom`** (from `messages.ts`), produced by the `!` shortcut and by extensions.
+- `UserMessage.content` is **`string | (TextContent | ImageContent)[]`** — a plain string is valid. Everything that reads `.message.content` handles both shapes. `CustomMessage.content` has the same union.
+- `AssistantMessage.content` is `(TextContent | ThinkingContent | ToolCall)[]`, with sibling fields `api`, `provider`, `model`, `usage`, `stopReason`, `responseId` on `.message`.
+- `ThinkingContent` is `{type: "thinking", thinking: string, thinkingSignature?: string, redacted?: boolean}`. `TextContent` may carry an opaque `textSignature`. Signatures are never printed.
+- `ImageContent` is `{type: "image", data: <base64>, mimeType: string}`. `data` is never printed.
+- `ToolResultMessage` is `{role: "toolResult", toolCallId, toolName, content: (TextContent|ImageContent)[], details?, usage?: Usage, addedToolNames?, isError, timestamp}`. Its optional `usage` is "usage from the tool execution itself… not part of main LLM context accounting" (source comment), so it is counted in its own bucket.
+- **Tool output is not always complete in the file.** The `bash` tool's result can carry `details.truncation.truncated` and `details.fullOutputPath`; a `bashExecution` message has top-level `truncated` and `fullOutputPath`. There is no generic Pi-wide sidecar directory like Claude Code's `tool-results/`. `pi-trace.py` reports these fields but never opens the recorded path (see Safe projection).
+- The `usage` shape on an assistant message: `{input, output, cacheRead, cacheWrite, reasoning, totalTokens, cost: {input, output, cacheRead, cacheWrite, total}}`, with dollar costs already computed. **`totalTokens` is taken as recorded, never re-summed from parts**; `reasoning` is informational only (Pi doesn't document whether it's already inside `output`).
+- **No record holds an authoritative session total.** At `0.84.4`, `usage` can sit on assistant messages, tool-result messages, `compaction` and `branch_summary` (both optional there); on `main` also on top-level `usage` entries. Totals are always "the sum of recorded usage".
+- Two timestamps: the entry-level ISO `timestamp` (used for ordering and elapsed time) and the nested `message.timestamp` in epoch milliseconds (never mixed with the first).
+- **Continue and fork are defined.** `SessionHeader.parentSession` exists at `0.84.4`; the fork/continue code (`SessionManager.forkFrom`/`continueRecent`) was read on `main` (commit `8562bcf`):
+  - `pi -c` reopens the same file.
+  - `pi --fork <path>` creates a new file whose header's `parentSession` is the source file's path, then **copies every non-header entry** into it. `parentSession` is always a file path, never a bare id — and since Pi runs in the sandbox, it's a sandbox path (`/home/agent/.pi/agent/sessions/…`) that usually doesn't exist on the host.
+  - So a forked file repeats its parent's history: reading parent then child shows it twice, and adding up usage across both counts the copied part twice.
+- Pi's own reader skips any line that fails to parse, terminated or not (`parseSessionEntryLine`), and repairs a missing final newline. The writer emits each record as `` `${JSON.stringify(entry)}\n` `` in one call, so only a crash or a write in progress leaves a partial last line. `pi-trace.py` is as tolerant as Pi: warn with `file:line` and skip, never hard-fail.
+- Pi's `buildContextEntries()`/`buildSessionProjection()` rebuild "what the model actually saw" (compaction folding; on `main`, context edits). A raw root-to-leaf walk is **not** that. `show` renders raw stored history, annotated at compaction boundaries; the projection is out of scope.
+- `CustomMessageEntry` and `LabelEntry` are fully specified at `0.84.4`:
   ```ts
   export interface CustomMessageEntry<T = unknown> extends SessionEntryBase {
     type: "custom_message";
@@ -123,19 +126,48 @@ branching/compaction/fork) at
     label: string | undefined;
   }
   ```
-  They're still marked "documented, not observed in real sample data" in `schema.md` — that part of the hedge stands; only the "fields uncertain" part is now resolved.
-- `compaction`, `branch_summary`, `custom`, `session_info` remain undocumented-in-practice (never appeared in the one real sample) but their `0.84.4` TS interfaces are now fully known and unchanged from the first draft's quotes (no `systemMessage` field on `CompactionEntry` at this pin — that's `main`-only, see Compatibility scope above).
+- `compaction`, `branch_summary`, `custom`, `session_info`, `custom_message` and `label` have known `0.84.4` interfaces but appear in neither real sample. `CompactionEntry` has no `systemMessage` at this pin.
 
-## Design decision: keep 4 scripts, same question-shaped split
+## Design: one Python CLI, four subcommands
 
-Unchanged from the first draft and not disputed by the review: mirror the
-Claude skill's script split — `index` / `transcript` / `search` / `audit` —
-because each answers a genuinely different question needing a different
-traversal. Pi's format is still simpler than Claude Code's in real ways (no
-subagent files, no `requestId` splitting, no chain-vs-bookkeeping divide),
-just not as uniformly simple as the first draft assumed (tool-result
-truncation and multi-source cost accounting reintroduce some real
-complexity). No standalone "lineage" script; folds into `index.sh`.
+The first draft copied the Claude sibling's report-shaped split. This design
+follows the loop an agent uses to investigate a large trace, and does the
+cheapest useful work at each step:
+
+| Step | Subcommand | Work it does |
+| --- | --- | --- |
+| Find candidate sessions | `sessions` | Reads each file's header line and file metadata only |
+| Find the relevant event | `search` | ripgrep over raw bytes, then decodes only candidate records |
+| Understand its neighborhood | `show` | Indexes id/parent/offset once, then seeks to the selected records only |
+| Check structure or spend | `inspect` | Streams one selected file once |
+
+Why this shape:
+- **Four commands, one implementation.** Discovery, parsing, safe
+  projection, output budgets, tree selection and usage accounting exist
+  once. `search` hands `show` a stable identifier (session path, line, entry
+  id) without separate programs having to agree on it. `common.sh`
+  disappears, `audit.sh` becomes part of `inspect`, and a full transcript is
+  an explicit `show --all` export, not the default way to read a session.
+- **Discovery is cheap.** The old `index.sh` streamed every byte of every
+  file just to list them. `sessions` reads headers only.
+- **Python, not bash + awk + jq.** `python3` is in the sandbox toolchain
+  (`tests/toolchain_test.sh:73`) and on macOS. It gives byte offsets for
+  seeking, ordinary dictionaries for tree and correlation state, one
+  sanitizer, and `file:line` diagnostics.
+
+Constraints:
+- **Standard library only.** `rg` is required only by `search`. `jq` is
+  optional, for callers post-processing `--json` output.
+- **Python 3.9 syntax floor** (the `python3` in Apple's Command Line Tools;
+  the sandbox has 3.14). Enforced by `ruff check --target-version py39` and
+  the new `make lint` check below.
+- **One file**, `scripts/pi-trace.py`: executable, `#!/usr/bin/env python3`,
+  `argparse` subcommands, `-h` on each. Split into internal modules only if
+  it genuinely gets unwieldy; the public CLI stays one command.
+- **Read-only and stateless.** No cache and no persistent index; any index
+  lives only for the current command. A cache (keyed by path, device/inode,
+  size, mtime) is only worth adding if real use shows repeated deep scans
+  are the bottleneck.
 
 ## Files to create
 
@@ -145,403 +177,460 @@ complexity). No standalone "lineage" script; folds into `index.sh`.
 ├── references/
 │   └── schema.md
 └── scripts/
-    ├── common.sh
-    ├── index.sh
-    ├── transcript.sh
-    ├── search.sh
-    └── audit.sh
+    └── pi-trace.py
 ```
 
-| Script | Purpose | Example |
+Outside the skill folder: a new `tests/pi_trace_test.py`, plus small edits
+to `Makefile`, `.github/workflows/ci.yml`, `AGENTS.md`, `CHANGELOG.md` and,
+if the spell checker asks, `.cspell.json` (see Automated tests and
+Repository integration).
+
+| Subcommand | Purpose | Example |
 | --- | --- | --- |
-| `common.sh` | Sourced-only helper library: error/argument helpers, `header_of()`, `feed()` (safe streaming of a live-appended file), and the shared `JQ_PRELUDE` (`entry_cost`, `entry_tokens`, `is_prompt`, `is_header`, etc.) that every other script reuses so cost/token rules can't drift apart between scripts. | Not run directly — `. "$(dirname "$0")/common.sh"` at the top of each other script. |
-| `index.sh` | "What sessions exist" — lists every session in a trace directory as one table (start, span, prompt count, cost, fork lineage), grouped and sorted so related/forked sessions sit together. | `index.sh ~/.local/state/sbxagent/traces/sbxagent-9df4f2fe/sbxpi/sessions/--Users-lars-Code-sbxagent--` — one directory in, one summary table out, no flags. |
-| `transcript.sh` | "What happened in this one" — renders a single session file as readable Markdown, walking the `id`/`parentId` tree from a chosen branch (or the last one) so retried/abandoned branches don't get spliced into the output. | `transcript.sh --thinking session.jsonl` — one `.jsonl` file in, Markdown on stdout; `--leaf ID` picks a specific branch instead of the default (last) one. |
-| `search.sh` | "Where did I say/do X across everything" — greps across every session in a directory (`rg` first for cheap candidates, `jq` only decodes the actual hits) and prints a short context excerpt per match. | `search.sh -i sessions/--Users-lars-Code-sbxagent-- "docker sandbox"` — a directory plus a search term, matching lines with context printed per session. |
-| `audit.sh` | "What did it cost" — sums tokens/dollars and tool call/failure counts across a directory or one file, with an explicit per-model breakdown and warnings for known gaps (unattributed usage, forked-session double-counting). | `audit.sh session.jsonl` — one file (or a whole directory) in, a cost/token/tool-usage report out; `--json` for machine-readable output. |
+| `sessions` | "Which sessions exist?" Recursively finds Pi session files under a path and lists one compact record per session: id, path, header `cwd`, created time, fork parent, size, last modified, and whether the last line is unterminated. Reads header lines and file metadata only. | `pi-trace.py sessions ~/.local/state/sbxagent/traces/sbxagent-9df4f2fe/sbxpi/sessions --json` — the `sessions/` root in, the newest 50 sessions out. |
+| `search` | "Which entries mention X?" Finds candidate lines with ripgrep, decodes only those records, and returns bounded hits carrying the session path, line and entry id needed to jump straight to `show`. | `pi-trace.py search ~/.local/state/sbxagent/traces/sbxagent-9df4f2fe/sbxpi/sessions "docker sandbox" -i --json` — a path and a search term in, up to 20 hits out. |
+| `show` | "What happened around this entry, or at the end of this branch?" Returns a bounded slice of one branch: an entry with a few entries before and after it, or the last entries of a leaf. The whole branch only with `--all`. | `pi-trace.py show SESSION.jsonl --entry 30f0990a --before 3 --after 5` — a file and an entry id from `search` in, up to 9 entries out. |
+| `inspect` | "What's in this session, and what usage did it record?" One streaming pass per selected file: counts, roots and leaves, prompts, models, tools and failures, recorded usage by source and by model, warnings, and a short outline with entry ids. | `pi-trace.py inspect SESSION.jsonl --json` — a file (or a directory, one record per session) in, one structured summary out. |
 
-### `SKILL.md`
+Typical investigation, starting from nothing but the `sessions/` root:
 
-Frontmatter: `name: read-pi-session-traces`, a "pushy" `description` (per
-`skill-creator`'s guidance) naming Pi/sbxpi triggers explicitly and warning
-this is *not* the Claude Code skill, `compatibility: Requires bash, jq and
-rg on PATH.`
+```bash
+root=~/.local/state/sbxagent/traces/sbxagent-9df4f2fe/sbxpi/sessions
+t=.claude/skills/read-pi-session-traces/scripts/pi-trace.py
+"$t" sessions "$root" --json                                   # 1. cheap orientation
+"$t" search "$root" 'search term' --limit 20 --json            # 2. hits carry path, line, entryId
+"$t" show /path/from/hit.jsonl --entry ENTRY_ID --before 3 --after 6   # 3. only the neighborhood
+"$t" inspect /path/from/hit.jsonl --outline 40 --json          # 4. structure, tools, recorded usage
+```
+
+## `scripts/pi-trace.py`
+
+### Shared behavior (every subcommand)
+
+**Path argument.** `PATH` may be the `sessions/` root (recursed), one
+`--<escaped-cwd>--` folder, or one `.jsonl` file. For `search`, `show` and
+`inspect`, `--session ID` picks one session under a directory `PATH` by
+header id or unambiguous prefix. On ambiguity, list the candidates (bounded)
+and exit non-zero — Pi's ids are time-ordered (both real samples start with
+`01a0`), so short prefixes collide often. `show` must resolve to exactly one
+file.
+
+**Discovery.** Walk directories, skipping dotfiles such as `.DS_Store`.
+Accept a `.jsonl` only if its first line — read to at most 64 KiB — is a Pi
+header (`type == "session"` with `id` and `cwd`). Everything else, including
+Claude Code or Codex traces when the user points at a whole
+`traces/<slug>-<hash>/` folder, is skipped and counted in the summary, never
+parsed further. Order newest-first by modification time. The header's `id`
+and `cwd` are authoritative; directory and file names are never decoded.
+
+**Reading.** Binary mode, line by line, tracking 1-based line numbers (the
+header is line 1) and byte offsets. A line that fails to parse is skipped
+with a `file:line` warning. A final line without a trailing newline — found
+by reading the last byte, O(1) — is a write in progress: skipped and
+reported as `partialTail`. Memory is bounded by the largest single record
+(lines are read whole) plus, in `show` and `inspect`, an index that grows
+with the number of entries. `SKILL.md` states both bounds.
+
+**Safe projection — an allowlist, not redaction.** Each type and role emits
+only listed fields; nothing is serialized wholesale.
+- Text (user, assistant, custom-message content, summaries, labels, session
+  names): clipped to the field budget; string or block-array content both
+  handled.
+- `image` blocks: `mimeType`, base64 length and approximate bytes. Never
+  `data`.
+- `thinking` blocks: the `thinking` text only, and in `show` only with
+  `--thinking`; a placeholder when `redacted`. Never `thinkingSignature` or
+  `textSignature`.
+- `toolCall`: `name`, `id`, and `arguments` serialized then clipped.
+- `toolResult`: `toolName`, `toolCallId`, `isError`, clipped text, images as
+  above. `details` appears as field names and size only, except the bash
+  tool's `details.truncation.truncated` and `details.fullOutputPath`.
+- `bashExecution`: `command`, `exitCode`, `cancelled`, `truncated`,
+  `fullOutputPath`, `excludeFromContext`, and `output` clipped like a tool
+  result.
+- `custom` entries' `data`, and any other `details`: field names and size
+  only.
+- Unknown entry types, roles or block types (including the `main`-only
+  ones): metadata only — `type`/`role`, `id`, `parentId`, `timestamp`,
+  line, top-level field names, and the record's size in bytes (its line
+  length, so nothing is re-serialized). Never the object, not even clipped:
+  a clipped prefix can still expose base64 or an opaque token.
+- **Recorded paths are reported, never opened.** `fullOutputPath` comes from
+  the trace, so a forged or extension-written trace could name any readable
+  file, and sandbox paths rarely exist on the host anyway. No flag reads it.
+  Expansion, if ever needed, would take an explicit user-supplied allowed
+  root, resolve symlinks, and refuse anything outside it.
+
+**Budgets are part of every command, not advice.** Every subcommand takes
+`--max-field-chars N` (each field clipped on its own, with a marker saying
+how much was cut; default 2000) and `--max-output-chars N` (the whole
+command; default 20000), plus a small default result count (below). `0`
+means unlimited and must be passed explicitly. When a budget stops output,
+the command still ends cleanly and says what was omitted and the exact
+command for the next slice.
+
+**Output.** Compact text by default, for humans. `--json` (and
+`show --format json`) emits JSON Lines: one record per item with a `kind`
+(`session`, `hit`, `entry`, `warning`), then exactly one final
+`{"kind": "summary", …}` record with counts, omitted items, warnings and a
+`next` command. Every entry-level record carries the entry `id` and `line`,
+so any result can go straight to `show`. The summary is always last, so a
+reader can tell complete output from cut-off output.
+
+**Robustness.** Exit quietly on a broken pipe (`| head` is common).
+Reconfigure stdout with `errors="backslashreplace"`, so a lone surrogate in
+trace text (valid in JSON) can't crash printing. Exit codes: `0` success,
+`1` when `search` finds nothing, `2` usage error.
+
+### `sessions`
+
+```
+pi-trace.py sessions PATH [--limit N] [--skip N] [--json]
+```
+
+Header-only. Per session: `id`, `path`, `cwd`, `created` (header
+timestamp), `parentSession` and how it resolved, `size`, `modified`,
+`partialTail`. **No cost, prompt count or title** — those need a full scan
+and belong to `inspect`. A richer `--deep` catalog can come later if it
+proves useful; not now. Default `--limit 50`, newest first; the summary
+reports skipped non-Pi files and the `--skip` value for the next page.
+
+Fork parents: try `parentSession` as recorded; if that file doesn't exist,
+match its filename against the discovered sessions (filenames are unique;
+the recorded path is usually a sandbox path); otherwise report it
+unresolved. Build the filename map once per command, not once per session.
+Label the link "forked from": the child is a copy, not a continuation.
+
+### `search`
+
+```
+pi-trace.py search PATH PATTERN [--session ID] [-e|--regex] [-i|--ignore-case]
+                   [--limit N] [--skip N] [--scan-limit N] [--json]
+                   [--max-field-chars N] [--max-output-chars N]
+```
+
+- Files are searched one at a time, newest first, so "what happened
+  recently" stops early and the order is deterministic.
+- Candidates come from `rg --json --no-config` on each file, pattern passed
+  with `--regexp` so a leading `-` is safe. A match event gives the line
+  number and byte offset; Python seeks to that record and decodes it.
+- A literal pattern is first converted to its on-disk form,
+  `json.dumps(pattern, ensure_ascii=False)[1:-1]`, because Pi writes
+  `JSON.stringify` output: quotes, backslashes and newlines escaped,
+  non-ASCII left as-is. Without this, text containing a quote or newline is
+  silently missed.
+- Each candidate is re-checked against the decoded, projected text fields:
+  message text, thinking text, tool names and arguments, tool-result text,
+  bash command and output, summaries, labels, session names, model ids. A
+  raw match that only lands in base64 image data, a signature, an id-only
+  structural field or an opaque `details`/`data` payload is not a hit. That
+  is also why `rg --max-count` can't be the hit limit: it counts raw lines,
+  and those could all be non-hits.
+- Regex mode: rg (Rust regex) selects candidates from the raw JSON line,
+  then Python `re` re-checks the decoded text, so the pattern must be valid
+  in both (the common subset covers normal use), and characters JSON
+  escapes must be written in escaped form to be found in the raw line.
+  `SKILL.md` says so.
+- Stops at `--limit` hits (default 20; rg is terminated) or after
+  `--scan-limit` candidate lines (default 2000), whichever comes first. The
+  summary says which and how to continue (`--skip`, a higher
+  `--scan-limit`, or a narrower pattern).
+- Hit record: `{"kind": "hit", "session", "path", "line", "entryId",
+  "timestamp", "type", "role", "field", "excerpt"}`, the excerpt being about
+  200 characters around the first match in that field.
+
+### `show`
+
+```
+pi-trace.py show PATH [--session ID] [--entry ID | --line N]
+                 [--leaf ID] [--before N] [--after N] [--tail N] [--all]
+                 [--thinking] [--no-tools] [--format text|json|markdown]
+                 [--max-field-chars N] [--max-output-chars N]
+```
+
+- Pass 1 builds a small index (id → parent id, byte offset, line, type) and
+  a children map, header excluded. Pass 2 seeks to and decodes only the
+  selected records.
+- No selector: the last entry in file order is the leaf; show its last 20
+  entries. Never the whole branch by default.
+- `--leaf ID` picks another branch; `--tail N` and `--all` apply to it.
+- `--entry ID` or `--line N`: that entry, `--before N` ancestors (default
+  3) and `--after N` descendants (default 5). "After" follows the default
+  leaf's path when the entry is on it, otherwise the most recent leaf below
+  the entry; `--leaf` overrides.
+- `--all`: the whole root-to-leaf path, still under `--max-output-chars`
+  unless that is `0`. Full human export:
+  `--all --format markdown --max-output-chars 0 > file`.
+- Each item shows id, line, timestamp, type or role, and its projected
+  content. An entry on the path with more than one child is marked as a
+  branch point, listing the other child ids (bounded). A missing parent or a
+  cycle stops the walk with a warning.
+- `--no-tools` keeps one-line stubs (tool name, call id, error flag) so the
+  structure stays visible. `--thinking` adds thinking text, clipped, never
+  signatures.
+- `compaction` and `branch_summary` entries show their summary,
+  `firstKeptEntryId`/`fromId` and `tokensBefore`, with a note that this is
+  **raw stored history**: from here on the model saw the summary, not the
+  older entries.
+- The summary's `next` gives the exact commands for the previous and next
+  slice (`--entry <first id> --before N`, `--entry <last id> --after N`).
+
+### `inspect`
+
+```
+pi-trace.py inspect PATH [--session ID] [--outline N] [--aggregate] [--json]
+                    [--max-field-chars N] [--max-output-chars N]
+```
+
+One streaming pass per selected file (plus seeks for the outline rows),
+emitting one `session` record each:
+- counts by entry type, message role and content-block type;
+- roots, leaves (with line and timestamp) and orphans (parent id not in the
+  file);
+- first and last **entry** timestamps (header excluded — in the first real
+  sample they differ by almost six minutes), plus the header's `created`;
+- prompt previews with ids and lines, bounded (first and last few when
+  there are many);
+- model changes, thinking-level changes, and assistant models with counts;
+- tools, per name: calls, errors, calls without a result, results without a
+  call, and elapsed time (total and max; parallel calls overlap, so totals
+  aren't wall time). A call is dropped from the correlation map as soon as
+  its result arrives, so that state is bounded by outstanding calls;
+- recorded usage **by source** — `conversation` (assistant `message.usage`),
+  `toolExecution` (tool-result `message.usage`), `summarization`
+  (`compaction` and `branch_summary` `.usage`), `standalone` (top-level
+  `usage` entries, `main`-only) — and **by model** (`provider/model` for
+  assistant and standalone entries, `unattributed` for the rest). Also the
+  number of summaries recorded without `usage`;
+- warnings: malformed lines (count and first few line numbers), partial
+  tail, unknown types, roles and blocks, orphans, and — when the header has
+  `parentSession` — "recorded usage includes history copied from the parent
+  at fork time; not all of it is new spend";
+- `--outline N` (default 40): one row per entry on the default leaf's path
+  — id, line, type or role, tool name, error flag, and an ~80-character
+  preview — or the first and last N/2 rows when longer, with the `show`
+  command for the middle.
+
+A directory `PATH` gives one record per session and **no grand total**.
+`--aggregate` adds a final total, flagged as an upper bound whenever any
+included session is a fork. The wording is always "sum of recorded usage",
+never "total cost".
+
+## `SKILL.md`
+
+Frontmatter: `name: read-pi-session-traces`; a "pushy" `description` (per
+`skill-creator`) naming Pi and `sbxpi` triggers — what happened in a past Pi
+session, find something across Pi history, what a session recorded
+spending, a pasted `sessions/--…--/….jsonl` path — and saying it is not for
+Claude Code traces (use `read-claude-code-session-traces`);
+`compatibility: Requires python3 (3.9 or newer); search also needs rg on PATH.`
 
 Body, in order:
-1. Opening paragraph: what a Pi trace is; the headline structural facts —
-   every entry *after the header* is a tree node (the header itself is not);
-   pinned to Pi `0.84.4`, unknown future entry/role/block types are rendered
-   safely as generic placeholders rather than erroring.
-2. "Start here" table (question → script), the concrete path template
-   including the `$XDG_STATE_HOME` override, and a pointer to `sbxpi name`.
-3. "What's structurally different from Claude Code's format" — one turn is
-   one record (no `requestId` splitting); no single authoritative cost
-   record; no generic tool-output sidecar (but see the truncation trap
-   below); fork copies history rather than continuing it.
-4. Traps section, revised:
-   - **The header is not a tree node.** Don't let it show up as a phantom
-     leaf or skew a session's start/span timing — exclude `.type=="session"`
-     from every tree/leaf/timing computation; read header fields (`id`,
-     `cwd`, `parentSession`) separately.
-   - **User content can be a plain string, not just an array.** Handle both
-     shapes everywhere `.message.content` is read.
-   - **Roles beyond user/assistant/toolResult exist** (`bashExecution`,
-     `custom`) — render unknown roles generically rather than assuming
-     exactly three.
-   - **Images are base64 and must never be printed.** Show `mimeType` and
-     approximate size only.
-   - **Cost/tokens have four possible carriers, not three**: assistant
-     `message.usage`, toolResult `message.usage` (a separate "tool's own
-     spend" bucket, kept apart from conversation spend), `compaction.usage`,
-     `branch_summary.usage`. Miss one and the total undercounts. Use
-     `usage.totalTokens` as given — never re-sum `input+output+reasoning`
-     yourself, to avoid double-counting `reasoning` if it's already folded
-     into the other fields.
-   - **Some tool output is truncated with a pointer to the full file**, not
-     always inline — the agentic `bash` tool (`details.fullOutputPath`) and
-     `!`-command `bashExecution` messages (`fullOutputPath` directly) can
-     both do this. Note it; don't assert the JSONL always has the complete
-     output.
-   - **A session can span multiple files via `parentSession`** — but a
-     forked file is a **copy** of its parent's history up to the fork point,
-     not a continuation. Rendering parent-then-child duplicates content;
-     summing cost across a directory containing a fork **double-counts** the
-     copied prefix. `audit.sh` and `index.sh` both call this out explicitly.
-   - **A raw rendered transcript is not necessarily what the model actually
-     saw.** Pi's own compaction/context-editing machinery can mean older raw
-     entries were replaced or dropped from the model's context even though
-     they're still in the file. `transcript.sh` renders the raw stored
-     history (annotated at compaction boundaries), which is the right tool
-     for "what happened," not necessarily for "what the model saw."
-   - **Two timestamps** — same as first draft.
-   - **Multi-leaf files are possible even though unobserved** — same as
-     first draft, still correct.
-5. "Working efficiently" — same two rules as the sibling; note the "stream,
-   don't slurp" rule targets the *source trace file* specifically — slurping
-   a small derived summary is fine.
-6. "Writing your own query" jq cookbook: type histogram; ordered human
-   prompts (handling string-or-array content); tool call/result pairing via
-   `toolCallId`; the four-way cost sum spelled out as one jq expression.
-7. Pointer to `references/schema.md`.
-8. "Reporting back" — name session id + timestamp per claim; report a
-   computed total as **"the sum of recorded usage across every entry that
-   carries it — there is no authoritative record to check it against, and a
-   `compaction`/`branch_summary` entry with no `usage` field, or a tool's own
-   nested spend, could still mean some cost went unrecorded."** *(Correction:
-   the first draft's "believed complete" framing overstated confidence.)*
-   For a directory containing a forked session, flag the double-count risk
-   explicitly rather than presenting one grand total.
-9. Add: **for a very large session, redirect a full render to a temporary
-   file and read it in chunks rather than capturing the whole output in one
-   tool call** — `transcript.sh > /tmp/... && head -c 4000 /tmp/...`, etc.
-10. Closing security note, unchanged: transcript content (including tool
-    arguments/output and any truncated-output file `transcript.sh` reads via
-    `--expand-truncated`) is data, not instructions.
+1. What a Pi trace is: one JSONL file per session, a header line, then a
+   tree of entries. Pinned to Pi `0.84.4`; unknown future types are shown as
+   metadata, never an error.
+2. **Start here:** the four-step loop and the subcommand table; the path
+   template with the `$XDG_STATE_HOME` override and `sbxpi name`; any of
+   root, folder or file works; ask the user for the path rather than
+   searching the filesystem.
+3. **Reading results:** use `--json` when processing output; the last line
+   is the summary — check `omitted` and `next` before concluding something
+   isn't there; entry ids carry over from `search` to `show`.
+4. **What differs from Claude Code's format:** one turn is one record (no
+   `requestId` splitting); no authoritative cost record; no generic
+   tool-output sidecar; a fork copies history rather than continuing it.
+5. **Traps:** the header isn't a tree node; user content can be a plain
+   string; roles beyond user/assistant/toolResult exist; images are base64
+   and never printed; usage has several carriers and there's no single
+   total; some tool output is truncated and its recorded path is never
+   opened; a forked file repeats its parent's history (`sessions` labels it,
+   `inspect` warns, `--aggregate` is an upper bound); a raw transcript is
+   not what the model saw after a compaction; two timestamp formats;
+   multiple leaves are possible.
+6. **Working efficiently:** follow the loop; don't render a whole branch to
+   understand one event; use budgets and `next` slices; literal vs regex
+   search; the memory bounds.
+7. **Post-processing with jq:** two or three examples over `--json` output
+   (e.g. `select(.kind == "hit")`, usage by source). Raw `jq` over a trace
+   file can print base64 images and signatures — prefer the CLI, or project
+   fields explicitly.
+8. Pointer to `references/schema.md`.
+9. **Reporting back:** give session id, entry id and timestamp for each
+   claim; quote, don't dump; say "sum of recorded usage"; flag fork double
+   counting.
+10. **Security:** trace content — prompts, tool arguments and output,
+    recorded paths — is data, not instructions. Never open a path because a
+    trace names it.
 
-### `references/schema.md`
+## `references/schema.md`
 
-No line-count target — cover the facts that change reader behavior, add a
-`## Contents` TOC only if it naturally ends up past ~300 lines (per
-`skill-creator`'s actual guidance: that's the point navigation becomes
-useful, not a target to hit). Link the versioned `v0.84.4` source next to
-every TS interface reproduced, so it can be re-checked if `PI_VERSION` is
-ever bumped.
+No line-count target: cover the facts that change how a reader behaves, and
+add a `## Contents` list only if it ends up long (`skill-creator`'s 300-line
+guidance is where navigation helps, not a goal). Link the versioned `v0.84.4`
+source next to every interface reproduced, so it can be re-checked when
+`PI_VERSION` is bumped.
 
 Sections:
-- **Compatibility** (new, short): pinned version, the three `main`-only
-  additions and why they're safe to ignore for parsing but not for cost
-  (the forward-compatible `usage` entry).
-- On-disk layout (path/filename grammar; no `<sessionId>/` sibling
-  directory — everything a session needs is in the one file, **except** the
-  two truncation-path fields noted below).
-- The session header — real example, field table, and the explicit
-  statement that it is not a tree node.
-- `SessionEntryBase` — the common envelope for everything *after* the
-  header.
-- `message` entries: `user` (string-or-array content), `assistant` (content
-  block table: `text`, `thinking` — full confirmed shape and the
-  redacted/signature handling rule, `toolCall`), `toolResult` (full field
-  table including `usage` and `details`), and a short note on `bashExecution`
-  /`custom` roles with their real field shapes from `messages.ts`, rendered
-  generically.
-- `image` content block — confirmed shape, the "never print `data`" rule.
-- `model_change`, `thinking_level_change` — real examples, unchanged.
-- `compaction`, `branch_summary`, `custom`, `session_info`, `custom_message`
-  (now fully specified — see above), `label` (now fully specified) — TS
-  interfaces, each marked "documented, not observed in sampled data" where
-  applicable, versioned-linked.
-- Tool calls, results, and truncation: linkage via `toolCall.id ==
-  toolResult.toolCallId`; the real chained 4-tool-call example; the
-  `BashToolDetails`/`BashExecutionMessage` truncation-pointer fields and
-  exactly when they appear.
-- The `usage`/cost object: four-carrier sum rule spelled out as a full jq
-  expression; the `totalTokens`-not-re-derived rule; the forward-compatible
-  top-level `usage` entry (`main`-only) and how `audit.sh` treats it.
-- Two timestamps — real side-by-side comparison, unchanged.
-- The conversation tree — same 4-step leaf/walk algorithm, explicitly
-  starting "from the first entry after the header."
-- Raw history vs. model-visible context — short section explaining
-  `buildContextEntries`/`buildSessionProjection` exist upstream and why this
-  skill deliberately renders raw history instead (see Known limitations).
-- Session-to-session lineage via `parentSession` — **confirmed**: always a
-  file path, fork copies history. `index.sh`'s resolution logic (below).
-- Closing "Unconfirmed / out of scope" list: exact continue/fork line
-  numbers not re-diffed against `0.84.4` (only against `main`); whether
-  `compaction`/`branch_summary`/`custom`/`session_info` ever appear in
-  practice; model-context projection is unimplemented.
+- **Sources and compatibility:** the six source links above; the pinned
+  version; the three `main`-only additions and how `pi-trace.py` treats
+  them.
+- **On-disk layout:** path and filename grammar; recursion from the
+  `sessions/` root; no per-session sibling folder.
+- **The header:** real example, fields, and "not a tree node".
+- **`SessionEntryBase`:** the envelope of every entry after the header.
+- **`message` entries:** `user` (string or array), `assistant` (`text`,
+  `thinking` with the signature/redacted rules, `toolCall`), `toolResult`
+  (including `usage` and `details`), `bashExecution`, `custom`.
+- **Content blocks:** `text`, `thinking`, `toolCall`, `image` (never print
+  `data`).
+- **Other entry types:** `model_change` and `thinking_level_change` (real
+  examples); `compaction`, `branch_summary`, `custom`, `session_info`,
+  `custom_message`, `label` (interfaces, marked "not seen in the real
+  samples").
+- **Tool calls, results and truncation:** `toolCall.id == toolResult.toolCallId`;
+  a real multi-call turn; the bash truncation fields.
+- **Usage and cost:** the `usage` shape, the carriers, `totalTokens` as
+  recorded, and a jq expression that sums only the numeric fields as a
+  manual cross-check.
+- **Two timestamps:** a real side-by-side example.
+- **The tree:** leaves, walking from a leaf to the root, branch points,
+  orphans.
+- **Raw history vs. what the model saw:** `buildContextEntries` and
+  `buildSessionProjection` upstream, and why `show` renders raw history.
+- **Fork lineage:** `parentSession` is a (usually sandbox) file path; a fork
+  copies history; how `sessions` resolves it.
+- **Still unconfirmed:** fork/continue code read on `main`, not re-diffed
+  against `0.84.4`; whether the six unseen entry types appear in practice;
+  how `reasoning` relates to `totalTokens`.
 
-### `scripts/common.sh` (sourced only, never executed directly)
+## Known limitations (out of scope for this version)
 
-Reused from the sibling: `SELF`, `die()`, `warn()`, `require_tools()`,
-`need_file()`, `need_dir()`, `list_sessions()`.
+- **No model-context projection.** `show` renders raw stored history, not
+  Pi's `buildContextEntries`/`buildSessionProjection` output; compaction
+  boundaries are annotated, not resolved.
+- **No fork de-duplication.** `inspect` warns, and `--aggregate` is an upper
+  bound. A possible cheap heuristic for later: copied entries keep their
+  original timestamps, which predate the fork file's header timestamp, so
+  "inherited" and "new" usage could be split per file. Needs a real forked
+  trace to confirm before relying on it.
+- **`main`-only entries** get metadata projection; only top-level `usage`
+  entries are counted.
+- **`reasoning` vs `totalTokens`** is assumed, not proven; totals are taken
+  as recorded.
+- **Recorded `fullOutputPath` is never followed.**
+- **No persistent index and no `--deep` catalog.** Memory is bounded by the
+  largest record plus an index that grows with entry count in `show` and
+  `inspect`.
 
-Changed:
-- `session_id_of()`: strip `<timestamp>_` prefix as well as `.jsonl` suffix.
-- `feed()`: **revised for efficiency, not just reused.** Instead of parsing
-  the entire last line to detect an incomplete tail (which loads a
-  potentially huge final record into a shell variable just to check it),
-  check whether the file's last byte is a newline first (`tail -c1`, O(1)):
-  if it is, feed the whole file as-is; if it isn't, warn and feed everything
-  up to (not including) the last, unterminated line via `sed '$d'` without
-  ever holding that line's full content in a shell variable. Any line that
-  still fails to parse inside the jq pipeline (complete or not) is a `warn`
-  from that script, not a hard `die` — this matches Pi's own tolerant
-  reader behavior (confirmed: `parseSessionEntryLine` silently skips
-  malformed lines regardless of termination) rather than being stricter than
-  the format's own writer/reader.
+## Automated tests
 
-New:
-- `header_of(file)`: `head -n 1 -- "$file" | jq -c .` — warns and returns
-  `null` on a bad/missing header line.
+`tests/pi_trace_test.py`: standard-library `unittest`, run by
+`make test-unit`, so locally and in CI on both Ubuntu and macOS.
 
-Dropped: `subagent_files()` (no subagent transcripts exist in this format).
-
-`JQ_PRELUDE`: keep `epoch`, `hms`, `flat`, `clip($n)`. Drop `is_chain`
-(nothing needs it once the header is excluded up front). Add:
-- `is_header`: `.type == "session"` — used by every script to skip the
-  header line inside a shared reduce/filter, so `header_of()` (cheap,
-  separate) is the *only* reader of header fields.
-- `entry_cost` / `entry_tokens`: branch on `.type`:
-  - `message` with `.message.role == "assistant"` → `.message.usage`
-  - `message` with `.message.role == "toolResult"` → `.message.usage`
-    (kept in a **separate accumulator**, not merged into conversation cost,
-    since the source explicitly says this isn't part of main context
-    accounting)
-  - `compaction` / `branch_summary` → `.usage`
-  - `usage` (forward-compat, `main`-only) → `.usage`, attributed via its own
-    `.provider`/`.model` fields
-  - anything else → zero
-  `entry_tokens` returns the object with `totalTokens` passed through as
-  given (never recomputed from parts).
-- `is_prompt`: `.type=="message" and .message.role=="user"` with content
-  that is either a non-empty string or an array containing a `text` block —
-  handles both content shapes.
-
-### `scripts/index.sh`
-
-`Usage: index.sh <trace-dir>` — unchanged CLI.
-
-Same output columns, oldest-first-within-lineage ordering, two-pass awk
-column sizing. Per-file streaming reduce now explicitly skips the header
-(`is_header`) before accumulating `first`/`last`/`prompts`/`cost`, so a
-session's `start`/`span` reflect its first real tree entry, not the moment
-the file was created (these can differ by minutes, as the real sample
-shows: header at 09:32:45, first tree entry at 09:38:24). `title` falls back
-to the first counted prompt's text (clipped), handling string-or-array
-content, since there's no `ai-title`-equivalent bookkeeping record.
-
-`lineage`: read once via `header_of()`. **Resolution simplified to
-path-based only** (confirmed: `parentSession` is always a file path, never a
-bare id) — resolve it relative to the trace directory; if it points outside
-the directory or doesn't exist, show the raw value prefixed `external:`.
-Label a resolved lineage entry `forked from <session>` rather than implying
-continuation, and precompute the whole directory's header→id/parentSession
-map in **one pass** before resolving any file's lineage, instead of
-re-scanning every sibling's header per session (avoids O(n²) in the number
-of files, per the review's scaling concern).
-
-### `scripts/transcript.sh`
-
-```
-Usage: transcript.sh [options] <session.jsonl>
-  --leaf ID            render the path ending at this record (default: last record in file)
-  --list-leaves        list branch endpoints and exit, newest last
-  --thinking            include thinking-block text (never signatures; redacted blocks show a placeholder)
-  --no-tools            omit toolCall / toolResult content
-  --max-result N        clip each tool result to N characters (default 800, 0 = unlimited)
-  --max-text N          clip each prose (user/assistant text, summaries) block to N characters (default 4000, 0 = unlimited)
-  --expand-truncated    inline the full-output file for a truncated bash/bashExecution result (clipped like everything else)
-  --unknown-blocks      include content blocks / message roles this script has no dedicated renderer for
-```
-
-Dropped vs. the Claude sibling: `--attachments`, `--expand-offloaded` (no
-Claude-style generic offload mechanism exists in Pi).
-
-Pass 1 now explicitly filters `select(.type != "session"; i.e. !is_header)`
-before emitting `line,id,parentId,timestamp,type` rows — cheap, and
-necessary so the header can't appear as a phantom leaf in `--list-leaves` or
-corrupt the walk. Leaf-walk awk unchanged otherwise (renamed `id`/`parentId`).
-Pass 2 re-streams only the kept lines.
-
-Renderer per type, revised:
-- `message`/`user`: `## User` heading; render content whether it's a plain
-  string or an array of `text`/`image` blocks (image → metadata line only).
-- `message`/`assistant`: one heading per entry (still no `requestId`
-  concept). `text` → prose, clipped to `--max-text`. `thinking` → shown only
-  with `--thinking`, `.thinking` text clipped to `--max-text`, never
-  `.thinkingSignature`, a placeholder if `.redacted`. `image` → metadata
-  line. `toolCall` → labeled fenced block of `name`/`id`/`arguments`.
-  Unrecognised block type → placeholder unless `--unknown-blocks`.
-- `message`/`toolResult`: labeled fenced block (`toolName`, `toolCallId`,
-  error flag), content clipped to `--max-result`. If `details` carries a
-  truncation flag and `fullOutputPath`, add a note ("output truncated, full
-  text at `<path>`") instead of asserting completeness; with
-  `--expand-truncated`, read and inline that file (clipped, treated as
-  untrusted data like everything else — never executed).
-- `message`/`bashExecution`: dedicated one-line render (command, exit code,
-  truncated/full-output-path note, same expand behavior) since the shape is
-  fully known.
-- `message`/`custom` (the message role, not the entry type): generic
-  fallback like any unrecognised type — `_[custom message: <customType>]_`
-  plus a clipped `tojson` (with `content` stripped if it contains an image
-  block's `data`).
-- `model_change` / `thinking_level_change`: one-line italic notes, unchanged.
-- `compaction` / `branch_summary`: italic note plus summary text and the
-  referenced id, **plus an explicit note that this is a raw-history view —
-  older entries before `firstKeptEntryId` may no longer be part of what the
-  model actually sees.**
-- `usage` (forward-compat) / `context_edit` (forward-compat): small
-  dedicated one-liners, since their shapes are known from `main` even though
-  unexpected at `0.84.4`.
-- `custom` (entry type) / `session_info` / `custom_message` / `label`:
-  generic fallback — `_[<type>]_` plus a clipped `tojson`.
-
-### `scripts/search.sh`
-
-```
-Usage: search.sh [options] <trace-dir> [--] <pattern>
-  -e, --regex        treat pattern as regex (default: literal)
-  -i, --ignore-case
-  --max-hits N       cap hits reported per session (default 20, 0 = unlimited)
-```
-
-Same `rg`-narrows/`jq`-decodes architecture. **Pass `--max-count N` to `rg`
-itself when `--max-hits N` is nonzero**, instead of collecting every match in
-the file and truncating afterward — bounds the work `rg` does, not just the
-output, per the review's scaling concern. `searchable` def extended: handle
-string-or-array `message.content`, skip `image` block `data` (never search
-into or echo base64), include `bashExecution.output`/`command`.
-
-### `scripts/audit.sh`
-
-```
-Usage: audit.sh [options] <trace-dir | session.jsonl>
-  --json    emit raw per-session JSON instead of the formatted report
-```
-
-Revised accounting: sum `entry_cost`/`entry_tokens` (from `common.sh`,
-now four-way plus the forward-compatible `usage` entry) across every
-qualifying entry, with the toolResult-`usage` bucket **reported separately**
-labeled "tool-execution spend (not part of conversation context)" rather
-than merged into the conversation total. Per-model breakdown: assistant
-messages attribute to `message.model`/`message.provider`; a forward-compat
-`usage` entry attributes to its own `.provider`/`.model`; `compaction`/
-`branch_summary`/`toolResult` usage — which carry no model field — go in an
-explicit **"unattributed"** bucket rather than being silently dropped or
-mis-attributed to whatever model happens to be current.
-
-Tool call/result correlation: build the `toolCallId -> {name, timestamp}`
-map incrementally and **delete each entry as soon as its matching
-`toolResult` is seen**, so memory is bounded by outstanding (unanswered)
-calls rather than growing with the total call count over a whole file — per
-the review's scaling concern. Whatever remains in the map at EOF is the
-"unanswered call" count. Elapsed time uses entry-level timestamps only,
-never the nested `message.timestamp`.
-
-Report framing, corrected: **"the sum of every recorded `usage`/`usage.cost`
-field this format defines — not a documented lower bound like Claude Code's,
-but not a proven-complete total either, since there is no authoritative
-record to check it against and any of the optional `usage` fields could be
-absent on a real call."** When run against a directory, add an explicit
-warning if any file's header has a `parentSession` pointing at a sibling in
-the same directory: **"this total double-counts the copied history a forked
-session inherited from `<parent>`; treat directory-wide sums as an upper
-bound in that case."** State plainly: `audit.sh` sums each file
-independently and does **not** attempt lineage deduplication (see Known
-limitations).
-
-## Known limitations (explicitly out of scope for this version)
-
-- **No model-context projection.** `transcript.sh` renders raw stored
-  history, not Pi's own `buildContextEntries`/`buildSessionProjection`
-  output. A compaction/branch-summary boundary is annotated, not resolved
-  into "this is what the model actually received."
-- **No automatic fork-cost deduplication.** `audit.sh` sums each file
-  independently and flags, but does not fix, double-counted forked history.
-- **`main`-only entries are rendered/ignored safely, not fully modeled.**
-  `context_edit` and `CompactionEntry.systemMessage` get generic-fallback
-  rendering; only the top-level `usage` entry gets bespoke cost handling,
-  because ignoring real spend is worse than ignoring an entry type.
-- **Reasoning-token inclusion in `totalTokens` is assumed, not proven** —
-  this skill reports `totalTokens` as given rather than re-deriving it, to
-  avoid a plausible double-count, but has not independently confirmed the
-  inclusion relationship from Pi's source.
+- **End to end.** Each test builds its trace files in a temporary
+  directory, runs `pi-trace.py` as a subprocess with the current
+  interpreter, and checks the exact `--json` output: record kinds, ids,
+  lines, counts, warnings, `next` hints and sums. No fixture files are
+  committed. The real traces stay manual smoke-test inputs only — they're
+  private and local.
+- **Exact sums.** Fixture costs use values binary floating point holds
+  exactly (0.5, 0.25, 0.125, …), so usage sums compare with `==`.
+- **Cases:**
+  - discovery: a `sessions/` tree mixing Pi files, a Claude-style JSONL
+    and a `.DS_Store` — only Pi files listed, skip count right; the root, a
+    folder and a single file as `PATH`; `--session` by full id, unique
+    prefix, and ambiguous prefix (candidates listed, non-zero exit);
+  - tree: the header is never a leaf; two children of one parent give two
+    leaves, a marked branch point, and `--after` follows the right branch;
+    an orphan parent and a parent cycle give warnings, no hang;
+  - selection: `--entry`, `--line`, `--leaf`, `--tail`, `--all`, and the
+    no-selector default (last 20);
+  - budgets: a 5 MB tool result and a 2 MB base64 image stay under
+    `--max-output-chars`, no base64, the summary last and valid JSON, `next`
+    correct; a 20,000-entry trace finishes quickly with bounded output;
+  - projection: `thinkingSignature`, `textSignature`, `details`/`data`
+    payloads and an unknown entry type are never serialized; string and
+    array user content; `bashExecution` and `custom` roles; a
+    `fullOutputPath` pointing at a real temp file whose content must never
+    appear;
+  - reading: a malformed middle line and an unterminated last line give
+    warnings with line numbers, the rest is still read, and `sessions`
+    reports `partialTail`;
+  - usage: every carrier lands in its bucket (`conversation`,
+    `toolExecution`, `summarization`, `standalone`, `unattributed`); a
+    summary without `usage` is counted; a forked header gives the fork
+    warning and the `--aggregate` upper-bound flag; a parent resolves by
+    filename when the recorded path doesn't exist;
+  - search: a pattern with a quote, a newline and non-ASCII text is found;
+    a term present only in image data or an id is not a hit; `--limit`,
+    `--skip` and `--scan-limit` behave and are reported; exit code `1` on
+    no hits;
+  - CLI: `show … | head -1` exits quietly; bad arguments exit `2`.
+- **ripgrep.** The `search` tests need `rg`, and neither the Ubuntu 24.04
+  nor the macOS 15 runner image lists it, so the CI test job installs it.
+  Locally, a missing `rg` skips only the search tests, with a visible
+  message. `SBXAGENT_REQUIRE_RG=1` turns that skip into a failure, and CI
+  sets it — the same pattern `SBXAGENT_REQUIRE_BIND` already uses, so
+  coverage can't quietly shrink.
+- CI runs Python 3.12 (Ubuntu) and 3.14 (macOS). The 3.9 floor is enforced
+  by the syntax checks, not by these tests.
 
 ## Verification
 
-1. `python3 .claude/skills/skill-creator/scripts/quick_validate.py .claude/skills/read-pi-session-traces`.
-2. `shellcheck --enable=all .claude/skills/read-pi-session-traces/scripts/*.sh` and `bash -n` on each; run under `bash 3.2` semantics (no associative arrays, no `${var,,}`, etc., matching this repo's portability rules in `AGENTS.md`).
-3. **Stage the new files (`git add`) before running `make lint`** — it discovers inputs via `git ls-files`, confirmed in `Makefile`, so untracked scripts are silently skipped otherwise.
-4. Run `make lint` at the repo root.
-5. Exercise all four scripts against the one real trace file, with **exact** (not "roughly matching") assertions where the raw file makes an exact number computable:
-   ```bash
-   d=/Users/lars/.local/state/sbxagent/traces/sbxagent-9df4f2fe/sbxpi/sessions/--Users-lars-Code-sbxagent--
-   f="$d/2026-09-17T09-32-45-253Z_01a0aeb6-1b45-7013-ab4d-5454a1b5680f.jsonl"
-   .claude/skills/read-pi-session-traces/scripts/index.sh "$d"
-   .claude/skills/read-pi-session-traces/scripts/transcript.sh "$f"
-   .claude/skills/read-pi-session-traces/scripts/search.sh "$d" "sbxagent"
-   .claude/skills/read-pi-session-traces/scripts/audit.sh "$f" --json | jq .
-   jq -s '[.[] | select(.type=="message" and .message.role=="assistant") | .message.usage.cost.total] | add' "$f"
-   ```
-   The last two must match exactly, not approximately.
-6. Additionally construct a handful of small, hand-written synthetic
-   `.jsonl` snippets (not committed as fixtures — throwaway files in the
-   scratchpad) to exercise what the one real trace cannot: a header
-   followed by two entries branching from the same `parentId` (assert
-   `--list-leaves` reports 2, and neither is the header); a file whose last
-   line is deliberately cut mid-object with no trailing newline (assert
-   `feed()`/every script warns and proceeds rather than crashing, and that
-   the O(1) trailing-byte check doesn't false-positive on a valid,
-   newline-terminated last record); a plain-string `user` message (assert
-   `index.sh`'s prompt count and title fallback both see it).
-7. Confirm `transcript.sh` never emits a base64 `data` field, a
-   `thinkingSignature`, or an unclipped block regardless of flags.
-
-**Not building, pending your input (see below): a committed, generated
-synthetic-fixture test suite with exhaustive exact-JSON assertions** (the
-kind of thing under a `tests/` directory with generated `.jsonl` files
-covering every entry/role/block combination, run under CI). The sibling
-Claude skill shipped with no such suite, and none of this repo's existing
-`tests/*.sh` cover skill *scripts* (they test the wrapper/mount mechanics).
-Building one now would be a real scope increase beyond matching the
-sibling's bar. Step 6 above gets meaningful coverage cheaply without it.
+1. `python3 .claude/skills/skill-creator/scripts/quick_validate.py .claude/skills/read-pi-session-traces`
+2. `ruff check --target-version py39` and `ruff format --check` on `pi-trace.py` and `tests/pi_trace_test.py`.
+3. `git add` the new files (with the executable bit — check `git ls-files -s`
+   shows `100755`), then `make lint`. It lists inputs with `git ls-files`,
+   so untracked files are silently skipped.
+4. Smoke tests on both real sessions, following the four-step loop from the
+   `sessions/` root (which holds no `.jsonl` directly, so this proves
+   recursion), with exact checks:
+   - `sessions` lists exactly the 2 sessions, correct ids, `cwd`
+     `/Users/lars/Code/sbxagent`, no parent, `partialTail: false`.
+   - A `search` hit, passed to `show --entry`, shows that same entry.
+   - For each file, `inspect --json`'s `conversation` cost equals
+     `jq -n '[inputs | select(.type == "message" and .message.role == "assistant") | .message.usage.cost.total] | add' FILE`
+     exactly. For the 33-line file: 2 user, 9 assistant, 19 toolResult,
+     19 tool calls, one leaf, no warnings.
+   - `show` with no selector on the 33-line file prints its last 20
+     entries and a `next` hint.
+5. `make test-unit` passes — the wrapper tests plus `tests/pi_trace_test.py`
+   — with `rg` on `PATH`, so no search test is skipped.
 
 ## Repository integration
 
-- Add an `Added` entry under `CHANGELOG.md`'s `## [Unreleased]` section,
-  following the exact precedent of the `0.4.9` entry for
-  `read-claude-code-session-traces`.
-- Stage the new skill's files with `git add` (needed for lint, see above,
-  and per this repo's normal workflow); do **not** run `git commit` or
-  `git push` — per `AGENTS.md`, hand the user a draft commit message instead.
+- `CHANGELOG.md`, under `## [Unreleased]` → `### Added`, following the
+  `0.4.9` entry for `read-claude-code-session-traces`: a
+  `read-pi-session-traces` repository skill with a `pi-trace.py` command to
+  list Pi sessions, search them, show a bounded slice around any entry, and
+  inspect a session's structure, tools and recorded usage.
+- `make lint`: add a Python syntax check for tracked `*.py` files that needs
+  no new tool — per file,
+  `python3 -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1], feature_version=(3, 9))'`,
+  the Python counterpart of `bash -n`. It covers the new CLI, the new test
+  and the existing `quick_validate.py` (already checked: it passes). Both
+  runners already have `python3`. Adding `ruff` to CI would mean a new
+  pinned tool on both runners — not proposed.
+- `Makefile`: `test-unit` also runs `python3 ./tests/pi_trace_test.py`.
+  Update the lint comment to mention the Python check.
+- `.github/workflows/ci.yml` — **a CI change**: in the `test` job, install
+  ripgrep before `make test-unit` (Ubuntu: `sudo apt-get update && sudo
+  apt-get install -y ripgrep`; macOS: `brew install ripgrep`, as the lint
+  job already does for its tools) and set `SBXAGENT_REQUIRE_RG: 1` on the
+  test steps.
+- `AGENTS.md`: update the `make lint` and `make test-unit` lines in the
+  Commands block.
+- `.cspell.json`: add any real words the spell checker flags in the new test
+  or edited docs (it checks `tests/`; only skill folders are skipped).
+- No changelog line for the tests or CI change — `AGENTS.md` skips entries
+  for tests.
+- Stage the files with `git add`; do **not** run `git commit` or `git push`
+  (per `AGENTS.md`) — hand over a draft commit message instead.
 
-## Follow-up (not part of this task, mentioned to the user)
+## Follow-up (not part of this task)
 
-Now that thinking/image/`bashExecution` shapes are confirmed from source,
-the main remaining unknowns are things only a *new real trace* can show:
-whether `compaction`, `branch_summary`, `custom`, `session_info` actually
-appear in practice and render sensibly, and whether a real `pi --fork`/
-`pi -c` session behaves exactly as the source code implies. If you want to
-firm these up later, running a long/complex session (to trigger compaction)
-and a forked session would let this skill's schema doc and scripts be
-revisited against new real data. Not required to ship the skill now.
+Both real traces are short straight lines, so thinking, images, compaction,
+branch summaries and forks are still checked only against source, not real
+data. Running a Pi session with thinking on, one long enough to compact,
+one with a pasted image, and a `pi --fork` would let the reference and the
+fork heuristic above be checked against real traces.
