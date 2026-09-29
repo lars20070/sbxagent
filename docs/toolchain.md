@@ -35,7 +35,8 @@ creating a sandbox to mount only its own trace subfolder, hiding the other
 agents' and the message board; an existing board on the host is not deleted.
 Other projects' folders are never mounted, and `rm` leaves all of this in
 place. Inside you get passwordless `sudo` and
-Docker, every host CPU, and half the host memory capped at 32 GiB.
+Docker, every host CPU (at most 16 on a Linux arm64 host, where `sbx` caps
+the default), and half the host memory capped at 32 GiB.
 
 Network access is an allowlist, not the open internet, unless the sandbox was
 created with `NETWORK_ALLOWLIST=false` — that stacks the `mixins/open-network`
@@ -72,7 +73,7 @@ adds two of its own, for Pi and its Context7 package.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |
-| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.45.0` (SHA-256 verified) |
+| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.46.0` (SHA-256 verified) |
 | `ruff` | `kits/*/spec.yaml` | `0.16.8` |
 | `yamllint` | `kits/*/spec.yaml` | `1.38.0` |
 | `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.3` |

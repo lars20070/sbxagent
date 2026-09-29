@@ -8,6 +8,26 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-09-29
+
+### Added
+
+- `read-pi-session-traces`, a repository skill for exploring the Pi session
+  traces `sbxpi` preserves (see `docs/traces.md`), however large. Its
+  `pi-trace.py` command lists Pi sessions from their headers, searches them,
+  shows a bounded slice of one branch around any entry, and inspects a
+  session's structure, tools and recorded usage. Output never exceeds a
+  character budget, opaque payloads such as images and signatures are never
+  printed, and a path a trace names is never opened. It needs Python 3.9 or
+  newer. Checked against Pi `0.84.4`.
+
+### Changed
+
+- `sbx` v0.46.0 is now required, up from v0.45.0. Every sandbox ships the
+  same version for its offline `sbx kit` commands.
+- On a Linux arm64 host, a sandbox now gets at most 16 CPUs by default. This
+  cap comes from `sbx` v0.46.0.
+
 ## [0.4.9] - 2026-09-21
 
 ### Added

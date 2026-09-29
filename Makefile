@@ -3,6 +3,7 @@ BASH ?= bash
 MARKDOWNLINT ?= markdownlint-cli2
 YAMLLINT ?= yamllint
 CSPELL ?= cspell
+RUFF ?= ruff
 # Syntax-checks TypeScript by type-stripping it. Pinned and fetched through
 # npx by default because no kit installs esbuild, so unlike markdownlint and
 # cspell there is no local binary to fall back on. The first fetch on a cold
@@ -25,8 +26,9 @@ NO_SKILLS := ':(exclude,glob)**/skills/**'
 # Lint tracked files: Markdown (skip plan drafts), JSON, jq filters (parsed
 # against null input, so a syntax error fails the build), TypeScript
 # (type-stripped by esbuild, so a syntax error fails the build too), YAML,
-# shell scripts (shellcheck + bash -n, one file per xargs call), and
-# spell-check (skip plan drafts). Markdown and spell-check also skip skill
+# shell scripts (shellcheck + bash -n, one file per xargs call), Python (Ruff
+# lint and format check, targeting 3.9, the oldest python3 a macOS host has),
+# and spell-check (skip plan drafts). Markdown and spell-check also skip skill
 # definitions. Assert each kits/<name>/ declares name: <name>, that the files
 # every kit duplicates stay byte-identical across kits, that the Cursor kit's
 # user-scope MCP config matches the repo's project-scope one (the sandbox
@@ -42,6 +44,8 @@ lint:
 	git ls-files -z -- '*.yaml' '*.yml' | xargs -0 $(YAMLLINT)
 	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 shellcheck --enable=all
 	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 -n1 bash -n
+	find .claude/skills/read-pi-session-traces -name '*.py' -print0 | xargs -0 $(RUFF) check --target-version py39
+	find .claude/skills/read-pi-session-traces -name '*.py' -print0 | xargs -0 $(RUFF) format --check --target-version py39
 	git ls-files -z -- ':!.claude/plans/*' ':!.cursor/plans/*' $(NO_SKILLS) | xargs -0 $(CSPELL) --no-progress
 	for kit in kits/*/; do \
 		dir="$${kit%/}"; name="$$(basename "$$dir")"; \
