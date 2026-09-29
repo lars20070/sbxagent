@@ -93,14 +93,13 @@ in_sandbox() {
 
 # Device and inode of a path inside the sandbox, always Linux, so plain GNU
 # `stat -c`. Empty when the path cannot be stat'd at all.
+#
+# Both sides of a comparison go through this, never a host-side stat: the host
+# state folder is shared into the sandbox at the same path, but the guest kernel
+# gives that share its own device number, so a host device:inode can never
+# match a sandbox one. That the host really sees the writes is case 2's job.
 trace_id() {
 	in_sandbox stat -c '%d:%i' "$1" 2>/dev/null || true
-}
-
-# The same for a path on the host, which is a Mac as often as not: GNU first,
-# then BSD, the same capability probe scripts/sbxagent uses for shasum.
-host_id() {
-	stat -c '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1" 2>/dev/null || true
 }
 
 # True only when both sides answered and agree, so two failed stats cannot read
@@ -128,7 +127,7 @@ STOCK_ABS="${HOME_IN_SANDBOX}/${STOCK}"
 # still be there: that is the whole job of the `setup: startup:` call site, and
 # without it every session that does not go through the entrypoint writes to an
 # unbound stock path and loses its traces when the sandbox goes away.
-same_id "$(trace_id "${STOCK_ABS}")" "$(host_id "${TARGET}")" ||
+same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
 	fail "${STOCK_ABS} is not bound after 'create' alone; the startup call site did not run"
 pass "the startup step binds the stock trace path before any attach"
 
@@ -136,7 +135,7 @@ pass "the startup step binds the stock trace path before any attach"
 #    rather than from the process that made it.
 run_entrypoint >/dev/null || fail "the entrypoint failed on the first start"
 [[ -d "${TARGET}" ]] || fail "the entrypoint did not create ${TARGET} on the host"
-same_id "$(trace_id "${STOCK_ABS}")" "$(host_id "${TARGET}")" ||
+same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
 	fail "${STOCK_ABS} is not bind-mounted onto ${TARGET} after the first start"
 pass "the entrypoint binds the stock trace path, visible from another session"
 
@@ -168,13 +167,13 @@ sbx stop "${SANDBOX}" >/dev/null 2>&1 || fail "could not stop ${SANDBOX}"
 # Reached with `sbx exec` alone after the stop, so the entrypoint never runs.
 # The more important instance of the check above, because this is the shape of
 # `make test-toolchain` and of any agent launched by hand from `exec bash`.
-same_id "$(trace_id "${STOCK_ABS}")" "$(host_id "${TARGET}")" ||
+same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
 	fail "${STOCK_ABS} is not bound after 'stop' + 'exec' with no attach; the startup call site did not replay"
 pass "the startup step re-binds after a stop, without any attach"
 
 run_entrypoint >/dev/null ||
 	fail "the entrypoint failed after a stop"
-same_id "$(trace_id "${STOCK_ABS}")" "$(host_id "${TARGET}")" ||
+same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
 	fail "${STOCK_ABS} is not bound again after a stop and restart"
 [[ "$(in_sandbox cat "${STOCK_ABS}/lifecycle-marker")" == first ]] ||
 	fail "the marker from the first start is not readable after a restart"
@@ -194,7 +193,7 @@ pass "the sandbox restarts, rebinds, and keeps its traces across a stop"
 #    becomes its own piece of work.
 printf 'host\n' >"${TARGET}/host-side-scratch"
 rm -f "${TARGET}/host-side-scratch"
-same_id "$(trace_id "${STOCK_ABS}")" "$(host_id "${TARGET}")" ||
+same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
 	fail "the bind at ${STOCK_ABS} detached after a host-side write — upstream issue #388 reproduces here"
 in_sandbox sh -c "printf 'third\\n' > '${STOCK_ABS}/lifecycle-marker-3'" ||
 	fail "could not write at ${STOCK_ABS} after a host-side write"
