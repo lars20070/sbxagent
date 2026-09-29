@@ -678,14 +678,7 @@ pass "running scripts/sbxagent directly refuses and explains how to link it"
 # A copy rather than a symlink is the one real failure mode of basename
 # dispatch, so it gets the same treatment.
 COPIED="${TEST_ROOT}/sbx-unknown-agent"
-# `cat` rather than `cp`: still a real copy, but virtiofs reports every
-# workspace file as fully sparse, so `cp` out of the workspace writes a
-# correctly-sized file of NUL bytes and this test would fail for a reason that
-# has nothing to do with dispatch. No `cp` flag avoids it; `cat` and `dd` are
-# unaffected. Open upstream, no fix as of sbx v0.45.0:
-# https://github.com/docker/sbx-releases/issues/526
-cat "${AGENT_SCRIPT}" >"${COPIED}"
-chmod +x "${COPIED}"
+cp "${AGENT_SCRIPT}" "${COPIED}"
 reject_wrong_name "${COPIED}"
 pass "a copy under an unknown name refuses too"
 

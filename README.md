@@ -105,7 +105,7 @@ sbxcodex exec bash
 
 You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with KVM available. Docker Desktop is not required. Install the `sbx` CLI and sign in.
 
-> **sbx v0.45.0 is required.** sbx is experimental. A later version may break `sbxagent`.
+> **sbx v0.46.0 is required.** sbx is experimental. A later version may break `sbxagent`.
 
 [macOS:](https://docs.docker.com/ai/sandboxes/install/#install-on-macos)
 

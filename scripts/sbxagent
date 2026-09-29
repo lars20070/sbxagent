@@ -53,11 +53,12 @@ fi
 # Number of SHA-256 characters in generated sandbox and state-directory names.
 HASH_LENGTH="${HASH_LENGTH:-8}"
 
-# Upstream virtiofs cache bug: `cp` reading from the mounted workspace inside a
-# sandbox writes a hole (correct size, all NUL bytes); `cat` and `dd` are fine.
-# https://github.com/docker/sbx-releases/issues/526 — no fix as of sbx v0.45.0.
+# Upstream virtiofs cache bug on macOS hosts: with the cache on, a name made
+# with link() is missing from directory listings, and fsync() on a new file can
+# return ENOTEMPTY. Both break `git clone` into the mounted workspace.
+# https://github.com/docker/sbx-releases/issues/629 — no fix as of sbx v0.46.0.
 # Must be set on the host before create. Revisit when bumping the pinned sbx
-# version; remove this export once #526 is fixed in that release.
+# version; remove this export once #629 is fixed in that release.
 export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0
 
 # Whether a sandbox can read the state folders of the other agents' sandboxes

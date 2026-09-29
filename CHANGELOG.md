@@ -19,6 +19,13 @@ and this project adheres to
   printed, and a path a trace names is never opened. It needs Python 3.9 or
   newer. Checked against Pi `0.84.4`.
 
+### Changed
+
+- `sbx` v0.46.0 is now required, up from v0.45.0. Every sandbox ships the
+  same version for its offline `sbx kit` commands.
+- On a Linux arm64 host, a sandbox now gets at most 16 CPUs by default. This
+  cap comes from `sbx` v0.46.0.
+
 ## [0.4.9] - 2026-09-21
 
 ### Added

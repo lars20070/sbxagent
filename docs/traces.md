@@ -268,7 +268,7 @@ drops it. Each kit calls `mount-state.sh` from two places, and needs both:
 - The `sandbox.entrypoint` wrapper, which runs the script just before
   `exec claude "$@"` (or `codex`, `cursor-agent`, `pi`). It covers the one
   start where a startup step is known not to run: after a daemon restart
-  (docker/sbx-releases #420, still open as of sbx v0.45.0).
+  (docker/sbx-releases #420, still open as of sbx v0.46.0).
 
 Whichever runs first does the work. The other hits the match in step 3 and
 exits `0`.

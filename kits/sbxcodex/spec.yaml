@@ -190,13 +190,13 @@ setup:
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.45.0 release assets.
+        # Digests of the v0.46.0 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="77f3c36e63a60a034fa53b5a9e49c20c52c350a91b380ebd96281460a5270341"
+            expected_sha256="edd86e2f21559e190723fd884c3a1dced161a555afdff85c5921ed45e7d6d56e"
             ;;
           arm64)
-            expected_sha256="cbaf3746cbf0ac84f899a03fc9a281d6b011c73b1ebb1155893f13f49203f140"
+            expected_sha256="b20da2e5e2ba7a67151a19821960c657c08d8fa8dcfdf5e9751f284d6e55ffa8"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -206,7 +206,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.45.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.46.0/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
@@ -507,7 +507,7 @@ setup:
     # session that never attaches — which the entrypoint, being the agent launch
     # command, cannot reach. The entrypoint in turn covers the one start where
     # a startup step is known not to replay: after a daemon restart
-    # (docker/sbx-releases #420, still open as of sbx v0.45.0).
+    # (docker/sbx-releases #420, still open as of sbx v0.46.0).
     # mount-state.sh is idempotent — once bound it exits 0 having touched
     # nothing — so whichever of the two runs second is a no-op.
     #
