@@ -8,6 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `read-pi-session-traces`, a repository skill for exploring the Pi session
+  traces `sbxpi` preserves (see `docs/traces.md`), however large. Its
+  `pi-trace.py` command lists Pi sessions from their headers, searches them,
+  shows a bounded slice of one branch around any entry, and inspects a
+  session's structure, tools and recorded usage. Output never exceeds a
+  character budget, opaque payloads such as images and signatures are never
+  printed, and a path a trace names is never opened. It needs Python 3.9 or
+  newer. Checked against Pi `0.84.4`.
+
 ## [0.4.9] - 2026-09-21
 
 ### Added

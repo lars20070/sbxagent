@@ -159,6 +159,7 @@
     "messageboards",
     "subfolders",
     "lseek",
-    "ENOTEMPTY"
+    "ENOTEMPTY",
+    "pipx"
   ]
 }

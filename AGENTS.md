@@ -41,7 +41,7 @@ the commit and push themselves.
 ## Commands
 
 ```bash
-make lint           # markdownlint, jq, esbuild, yamllint, shellcheck, bash -n, cspell
+make lint           # markdownlint, jq, esbuild, yamllint, shellcheck, bash -n, ruff, cspell
 make test           # run all tests
 make test-unit      # test wrapper dispatch with a fake sbx CLI
 make test-toolchain # test helper tools inside the live sandbox
