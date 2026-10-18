@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-10-18
+
 ### Changed
 
 - `sbx` v0.48.0 is now required, up from v0.46.0.
