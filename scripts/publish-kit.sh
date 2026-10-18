@@ -16,9 +16,8 @@ set -euo pipefail
 #                           from GITHUB_SERVER_URL and GITHUB_REPOSITORY)
 #   VERIFY_OIDC_ISSUER      accepted OIDC issuer         (default: GitHub Actions)
 #
-# When SIGN is set, the signature must verify against those two or the run
-# fails — see the signing block below for why sign's own exit code is not
-# trusted to decide that.
+# When SIGN is set, `sbx kit sign` must succeed and the signature must verify
+# against those two, or the run fails.
 #
 # All the logic lives here rather than in workflow YAML so that `make lint`
 # covers it with shellcheck, and so `make publish-dry-run` rehearses the whole
@@ -73,9 +72,8 @@ require() {
 # fd 3 carries machine-readable key=value output for $GITHUB_OUTPUT. CI opens
 # it (3>>"$GITHUB_OUTPUT"); when it is closed, fall back to the real stdout so a
 # local run still prints the values. Everything else is redirected to stderr, so
-# that `sbx kit validate`'s "VALID: ..." line, `sbx kit inspect`'s report and
-# oras's chatter can never land in $GITHUB_OUTPUT and fail the step with
-# "Invalid format".
+# that `sbx kit pack`'s output and oras's chatter can never land in
+# $GITHUB_OUTPUT and fail the step with "Invalid format".
 if ! { : >&3; } 2>/dev/null; then
 	exec 3>&1
 fi
@@ -127,10 +125,10 @@ staged="${stage}/kits/${kit}"
 [[ -f "${staged}/spec.yaml" ]] ||
 	die "kits/${kit} is not committed at HEAD, so nothing was staged"
 
-# Validate and inspect before the dry-run exit, so a dry run still catches a
-# broken kit and still shows exactly what would ship.
-sbx kit validate "${staged}"
-sbx kit inspect "${staged}"
+# Check the kit before the dry-run exit, so a dry run still catches a broken
+# kit. `sbx kit pack` is the offline schema check until sbx ships
+# `kit validate --offline` (docker/sbx-releases#685).
+sbx kit pack "${staged}" --output "${stage}/${kit}.zip"
 
 # Same extraction the Makefile's version-agreement check uses. `make lint`
 # checks this repo-wide; repeating it per kit keeps the script safe to run on
@@ -256,28 +254,12 @@ oras tag "${digest_ref}" "${LATEST_TAG}"
 # which would fold signing back into the push and make a signing failure
 # indistinguishable from a push failure.
 #
-# `sbx kit sign` is NOT allowed to fail the release, and that is deliberate.
-# GHCR does not implement the OCI 1.1 referrers API, so the referrers list is
-# kept in an index under a fallback `sha256-<digest>` tag. Adding a second
-# referrer replaces that index, and oras-go then garbage-collects the old one
-# with a manifest DELETE — which GHCR rejects with 405, because it implements no
-# manifest deletion at all. The distribution spec does not require that delete:
-# the new index, already carrying the signature, was pushed before it ran. So
-# the error says nothing about whether the kit is signed.
-#
-# `sbx kit verify` is therefore the real gate. It asks the only question that
-# matters — can a consumer verify this artifact against our workflow identity —
-# and its answer, not sign's exit code, sets `signed` and decides the job.
+# `sbx kit verify` then checks independently that a consumer can verify this
+# artifact against our workflow identity; its answer sets `signed`.
 signed=no
 verify_failed=
 if [[ -n "${SIGN}" ]]; then
-	if sbx kit sign "${digest_ref}"; then
-		note "sign reported success for ${digest_ref}"
-	else
-		note "NOTICE: sbx kit sign returned an error. On GHCR this is expected:"
-		note "NOTICE: the referrers-index cleanup DELETE is refused with 405."
-		note "NOTICE: verifying whether the signature was attached regardless."
-	fi
+	sbx kit sign "${digest_ref}" || die "sbx kit sign failed for ${digest_ref}"
 
 	if sbx kit verify "${digest_ref}" \
 		--certificate-oidc-issuer "${VERIFY_OIDC_ISSUER}" \

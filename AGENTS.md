@@ -55,11 +55,17 @@ Unknown-but-correct words go in `.cspell.json`.
 ## Critical Requirement
 
 Before finishing any task that touches any `kits/*/spec.yaml` or `kits/*/files/`,
-run `make validate` — it validates every kit, and it's a static schema
-check with no Docker, no `sbx login`, and no network, so there's no reason to
-skip it. Before finishing any task that touches `scripts/sbxagent` or any other
-shell script, run `make lint` — it runs `shellcheck` and `bash -n` over every
-tracked script.
+run `make validate` — it validates every kit against the schema. Until sbx
+ships `kit validate --offline`
+([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685)),
+it needs a host with `sbx login`, so ask the user to run it there. Inside a
+sandbox, run `sbx kit pack <kit> --output <scratch>.zip` on every changed kit
+instead; it is an offline schema check, but it does not print `validate`'s
+warnings. The CI `validate` job is switched off for the same reason.
+
+Before finishing any task that touches `scripts/sbxagent` or any other shell
+script, run `make lint` — it runs `shellcheck` and `bash -n` over every tracked
+script.
 
 `make test-toolchain` only exercises whatever sandbox already exists, so
 `NETWORK_ALLOWLIST=false` and `SBXAGENT_LITE=false` behaviour is not
@@ -122,8 +128,10 @@ Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which publishes
 every kit to `ghcr.io/lars20070/<kit>:X.Y.Z`, re-points `latest` at the same
 digest, and creates the GitHub Release. There is no other publish trigger.
 
-- Rehearse with `make publish-dry-run` first. It stages, validates and inspects
-  each kit and prints what would be pushed, without a registry or credentials.
+- Rehearse with `make publish-dry-run` first. It stages each kit, checks it
+  with `sbx kit pack` (the offline stand-in for `kit validate` until
+  docker/sbx-releases#685 ships) and prints what would be pushed, without a
+  registry or credentials.
 - **The `CHANGELOG.md` section must have a body, not just a heading.** The
   Release notes are that section (`scripts/release-notes.sh`), and `verify`
   runs the same script before anything is published, so a version cut with
@@ -146,37 +154,6 @@ digest, and creates the GitHub Release. There is no other publish trigger.
   `latest` surfaces schema drift on a PR, which is cheap to learn about. Here
   the same drift would change how artifacts are published after the tag is
   already public, and `sbx kit` is marked EXPERIMENTAL. Bump it deliberately.
-
-### A red `sbx kit sign` does not mean the release is unsigned
-
-Every release logs this, and it is expected:
-
-```text
-ERROR: pack signature manifest: failed to push manifest: failed to delete
-dangling referrers index sha256:... : DELETE ".../manifests/sha256:..."
-response status code 405: unsupported: The operation is unsupported.
-```
-
-GHCR does not implement the OCI 1.1 referrers API, so the referrers list lives
-in an index under a fallback `sha256-<digest>` tag. Attaching a second referrer
-replaces that index, and oras-go then garbage-collects the old one with a
-manifest `DELETE` — which GHCR refuses, because it implements no manifest
-deletion at all. The distribution spec does not require that delete: the new
-index, already carrying the signature, was pushed before the cleanup ran.
-
-So `sbx kit sign`'s exit code says nothing about whether the kit is signed.
-`scripts/publish-kit.sh` therefore treats it as a notice and runs `sbx kit
-verify` as the real gate — the job passes only if a consumer could verify the
-artifact against this repository's workflow identity. **Confirmed empirically**
-on 2026-09-05 against a throwaway `sbxprobe` package: `sign` failed with the
-405 above and `verify` then reported
-`VERIFIED: ghcr.io/lars20070/sbxprobe@sha256:25ba7b1e… (oci)`.
-
-Do not "fix" this by deleting the signing step. If the verify step ever starts
-failing, that is a real problem and the artifacts genuinely are unsigned.
-The underlying bug is upstream — oras-go exposes both a `SkipReferrersGC`
-option and an `IsReferrersIndexDelete()` check precisely so callers can ignore
-this — and it is worth removing this workaround once `sbx` handles it.
 
 ## Skills
 

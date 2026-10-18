@@ -13,7 +13,7 @@ here it is `false`):
 | `curl`, `jq`, `pandoc`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution | either |
 | `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below | either |
 | `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below | either |
-| `sbx` | daemon-free kit commands — `version`, `kit validate`, `kit inspect`, `kit pack` — so `make validate` runs in-sandbox | pinned below | either |
+| `sbx` | daemon-free commands — `version` and `kit pack`; `kit validate` and `kit inspect` need a host sign-in ([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685)) | pinned below | either |
 | `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution | either |
 | `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image | either |
 | Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below | `false` |
@@ -73,7 +73,7 @@ adds two of its own, for Pi and its Context7 package.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |
-| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.46.0` (SHA-256 verified) |
+| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.48.0` (SHA-256 verified) |
 | `ruff` | `kits/*/spec.yaml` | `0.16.8` |
 | `yamllint` | `kits/*/spec.yaml` | `1.38.0` |
 | `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.3` |

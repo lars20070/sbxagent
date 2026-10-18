@@ -8,6 +8,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `sbx` v0.48.0 is now required, up from v0.46.0.
+- Inside a sandbox, `sbx kit validate` and `sbx kit inspect` need a Docker
+  sign-in
+  ([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685)).
+  Use `sbx kit pack` there.
+- OpenRouter setup needs one secret, not two.
+
+### Removed
+
+- The virtiofs cache workaround
+  ([docker/sbx-releases#629](https://github.com/docker/sbx-releases/issues/629)).
+
 ## [0.4.10] - 2026-09-29
 
 ### Added

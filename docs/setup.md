@@ -52,20 +52,12 @@ commented out keeps its default.
 ## OpenRouter (`sbxpi`, cloud models)
 
 `sbxpi` is the one kit that needs a model credential of its own: it talks to
-OpenRouter rather than to an agent vendor's API. Store the key on the host
-twice — once as a plain secret the credential proxy can inject, and again as a
-sandbox-scoped custom secret, which works around
-[docker/sbx-releases#25](https://github.com/docker/sbx-releases/issues/25):
+OpenRouter rather than to an agent vendor's API. Store the key once on the host
+as the `openrouter` secret; the credential proxy injects it:
 
 ```bash
 echo "$OPENROUTER_API_KEY" | sbx secret set openrouter
-sbx secret set-custom --sandbox "$(sbxpi name)" \
-  --host openrouter.ai --env OPENROUTER_API_KEY \
-  --value "$OPENROUTER_API_KEY"
 ```
-
-`--sandbox` wants that project's real sandbox name, which is why it is read
-from `sbxpi name` rather than written out.
 
 The default model is `qwen/qwen3-coder-next`. It is not available on DeepInfra,
 so its `openRouterRouting.ignore` in
