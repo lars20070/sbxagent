@@ -20,7 +20,7 @@ Upstream issues referenced in the repo:
 | #553 `kit sign` 405 on GHCR | fixed in v0.47.0 | remove workaround (1.2) |
 | #629 virtiofs `link()`/`fsync()` | fixed in v0.48.0 | remove workaround (1.4) |
 | #420 startup step not replayed after daemon restart | fixed (startup metadata restored after restart) | remove workaround (Phase 2) |
-| #25 secret env vars on existing sandbox | closed, "fixed in v0.38.0" | host-check, then remove (1.5) |
+| #25 secret env vars on existing sandbox | closed; fix confirmed for sandbox-scoped **GitHub** credentials only (v0.38.0) | remove workaround, then verify OpenRouter on its own (1.5) |
 | #685 `kit validate` needs login | **not** in v0.48.0 (`--offline` in v0.49.0) | temporary `kit pack` preflight (1.3) |
 | #231 Copilot token prefix | fixed in v0.42.0 by a separate `copilot` secret | keep: our local GitHub MCP server is a design choice (no Copilot PAT needed), not a #231 workaround. Reword `docs/agents.md:102` to say so |
 | #388 nested `:ro` mount | closed | keep: `tests/lifecycle_test.sh` case 5 is a regression test, not a workaround |
@@ -93,16 +93,27 @@ Use the verified v0.48.0 binary from the scratchpad, first on `PATH`.
   `export DOCKER_SANDBOXES_ENABLE_VIRTIOFS_CACHE=0`. Nothing else references
   it (`.env.example` neither).
 
-### 1.5 #25: OpenRouter secret (host gate first)
+### 1.5 #25: one OpenRouter secret
 
 The kit already declares `OPENROUTER_API_KEY` as `proxyManaged`
 (`kits/sbxpi/spec.yaml:170-175`). The second, sandbox-scoped
-`sbx secret set-custom` in `docs/setup.md:56-66` exists only for #25.
-- Gate (user, host): with only `sbx secret set openrouter`, create a fresh
-  `sbxpi` sandbox; `printenv OPENROUTER_API_KEY` shows a sentinel and a Pi
-  call to an OpenRouter model works.
-- Pass → delete the `set-custom` lines and the #25 sentence from
-  `docs/setup.md`. Fail → report it upstream; docs stay.
+`sbx secret set-custom` in `docs/setup.md` exists only for #25. #25's closing
+comment confirms a fix for sandbox-scoped **GitHub** credentials, not for
+OpenRouter, so the check in 1.9 verifies OpenRouter on its own.
+
+`docs/setup.md` "OpenRouter" section (lines 52–68), so it documents only the
+single-secret setup:
+- Replace the "Store the key on the host twice … works around #25"
+  introduction with one sentence: store the key once on the host as the
+  `openrouter` secret; the proxy injects it.
+- Code block: only `echo "$OPENROUTER_API_KEY" | sbx secret set openrouter`.
+- Delete the now-orphaned paragraph "`--sandbox` wants that project's real
+  sandbox name … `sbxpi name`".
+- Keep the model and routing paragraphs that follow.
+
+No fallback: if the 1.9 check fails, it is an unresolved v0.48.0 issue. I
+report it upstream, and it must be resolved before release. The old
+instructions do not come back automatically.
 
 ### 1.6 Mixins note in `docs/published-kits.md:114-125`
 
@@ -120,7 +131,7 @@ with `mixins: [<path to a small mixin>]`, run `sbx kit validate` on it, then
 - `Changed`: "Inside a sandbox, `sbx kit validate` and `sbx kit inspect` need
   a Docker sign-in (docker/sbx-releases#685). Use `sbx kit pack` there."
 - `Removed`: "The virtiofs cache workaround (docker/sbx-releases#629)."
-- If 1.5 passes, `Changed`: "OpenRouter setup needs one secret, not two."
+- `Changed`: "OpenRouter setup needs one secret, not two."
 
 ### 1.8 Check, stage, hand off
 
@@ -147,6 +158,11 @@ with `mixins: [<path to a small mixin>]`, run `sbx kit validate` on it, then
    and `grep VIRTIOFS .env` both show nothing. Rebuild one sandbox,
    `git clone` a repo into the mounted workspace, then
    `make test-toolchain AGENT=claude`.
+7. OpenRouter check (1.5): with only `sbx secret set openrouter` on the host
+   (no `set-custom`), create a fresh `sbxpi` sandbox.
+   `./scripts/sbxpi exec printenv OPENROUTER_API_KEY` shows a sentinel, not
+   the real key, and a Pi call to an OpenRouter model answers. Fail →
+   unresolved v0.48.0 issue (see 1.5); no release until it is resolved.
 
 ---
 
@@ -218,6 +234,10 @@ The duplicate entrypoint call goes.
      call does **not** come back automatically.
 3. Rebuild all four, `make test-lifecycle AGENT=<each>`, then
    `make test-toolchain AGENT=<each>`.
+4. `make validate` on the signed-in v0.48.0 host, on the final Phase 2
+   state. The 1.9 run does not cover the Phase 2 spec and helper edits, and
+   `kit pack` lacks `validate`'s diagnostics. The upgrade is not done until
+   this passes.
 
 ---
 
