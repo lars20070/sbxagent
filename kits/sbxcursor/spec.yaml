@@ -302,12 +302,11 @@ setup:
       description: mermaid-cli, reusing the Playwright Chromium (SBXAGENT_LITE=false only)
   startup:
     # This is the only call site for the trace bind mount: a startup step runs
-    # on every sandbox start — including after a daemon restart
-    # (docker/sbx-releases #420, fixed in v0.48.0: startup steps are now
-    # replayed after a restart) — so it covers `sbx exec` and any session that
-    # never attaches. mount-state.sh is idempotent — once bound it exits 0
-    # having touched nothing — so a restart or a repeat start that lands on an
-    # already-bound path is a no-op.
+    # on every sandbox start, including after a daemon restart, so it covers
+    # `sbx exec` and any session that never attaches. mount-state.sh is
+    # idempotent — once bound it exits 0 having touched nothing — so a
+    # restart or a repeat start that lands on an already-bound path is a
+    # no-op.
     #
     # Cursor has no configuration override for its transcript tree.
     #

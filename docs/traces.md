@@ -262,10 +262,9 @@ will not run the entrypoint and the agent never starts.*
 
 A bind mount lives in the kernel's mount table, not on disk, so every stop
 drops it. Each kit calls `mount-state.sh` from a single place: a
-`setup.startup` step, which the runtime runs at every start — including after
-a daemon restart (docker/sbx-releases #420, fixed in v0.48.0: startup steps
-are now replayed after a restart). It covers every session, including one
-that never launches the agent, such as `sbxclaude exec bash`.
+`setup.startup` step, which the runtime runs at every start, including after
+a daemon restart. It covers every session, including one that never launches
+the agent, such as `sbxclaude exec bash`.
 
 The script stays idempotent even with one caller: a restart, or a session
 that runs after the bind is already up, can land on a path `LINK` is already

@@ -236,10 +236,8 @@ fi
 # 8. Exactly one call site exists in every kit, inside the startup block, and
 # the entrypoint no longer mentions mount-state.sh at all. The bind does not
 # survive a stop, so it has to be re-made on every start; a startup step runs
-# on every start, including after a daemon restart (docker/sbx-releases #420,
-# fixed in v0.48.0: startup steps are now replayed after a restart), so one
-# call site is enough. Assert this rather than trusting a comment to keep it
-# that way.
+# on every start, including after a daemon restart, so one call site is
+# enough. Assert this rather than trusting a comment to keep it that way.
 fresh "call-site"
 for kit in sbxclaude sbxcodex sbxcursor sbxpi; do
 	SPEC="${ROOT}/kits/${kit}/spec.yaml"

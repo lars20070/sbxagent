@@ -572,12 +572,11 @@ setup:
       description: Context7 Pi extension, installed at build time
   startup:
     # This is the only call site for the trace bind mount: a startup step runs
-    # on every sandbox start — including after a daemon restart
-    # (docker/sbx-releases #420, fixed in v0.48.0: startup steps are now
-    # replayed after a restart) — so it covers `sbx exec` and any session that
-    # never attaches. mount-state.sh is idempotent — once bound it exits 0
-    # having touched nothing — so a restart or a repeat start that lands on an
-    # already-bound path is a no-op.
+    # on every sandbox start, including after a daemon restart, so it covers
+    # `sbx exec` and any session that never attaches. mount-state.sh is
+    # idempotent — once bound it exits 0 having touched nothing — so a
+    # restart or a repeat start that lands on an already-bound path is a
+    # no-op.
     #
     # PI_CODING_AGENT_SESSION_DIR flattens Pi's native per-project layout and
     # changes continue-session lookup, so retain the stock path and bind-mount
