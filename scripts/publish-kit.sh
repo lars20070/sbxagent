@@ -255,13 +255,18 @@ oras tag "${digest_ref}" "${LATEST_TAG}"
 # indistinguishable from a push failure.
 #
 # `sbx kit verify` then checks independently that a consumer can verify this
-# artifact against our workflow identity; its answer sets `signed`.
+# artifact against our workflow identity; its answer sets `signed`. Failures
+# are deferred until after the outputs and summary record what was published.
 signed=no
+sign_failed=no
 verify_failed=
 if [[ -n "${SIGN}" ]]; then
-	sbx kit sign "${digest_ref}" || die "sbx kit sign failed for ${digest_ref}"
-
-	if sbx kit verify "${digest_ref}" \
+	if ! sbx kit sign "${digest_ref}"; then
+		sign_failed=yes
+		signed=unknown
+		verify_failed=1
+		note "ERROR: sbx kit sign failed for ${digest_ref}; verification skipped"
+	elif sbx kit verify "${digest_ref}" \
 		--certificate-oidc-issuer "${VERIFY_OIDC_ISSUER}" \
 		--certificate-identity-regexp "${VERIFY_IDENTITY_REGEXP}"; then
 		signed=yes
@@ -279,6 +284,7 @@ fi
 	printf 'pushed=%s\n' "${pushed}"
 	printf 'reused=%s\n' "${reused}"
 	printf 'signed=%s\n' "${signed}"
+	printf 'sign_failed=%s\n' "${sign_failed}"
 } >&3
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -299,13 +305,17 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
 		printf '| reference | `%s` |\n' "${version_ref}"
 		printf '| rolling | `%s` |\n' "${repo_ref}:${LATEST_TAG}"
 		printf '| digest | `%s` |\n' "${digest}"
-		printf '| signed | %s |\n\n' "${signed}"
+		printf '| signed | %s |\n' "${signed}"
+		printf '| signing failed | %s |\n\n' "${sign_failed}"
 	} >>"${GITHUB_STEP_SUMMARY}"
 fi
 
-note "${kit}: ${version_ref} -> ${digest} (pushed=${pushed} reused=${reused} signed=${signed})"
+note "${kit}: ${version_ref} -> ${digest} (pushed=${pushed} reused=${reused} signed=${signed} sign_failed=${sign_failed})"
 
 # Deferred to here so the outputs and summary above still record the run.
 if [[ -n "${verify_failed}" ]]; then
+	if [[ "${sign_failed}" == yes ]]; then
+		die "${version_ref} is published but signing failed; verification was skipped"
+	fi
 	die "${version_ref} is published but its signature could not be verified"
 fi
