@@ -32,6 +32,8 @@ Step 2 is a bind mount. Think of it as one folder with two doors. It does not
 survive a restart, so the sandbox redoes it every time it starts. It is safe to
 redo: if the two folders are already the same, the script does nothing.
 
+<!-- cspell:disable -->
+
 ```mermaid
 ---
 config:
@@ -68,6 +70,8 @@ flowchart LR
   style VM fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px
   style HOST fill:#FFFDF7,stroke:#B8860B,stroke-width:1.5px,stroke-dasharray:4 3
 ```
+
+<!-- cspell:enable -->
 
 <br>*The wrapper (amber) creates the sandbox and mounts the host state folder
 (blue) into it. At every start, a script (green) mounts that folder over the
@@ -221,6 +225,8 @@ Any failure after step 1 exits `1`. sbx then does not run the entrypoint, so
 the agent never starts: traces written to an unbound `LINK` live only inside
 the sandbox and die with it.
 
+<!-- cspell:disable -->
+
 ```mermaid
 ---
 config:
@@ -259,6 +265,8 @@ flowchart LR
   class OK0,OK1,OK2 ok
   class ERR1 fail
 ```
+
+<!-- cspell:enable -->
 
 <br>*The same five steps as a flow. Grey diamonds are the two checks; green
 boxes are the work. Blue ends are the good exits: `0` because there is no state

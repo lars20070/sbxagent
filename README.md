@@ -9,6 +9,8 @@
 
 A single script `sbxagent` serves four different commands — `sbxclaude`, `sbxcodex`, `sbxcursor` and `sbxpi` — by dispatching on the name it was invoked as. Each gets its own sandbox and its own credentials, so all four can run against the same project at once.
 
+<!-- cspell:disable -->
+
 ```mermaid
 ---
 config:
@@ -58,6 +60,8 @@ flowchart LR
   style IN fill:none,stroke:none
   style NET fill:none,stroke:none
 ```
+
+<!-- cspell:enable -->
 
 <br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board.*
 
