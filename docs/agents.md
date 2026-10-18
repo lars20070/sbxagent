@@ -96,12 +96,12 @@ by hand from `sbxclaude exec bash` does not inherit it.
 
 The GitHub-hosted server at `https://api.githubcopilot.com/mcp/` is
 deliberately **not** used. That endpoint is a Copilot endpoint and needs a
-fine-grained PAT carrying the **Copilot Requests** permission; a token that
-works fine for `git` and `gh` is rejected there with
-`401 unauthorized: AuthenticateToken authentication failed`
+fine-grained PAT carrying the **Copilot Requests** permission, which `sbx`
+keeps as a separate `copilot` secret
 (see [docker/sbx-releases#231](https://github.com/docker/sbx-releases/issues/231)).
-Running the server locally sidesteps that, because it talks to the ordinary
-REST API at `api.github.com`, which the credential proxy already authenticates.
+Running the server locally is a design choice, not a workaround: it talks to
+the ordinary REST API at `api.github.com`, which the credential proxy already
+authenticates with the `github` secret, so no Copilot PAT is needed.
 
 ### Host setup
 

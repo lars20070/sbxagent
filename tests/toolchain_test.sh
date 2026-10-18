@@ -11,7 +11,7 @@ KIT_NAME="${SANDBOX_ID}"
 KIT_NAME="${KIT_NAME%%-*}"
 [[ -n "${KIT_NAME}" ]] || KIT_NAME="sbxclaude"
 
-EXPECTED_SBX_VERSION="v0.46.0"
+EXPECTED_SBX_VERSION="v0.48.0"
 EXPECTED_RUFF_VERSION="0.16.8"
 EXPECTED_YAMLLINT_VERSION="1.38.0"
 EXPECTED_MARKDOWNLINT_VERSION="0.23.3"
@@ -184,14 +184,13 @@ printf '%s\n' "${INSTEAD_OF}" | grep -Fxq 'ssh://git@github.com/' ||
 	fail "missing insteadOf rewrite for ssh://git@github.com/"
 pass "GitHub SSH remotes rewrite to HTTPS"
 
-# The entrypoint relocates only the agent's native session-trace tree, by
+# The startup step relocates the agent's native session-trace tree, by
 # bind-mounting this sandbox's writable subfolder in the shared project state
 # over the stock path. The stock path itself has to stay a real directory: the
 # parent kit's own volume is mounted there, and the runtime recreates that mount
 # destination on every start, which it cannot do through a symlink. The bind is
-# re-made at every start — by a startup step and again by the entrypoint — so it
-# is expected here even though this test arrives through `sbx exec` rather than
-# an attach.
+# re-made at every start by that startup step, so it is expected here even
+# though this test arrives through `sbx exec` rather than an attach.
 STATE_KEY="${SANDBOX_ID#*-}"
 case "${KIT_NAME}" in
 sbxclaude) TRACE_LINK="${HOME}/.claude/projects"; TRACE_SUBDIR="projects" ;;
@@ -200,7 +199,7 @@ sbxcursor) TRACE_LINK="${HOME}/.cursor/projects"; TRACE_SUBDIR="projects" ;;
 sbxpi) TRACE_LINK="${HOME}/.pi/agent/sessions"; TRACE_SUBDIR="sessions" ;;
 *) fail "unknown kit name ${KIT_NAME}" ;;
 esac
-BIND_HINT="${REBUILD_HINT} — the bind is re-made at every start, not stored on disk, so a missing one means the startup step and the entrypoint both failed to run"
+BIND_HINT="${REBUILD_HINT} — the bind is re-made at every start, not stored on disk, so a missing one means the startup step failed to run"
 [[ -n "${SBXAGENT_STATE_DIR:-}" ]] ||
 	fail "SBXAGENT_STATE_DIR is unset; this sandbox was not created by the wrapper"
 [[ "${SBXAGENT_STATE_DIR}" == */sbxagent/traces/"${STATE_KEY}"/"${KIT_NAME}" ]] ||
