@@ -15,15 +15,29 @@ and this project adheres to
 - `sbx` v0.48.0 is now required, up from v0.46.0.
 - Inside a sandbox, `sbx kit validate` and `sbx kit inspect` need a Docker
   sign-in
-  ([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685)).
-  Use `sbx kit pack` there.
-- OpenRouter setup needs one secret, not two.
-- Trace folders are bound only by each kit's startup step.
+  ([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685),
+  still open as of v0.48.0). `scripts/publish-kit.sh` and every kit's
+  in-sandbox instructions now use `sbx kit pack` as a temporary offline
+  schema check instead.
+- OpenRouter setup needs one secret, not two, now that
+  [docker/sbx-releases#25](https://github.com/docker/sbx-releases/issues/25)
+  is fixed for sandbox-scoped GitHub credentials; `docs/setup.md` no longer
+  tells you to also register a sandbox-scoped custom secret for
+  `OPENROUTER_API_KEY`.
+- Trace folders are bound only by each kit's startup step, now that
+  [docker/sbx-releases#420](https://github.com/docker/sbx-releases/issues/420)
+  is fixed in v0.48.0 (startup steps are replayed after a daemon restart).
+  The duplicate `mount-state.sh` call from each kit's entrypoint is gone.
 
 ### Removed
 
-- The virtiofs cache workaround
-  ([docker/sbx-releases#629](https://github.com/docker/sbx-releases/issues/629)).
+- The virtiofs cache workaround, now that
+  [docker/sbx-releases#629](https://github.com/docker/sbx-releases/issues/629)
+  (virtiofs `link()`/`fsync()`) is fixed in v0.48.0.
+- The `sbx kit sign` GHCR-405 exception in `scripts/publish-kit.sh`, now that
+  [docker/sbx-releases#553](https://github.com/docker/sbx-releases/issues/553)
+  is fixed. A failing `sbx kit sign` now fails the release instead of being
+  logged as an expected `NOTICE` and left to `sbx kit verify` alone.
 
 ## [0.4.10] - 2026-09-29
 
