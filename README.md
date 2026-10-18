@@ -10,6 +10,10 @@
 A single script `sbxagent` serves four different commands — `sbxclaude`, `sbxcodex`, `sbxcursor` and `sbxpi` — by dispatching on the name it was invoked as. Each gets its own sandbox and its own credentials, so all four can run against the same project at once.
 
 ```mermaid
+---
+config:
+  layout: dagre
+---
 flowchart LR
   subgraph IN[" "]
     direction TB

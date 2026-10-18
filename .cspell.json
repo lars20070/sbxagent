@@ -160,6 +160,7 @@
     "subfolders",
     "lseek",
     "ENOTEMPTY",
-    "pipx"
+    "pipx",
+    "dagre"
   ]
 }

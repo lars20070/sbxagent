@@ -33,6 +33,10 @@ survive a restart, so the sandbox redoes it every time it starts. It is safe to
 redo: if the two folders are already the same, the script does nothing.
 
 ```mermaid
+---
+config:
+  layout: dagre
+---
 flowchart LR
   subgraph HOST["your machine"]
     direction TB
@@ -218,6 +222,10 @@ the agent never starts: traces written to an unbound `LINK` live only inside
 the sandbox and die with it.
 
 ```mermaid
+---
+config:
+  layout: dagre
+---
 flowchart LR
   START(["mount-state.sh<br/>LINK SUBDIR"])
   ENV{"SBXAGENT_STATE_DIR<br/>set?"}
