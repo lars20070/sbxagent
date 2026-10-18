@@ -16,6 +16,7 @@ and this project adheres to
   ([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685)).
   Use `sbx kit pack` there.
 - OpenRouter setup needs one secret, not two.
+- Trace folders are bound only by each kit's startup step.
 
 ### Removed
 

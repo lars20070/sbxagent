@@ -42,18 +42,6 @@ sandbox:
       if [ -n "${GH_TOKEN:-}" ]; then
         export GITHUB_TOKEN="$GH_TOKEN"
       fi
-      # Claude Code has no sessions-only configuration override; moving its
-      # config directory would also move settings and credentials.
-      # The bind mount does not survive a stop, so this runs on every boot, and
-      # any failure is fatal: transcripts written to an unbound stock path would
-      # die with the sandbox rather than reach the state folder.
-      mount_state_status=0
-      sh "$HOME/.local/lib/sbxagent/mount-state.sh" "$HOME/.claude/projects" projects ||
-        mount_state_status=$?
-      if [ "${mount_state_status}" -ne 0 ]; then
-        echo "sbxclaude: could not relocate ~/.claude/projects onto the state folder; refusing to start claude" >&2
-        exit "${mount_state_status}"
-      fi
       exec claude "$@"
     - sbxclaude-entrypoint
 # resources:
@@ -458,21 +446,22 @@ setup:
       user: "1000"
       description: mermaid-cli, reusing the Playwright Chromium (SBXAGENT_LITE=false only)
   startup:
-    # The trace bind mount is established here as well as in the entrypoint.
-    # Both call sites are deliberate and neither is sufficient on its own: a
-    # startup step runs on every sandbox start, so it covers `sbx exec` and any
-    # session that never attaches — which the entrypoint, being the agent launch
-    # command, cannot reach. The entrypoint in turn covers the one start where
-    # a startup step is known not to replay: after a daemon restart
-    # (docker/sbx-releases #420, still open as of sbx v0.46.0).
-    # mount-state.sh is idempotent — once bound it exits 0 having touched
-    # nothing — so whichever of the two runs second is a no-op.
+    # This is the only call site for the trace bind mount: a startup step runs
+    # on every sandbox start — including after a daemon restart
+    # (docker/sbx-releases #420, fixed in v0.48.0: startup steps are now
+    # replayed after a restart) — so it covers `sbx exec` and any session that
+    # never attaches. mount-state.sh is idempotent — once bound it exits 0
+    # having touched nothing — so a restart or a repeat start that lands on an
+    # already-bound path is a no-op.
+    #
+    # Claude Code has no sessions-only configuration override; moving its
+    # config directory would also move settings and credentials.
     #
     # HOME is set explicitly because a startup step runs with a minimal
     # environment; the cursor kit's own startup step documents the same trap.
-    # A failure is not swallowed: this step cannot refuse to launch the agent
-    # the way the entrypoint does, but it must not report success while the
-    # trace path is left unbound.
+    # A failure is not swallowed: sbx does not run the entrypoint when a
+    # startup step fails, so the agent never starts while the trace path is
+    # left unbound.
     - command:
         - sh
         - -c

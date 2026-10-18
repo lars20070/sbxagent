@@ -79,8 +79,8 @@ mount_count() {
 		/proc/self/mountinfo
 }
 
-# Runs the helper the way the kit entrypoints do, capturing stderr and the
-# exit status without tripping set -e.
+# Runs the helper the way the kit's startup step does, capturing stderr and
+# the exit status without tripping set -e.
 STDERR=""
 STATUS=0
 run_helper() {
@@ -233,72 +233,14 @@ else
 	pass "a failed copy is fatal before anything is mounted"
 fi
 
-# 8-11. Exercise the actual entrypoint shell blocks from every kit spec. There
-# is no soft failure mode left: any non-zero status from the helper has to stop
-# the agent from starting, because every one of them means traces would
-# otherwise be written somewhere that does not reach the state folder.
-for kit in sbxclaude sbxcodex sbxcursor sbxpi; do
-	SPEC="${ROOT}/kits/${kit}/spec.yaml"
-	ENTRYPOINT="$(awk '
-		$0 == "    - |" { block = 1; next }
-		block && /^    - / { exit }
-		block { sub(/^      /, ""); print }
-	' "${SPEC}")"
-	case "${kit}" in
-	sbxclaude) agent=claude ;;
-	sbxcodex) agent=codex ;;
-	sbxcursor) agent=agent ;;
-	sbxpi) agent=pi ;;
-	*) fail "unknown kit in entrypoint test: ${kit}" ;;
-	esac
-
-	fresh "entrypoint-${kit}"
-	FAKE_HOME="${CASE}/home/agent"
-	FAKE_BIN="${CASE}/bin"
-	AGENT_LOG="${CASE}/agent.log"
-	mkdir -p "${FAKE_HOME}/.local/lib/sbxagent" "${FAKE_BIN}"
-	cat >"${FAKE_HOME}/.local/lib/sbxagent/mount-state.sh" <<'SH'
-#!/bin/sh
-exit "${MOUNT_STATE_TEST_STATUS}"
-SH
-	cat >"${FAKE_BIN}/${agent}" <<'SH'
-#!/bin/sh
-printf '%s\n' "$0" >>"${ENTRYPOINT_AGENT_LOG}"
-SH
-	chmod +x "${FAKE_HOME}/.local/lib/sbxagent/mount-state.sh" "${FAKE_BIN}/${agent}"
-
-	: >"${AGENT_LOG}"
-	MOUNT_STATE_TEST_STATUS=0 ENTRYPOINT_AGENT_LOG="${AGENT_LOG}" HOME="${FAKE_HOME}" \
-		PATH="${FAKE_BIN}:${PATH}" sh -c "${ENTRYPOINT}" "${kit}-entrypoint"
-	[[ -s "${AGENT_LOG}" ]] || fail "${kit} success: agent was not launched"
-
-	: >"${AGENT_LOG}"
-	set +e
-	MOUNT_STATE_TEST_STATUS=1 \
-		ENTRYPOINT_AGENT_LOG="${AGENT_LOG}" HOME="${FAKE_HOME}" \
-		PATH="${FAKE_BIN}:${PATH}" sh -c "${ENTRYPOINT}" "${kit}-entrypoint" \
-		2>"${CASE}/stderr-1"
-	STATUS=$?
-	set -e
-	STDERR="$(<"${CASE}/stderr-1")"
-	assert_eq 1 "${STATUS}" "${kit} status 1: exit status"
-	[[ ! -s "${AGENT_LOG}" ]] ||
-		fail "${kit} status 1: agent was launched anyway"
-	[[ "${STDERR}" == *"refusing to start ${agent}"* ]] ||
-		fail "${kit} status 1: stderr was '${STDERR}'"
-	pass "${kit} entrypoint launches only when the trace path is relocated"
-done
-
-# 12. Both call sites exist in every kit. The bind does not survive a stop, so
-# it has to be re-made on every start, and neither call site alone reaches every
-# start: the entrypoint is the agent launch command, so it never runs for a
-# `sbx exec` session or a sandbox that is started but not attached; the startup
-# step does run per start but is known not to replay after a daemon restart
-# (docker/sbx-releases #420, still open as of sbx v0.46.0).
-# Dropping either one reintroduces a silent hole — traces written to an unbound
-# stock path, with no error, lost when the sandbox goes away — so assert both
-# are present rather than trusting a comment to keep them there.
-fresh "call-sites"
+# 8. Exactly one call site exists in every kit, inside the startup block, and
+# the entrypoint no longer mentions mount-state.sh at all. The bind does not
+# survive a stop, so it has to be re-made on every start; a startup step runs
+# on every start, including after a daemon restart (docker/sbx-releases #420,
+# fixed in v0.48.0: startup steps are now replayed after a restart), so one
+# call site is enough. Assert this rather than trusting a comment to keep it
+# that way.
+fresh "call-site"
 for kit in sbxclaude sbxcodex sbxcursor sbxpi; do
 	SPEC="${ROOT}/kits/${kit}/spec.yaml"
 	# shellcheck disable=SC2016 # $HOME is literal here: these strings are
@@ -312,10 +254,10 @@ for kit in sbxclaude sbxcodex sbxcursor sbxpi; do
 	*) fail "unknown kit in call-site test: ${kit}" ;;
 	esac
 
-	# Exactly two invocations: one per call site. More would mean a duplicate
-	# nobody intended; fewer means one was dropped.
+	# Exactly one invocation in the whole spec. More would mean a duplicate
+	# nobody intended; fewer means it was dropped entirely.
 	CALLS="$(grep -c 'lib/sbxagent/mount-state\.sh' "${SPEC}" || true)"
-	assert_eq 2 "${CALLS}" "${kit}: mount-state.sh invocations in spec.yaml"
+	assert_eq 1 "${CALLS}" "${kit}: mount-state.sh invocations in spec.yaml"
 
 	# The startup block, isolated so a match cannot come from the entrypoint.
 	STARTUP="$(awk '
@@ -325,6 +267,8 @@ for kit in sbxclaude sbxcodex sbxcursor sbxpi; do
 	' "${SPEC}")"
 	[[ -n "${STARTUP}" ]] ||
 		fail "${kit}: spec.yaml has no 'setup: startup:' block"
+	# The one invocation counted above has to be this one, which also proves
+	# the entrypoint does not call it: there is nowhere else left for it to be.
 	[[ "${STARTUP}" == *"lib/sbxagent/mount-state.sh"* ]] ||
 		fail "${kit}: the startup block does not call mount-state.sh"
 	[[ "${STARTUP}" == *"\"${trace_path}\" ${subdir}"* ]] ||
@@ -334,6 +278,6 @@ for kit in sbxclaude sbxcodex sbxcursor sbxpi; do
 	[[ "${STARTUP}" == *'user: "agent"'* ]] ||
 		fail "${kit}: the startup block does not run as the agent user"
 done
-pass "every kit calls mount-state.sh from both the entrypoint and a startup step"
+pass "every kit calls mount-state.sh exactly once, from the startup step"
 
 echo "All ${TESTS} mount-state tests passed."

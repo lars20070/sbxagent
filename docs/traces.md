@@ -213,9 +213,9 @@ user, and:
 5. Runs `sudo -n mount --bind TARGET LINK`. From now on, writing to `LINK`
    writes to `TARGET`, which is the host folder.
 
-Any failure after step 1 exits `1`. The entrypoint then refuses to start the
-agent: traces written to an unbound `LINK` live only inside the sandbox and die
-with it.
+Any failure after step 1 exits `1`. sbx then does not run the entrypoint, so
+the agent never starts: traces written to an unbound `LINK` live only inside
+the sandbox and die with it.
 
 ```mermaid
 flowchart LR
@@ -228,7 +228,7 @@ flowchart LR
   OK0(["exit 0<br/>stock location kept"])
   OK1(["exit 0<br/>nothing to do"])
   OK2(["exit 0<br/>LINK now writes<br/>to the host"])
-  ERR1(["exit 1<br/>entrypoint refuses<br/>to start the agent"])
+  ERR1(["exit 1<br/>sbx skips<br/>the entrypoint"])
 
   START --> ENV
   ENV -->|"no"| OK0
@@ -255,64 +255,21 @@ flowchart LR
 <br>*The same five steps as a flow. Grey diamonds are the two checks; green
 boxes are the work. Blue ends are the good exits: `0` because there is no state
 folder, because the mount is already in place, or because it has just been
-made. Red is the one bad exit: `1` for anything that failed, after which the
-entrypoint will not start the agent.*
+made. Red is the one bad exit: `1` for anything that failed, after which sbx
+will not run the entrypoint and the agent never starts.*
 
-### Two call sites
+### One call site
 
 A bind mount lives in the kernel's mount table, not on disk, so every stop
-drops it. Each kit calls `mount-state.sh` from two places, and needs both:
+drops it. Each kit calls `mount-state.sh` from a single place: a
+`setup.startup` step, which the runtime runs at every start — including after
+a daemon restart (docker/sbx-releases #420, fixed in v0.48.0: startup steps
+are now replayed after a restart). It covers every session, including one
+that never launches the agent, such as `sbxclaude exec bash`.
 
-- A `setup.startup` step, which the runtime runs at every start. It covers
-  sessions that never launch the agent, such as `sbxclaude exec bash`.
-- The `sandbox.entrypoint` wrapper, which runs the script just before
-  `exec claude "$@"` (or `codex`, `cursor-agent`, `pi`). It covers the one
-  start where a startup step is known not to run: after a daemon restart
-  (docker/sbx-releases #420, still open as of sbx v0.46.0).
-
-Whichever runs first does the work. The other hits the match in step 3 and
-exits `0`.
-
-Once docker/sbx-releases #420 is fixed, the startup step alone
-reaches every start, and the entrypoint call goes. The script then runs
-exactly once per boot, so step 3 goes with it — nothing can be bound already —
-and the flow shrinks to this:
-
-```mermaid
-flowchart LR
-  START(["mount-state.sh<br/>LINK SUBDIR"])
-  ENV{"SBXAGENT_STATE_DIR<br/>set?"}
-  MK["mkdir -p<br/>TARGET and LINK"]
-  COPY["copy entries of LINK<br/>missing from TARGET<br/>(host files win)"]
-  BIND["sudo mount --bind<br/>TARGET LINK"]
-  OK0(["exit 0<br/>stock location kept"])
-  OK2(["exit 0<br/>LINK now writes<br/>to the host"])
-  ERR1(["exit 1<br/>startup step fails"])
-
-  START --> ENV
-  ENV -->|"no"| OK0
-  ENV -->|"yes"| MK
-  MK --> COPY
-  COPY --> BIND
-  BIND --> OK2
-  MK -.->|"failed"| ERR1
-  COPY -.->|"failed"| ERR1
-  BIND -.->|"failed"| ERR1
-
-  classDef step  fill:#E8F3EC,stroke:#2E7D4F,stroke-width:2px,color:#0F3D22
-  classDef ask   fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px,color:#2B2F2E
-  classDef ok    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
-  classDef fail  fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
-  class START,MK,COPY,BIND step
-  class ENV ask
-  class OK0,OK2 ok
-  class ERR1 fail
-```
-
-<br>*The same script with one caller. One check, three steps, two good exits.
-The "already bound" diamond and its `stat` probe are gone. So is the
-entrypoint's refusal: with no entrypoint call, a failure surfaces as a failed
-startup step rather than an agent that will not launch.*
+The script stays idempotent even with one caller: a restart, or a session
+that runs after the bind is already up, can land on a path `LINK` is already
+bound to, and step 3's `stat` check turns that into a no-op.
 
 ### Why a bind mount, not a symlink
 

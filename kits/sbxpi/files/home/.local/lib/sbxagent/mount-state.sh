@@ -11,10 +11,9 @@
 # TARGET are the same directory and it exits 0 having touched nothing.
 #
 # No-op without SBXAGENT_STATE_DIR, so a sandbox created by plain `sbx run`
-# keeps the agent's default location. With it set, every failure is fatal and
-# the caller must refuse to start the agent: traces written to an unbound LINK
-# live only inside the sandbox and die with it, and no later boot would find
-# them to migrate.
+# keeps the agent's default location. With it set, every failure is fatal:
+# traces written to an unbound LINK live only inside the sandbox and die with
+# it, and no later boot would find them to migrate.
 set -eu
 [ -n "${SBXAGENT_STATE_DIR:-}" ] || exit 0
 link="$1"

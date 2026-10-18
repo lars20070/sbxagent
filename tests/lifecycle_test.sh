@@ -77,9 +77,10 @@ echo "# kit ${KIT}, disposable sandbox ${SANDBOX}"
 # --- the assumptions, isolated -------------------------------------------
 
 # Run the sandbox's configured entrypoint and let it exit again. Passing the
-# agent's own version flag after `--` means the entrypoint runs in full — trace
-# relocation included — and then the agent prints a line and exits, instead of
-# opening a TUI this test would have to drive.
+# agent's own version flag after `--` starts the agent, which then prints a
+# line and exits, instead of opening a TUI this test would have to drive.
+# Trace relocation is the startup step's job now, not the entrypoint's; this
+# function only confirms the agent still launches.
 run_entrypoint() {
 	sbx run --name "${SANDBOX}" -- --version </dev/null
 }
@@ -131,13 +132,14 @@ same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
 	fail "${STOCK_ABS} is not bound after 'create' alone; the startup call site did not run"
 pass "the startup step binds the stock trace path before any attach"
 
-# 1. The entrypoint runs and the bind exists, seen from a *separate* session
-#    rather than from the process that made it.
+# 1. The bind made by the startup step is still there once the entrypoint has
+#    run, seen from a *separate* session rather than from the process that
+#    made it.
 run_entrypoint >/dev/null || fail "the entrypoint failed on the first start"
-[[ -d "${TARGET}" ]] || fail "the entrypoint did not create ${TARGET} on the host"
+[[ -d "${TARGET}" ]] || fail "the startup step did not create ${TARGET} on the host"
 same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
 	fail "${STOCK_ABS} is not bind-mounted onto ${TARGET} after the first start"
-pass "the entrypoint binds the stock trace path, visible from another session"
+pass "the startup step's bind is still there once the entrypoint has run"
 
 # 2. The bind is real: a write at the stock path inside the sandbox lands in the
 #    state folder on the host, not merely somewhere that exists.
@@ -147,9 +149,10 @@ in_sandbox sh -c "printf 'first\\n' > '${STOCK_ABS}/lifecycle-marker'" ||
 	fail "the marker written in the sandbox did not appear at ${TARGET} on the host"
 pass "a write at the stock path lands in the host state folder"
 
-# 3. Re-running the entrypoint does not stack another mount. Not an assertion
-#    that the depth is one: Claude's stock path also carries its parent kit's
-#    own volume underneath.
+# 3. Each `sbx run` is a fresh start, so re-running the entrypoint re-runs the
+#    startup step too; neither stacks another mount. Not an assertion that the
+#    depth is one: Claude's stock path also carries its parent kit's own
+#    volume underneath.
 BASELINE_DEPTH="$(mount_depth "${STOCK_ABS}")"
 [[ "${BASELINE_DEPTH}" -ge 1 ]] ||
 	fail "${STOCK_ABS} reports no mount at all (depth ${BASELINE_DEPTH})"

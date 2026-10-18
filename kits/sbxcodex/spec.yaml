@@ -47,18 +47,6 @@ sandbox:
         export GITHUB_TOKEN="$GH_TOKEN"
         export GITHUB_PERSONAL_ACCESS_TOKEN="$GH_TOKEN"
       fi
-      # Codex has no sessions-only configuration override; CODEX_HOME would
-      # also move config and credentials.
-      # The bind mount does not survive a stop, so this runs on every boot, and
-      # any failure is fatal: sessions written to an unbound stock path would
-      # die with the sandbox rather than reach the state folder.
-      mount_state_status=0
-      sh "$HOME/.local/lib/sbxagent/mount-state.sh" "$HOME/.codex/sessions" sessions ||
-        mount_state_status=$?
-      if [ "${mount_state_status}" -ne 0 ]; then
-        echo "sbxcodex: could not relocate ~/.codex/sessions onto the state folder; refusing to start codex" >&2
-        exit "${mount_state_status}"
-      fi
       exec codex "$@"
     - sbxcodex-entrypoint
 # resources:
@@ -504,21 +492,22 @@ setup:
       user: "agent"
       description: Register the context7 and github MCP servers
   startup:
-    # The trace bind mount is established here as well as in the entrypoint.
-    # Both call sites are deliberate and neither is sufficient on its own: a
-    # startup step runs on every sandbox start, so it covers `sbx exec` and any
-    # session that never attaches — which the entrypoint, being the agent launch
-    # command, cannot reach. The entrypoint in turn covers the one start where
-    # a startup step is known not to replay: after a daemon restart
-    # (docker/sbx-releases #420, still open as of sbx v0.46.0).
-    # mount-state.sh is idempotent — once bound it exits 0 having touched
-    # nothing — so whichever of the two runs second is a no-op.
+    # This is the only call site for the trace bind mount: a startup step runs
+    # on every sandbox start — including after a daemon restart
+    # (docker/sbx-releases #420, fixed in v0.48.0: startup steps are now
+    # replayed after a restart) — so it covers `sbx exec` and any session that
+    # never attaches. mount-state.sh is idempotent — once bound it exits 0
+    # having touched nothing — so a restart or a repeat start that lands on an
+    # already-bound path is a no-op.
+    #
+    # Codex has no sessions-only configuration override; CODEX_HOME would also
+    # move config and credentials.
     #
     # HOME is set explicitly because a startup step runs with a minimal
     # environment; the cursor kit's own startup step documents the same trap.
-    # A failure is not swallowed: this step cannot refuse to launch the agent
-    # the way the entrypoint does, but it must not report success while the
-    # trace path is left unbound.
+    # A failure is not swallowed: sbx does not run the entrypoint when a
+    # startup step fails, so the agent never starts while the trace path is
+    # left unbound.
     - command:
         - sh
         - -c
