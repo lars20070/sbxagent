@@ -11,11 +11,13 @@ changed yet; every section below ends in a decision for you to make.
 
 ## 0. Summary
 
-Pi crossed a major version. In
-[semantic versioning](#11-semantic-versioning-and-what-10-means) that signals
-breaking changes. The changes that matter for this repo are not the ones Pi
-labels "Breaking": those mostly hit SDK and custom-provider authors. Four
-things matter here.
+Pi reached 1.0 along the way. In
+[semantic versioning](#11-semantic-versioning-and-what-10-means) that is a
+stabilisation milestone, not a breaking change in itself. Incompatibilities
+can come from anywhere in the 0.84.4 → 1.3.0 interval, because 0.x releases
+make no compatibility promise. The changes that matter for this repo are not
+the ones Pi labels "Breaking": those mostly hit SDK and custom-provider
+authors. Four things matter here.
 
 1. **Pi has MCP now** (0.99.0). The repo states in six places that it does
    not, and the kit's whole GitHub story rests on that.
@@ -24,9 +26,11 @@ things matter here.
    `npm install -g` would silently float about 100 transitive packages.
 3. **Session traces gained new record types** (0.86.0, 0.87.0). The
    `read-pi-session-traces` skill would silently undercount cost.
-4. **The network-block guard still works.** Its API is unchanged, and it holds
-   up even against the new codemode path. That was checked in Pi's source,
-   not assumed (see [C2](#c2-the-network-block-guard)).
+4. **The network-block guard still works.** Its API is unchanged, and on the
+   new codemode path it still refuses every tool call after a block. One
+   weaker spot: a script that catches the error can keep the remedy from
+   reaching the model. That was checked in Pi's source, not assumed (see
+   [C2](#c2-the-network-block-guard)).
 
 ### Decision table
 
@@ -34,7 +38,7 @@ things matter here.
 | --- | --- | --- | --- | --- | --- |
 | D1 | What `sbxpi` does with Pi's new MCP support | A: parity, no servers configured · B: add `github-mcp-server` like the siblings · C: disable the built-ins | **A now, B as a follow-up** | A: docs only · B: medium | Low |
 | D2 | Network-block guard extension | A: unchanged, add a live codemode test · B: also return a bash-shaped `structuredContent` · C: widen it to MCP tools | **A** (C only together with D1-B) | Tiny | Medium: B would weaken the guard |
-| D3 | How Pi is installed | A: keep `npm install -g` · B: `curl pi.dev/install.sh \| sh` · C: fetch upstream's per-release lockfile, verify its SHA-256, `npm ci` · D: vendor the lockfile in the repo | **C**, into a root-owned prefix | Medium | Medium: A is unreproducible |
+| D3 | How Pi is installed | A: keep `npm install -g` · B: `curl pi.dev/install.sh \| sh` · C: fetch upstream's per-release lockfile, verify its SHA-256, fill in the seven missing integrity hashes, `npm ci` · D: vendor a completed lockfile in the repo | **C**, into `/opt/pi` (hygiene, not a security boundary) | Medium | Medium: A is unreproducible |
 | D4 | Trace-skill update timing | Same change · follow-up | **Same change** | Medium | Silent cost undercount |
 | D5 | TUI mode (fullscreen is the new default) | Keep fullscreen · pin `tuiMode: "regular"` | **Keep, but check it during the live test** | Tiny | Cosmetic |
 | D6 | Prompt-cache warming (on by default) | Keep `"streaming"` · `"off"` | **Keep** | None | Small cost either way |
@@ -58,11 +62,14 @@ subsection you already know.
 A version `MAJOR.MINOR.PATCH` is a promise about compatibility
 ([semver.org](https://semver.org)). PATCH fixes bugs, MINOR adds features
 without breaking existing users, and MAJOR may break them. Before 1.0 the
-promise is weaker: `0.y.z` means "anything may change". Pi used 0.x for a long
-time and then jumped 0.87 → 0.99 → 1.0 in ten days. The jump marked the
-arrival of MCP and codemode, its biggest functional change. Think of it as a
-phase transition: after it, the observables you measured before (here, "Pi
-has no MCP") no longer hold.
+promise is weaker: `0.y.z` means "anything may change", and 1.0.0 is the
+release that first *defines* the public API. It need not break anything
+itself; Pi's 1.0.0 changelog has no "Breaking Changes" section.
+
+Pi used 0.x for a long time, then jumped 0.87 → 0.99 → 1.0 in ten days. Its
+biggest functional change, MCP and codemode, landed in 0.99.0, *before* 1.0.
+For this upgrade, the whole 0.84.4 → 1.3.0 interval is where
+incompatibilities can come from, not the 1.0 tag in particular.
 
 ### 1.2 Dependency graphs, lockfiles and reproducibility
 
@@ -77,23 +84,29 @@ the date it is run: same procedure, different result.
 
 A **lockfile** (`package-lock.json`, or `npm-shrinkwrap.json` when it ships
 inside a published package) fixes every node of that graph to an exact
-version. Running `npm ci` against it reproduces the same tree byte for byte,
-or fails loudly.
+version and download URL. Running `npm ci` against it installs exactly those
+versions, or fails loudly. "Same versions" is not quite "same bytes", though:
+that additionally needs a content hash for every entry ([§1.3](#13-content-hashes-and-integrity)).
 
 ### 1.3 Content hashes and integrity
 
-Each lockfile entry also carries an `integrity` field such as
+A lockfile entry *may* also carry an `integrity` field such as
 `sha512-/y4/bH9Y…`. That is a cryptographic hash of the package tarball: a
 fixed-length fingerprint, where changing one bit of input changes about half
 the bits of output. Finding a second input with the same fingerprint is
 computationally infeasible. If a registry or a man-in-the-middle swaps the
-tarball, the hash no longer matches and the install aborts.
+tarball, the hash no longer matches and the install aborts. An entry *without*
+`integrity` gets no such check: npm downloads whatever the URL serves.
 
 The kit already uses this pattern for the `sbx` binary (`expected_sha256=…` in
 the spec). [D3](#c3-installation-and-supply-chain) extends it from one file to
-the whole Pi dependency tree. The idea is to hash the lockfile, which itself
-holds the hashes of everything else. That is a two-level hash tree, the same
-idea behind git and Merkle trees.
+the Pi dependency tree. The idea is to hash the lockfile, which itself holds
+the hashes of the packages. That is a two-level hash tree, the same idea
+behind git and Merkle trees.
+
+A hash tree is only as complete as its leaves: a leaf with no hash is
+covered only by its *name*, not by its *content*. Pi's published lockfile has
+seven such leaves (C3). Closing the chain means filling them in.
 
 ### 1.4 Extension hooks (event handlers)
 
@@ -231,21 +244,34 @@ are.
 
 - **A. Parity upgrade (recommended now).** Ship no `~/.pi/agent/mcp.json`, and
   correct the docs to say Pi supports MCP but the kit configures no servers.
-  Behaviour is identical to today unless a *trusted* project brings its own
-  `.pi/mcp.json`. That is the same trust gate that already guards project
+  The kit's *MCP tool exposure* stays as it is today (none) unless a
+  *trusted* project brings its own `.pi/mcp.json`. Other behaviour does
+  change with the upgrade (TUI, traces, cache warming, model list, retries;
+  see C4–C6). The trust gate here is the same one that already guards project
   extensions, which can run arbitrary code anyway. Smallest diff; keeps the
   upgrade reviewable.
 - **B. Add `github-mcp-server`, like the sibling kits (good follow-up).** That
   gives parity with `sbxclaude`/`sbxcodex`/`sbxcursor` and a richer GitHub
-  toolset than `gh`. It means a separate change:
+  toolset than `gh`. It means a separate change, larger than it first
+  looks, because **`sbxpi` has no GitHub credential path today**:
+  - declare the credential. The kit's only `credentials:` entry is
+    `openrouter` (`kits/sbxpi/spec.yaml:157`). The siblings get `GH_TOKEN`
+    from their parent kits' `github` service and re-export it as
+    `GITHUB_TOKEN` / `GITHUB_PERSONAL_ACCESS_TOKEN` in an entrypoint wrapper
+    (`kits/sbxcodex/spec.yaml:40-48`, `kits/sbxcursor/spec.yaml:40-49`).
+    `sbxpi` has no parent, so it would have to declare the `github` service
+    (env var, target host, header) itself, plus an equivalent wrapper.
+    Allowlisting `api.github.com` alone does not inject anything.
   - re-add the SHA-256-pinned binary the siblings install
   - write `~/.pi/agent/mcp.json` with an `env` entry for the token (Pi
-    expands `${GITHUB_TOKEN}` in `env` and `headers`)
+    expands `${GITHUB_TOKEN}` in `env` and `headers`). The variable has to
+    exist first, which is the step above.
   - choose an exposure: `deferred` keeps requests small, `direct` for a
     handful of tools
   - decide on `autoEnableCodemode` (see O1)
   - extend the guard (D2-C)
-  - add tests and update `docs/agents.md`'s MCP table
+  - add tests, including one authenticated read-only GitHub call through
+    the server, and update `docs/agents.md`'s MCP table
 
   It is worth doing separately because it changes what the agent *can do*,
   while the upgrade only changes what it *runs on*.
@@ -298,16 +324,27 @@ not the transcript. Tracing what happens when a nested `curl` hits a block:
 5. If the script does not catch it, the codemode result reads
    `Script failed … Script error: <remedy>`, and the model sees the remedy.
    If the script *does* catch it, every later `tools.*` call in that script
-   hits the armed `tool_call` handler and is refused. The script cannot route
-   around the block either way.
+   hits the armed `tool_call` handler and is refused, so the script cannot
+   route around the block through another tool.
 6. The model's next top-level call (codemode or anything else) is vetoed with
    `terminate: true`, exactly as today.
+
+**Limit of step 5: enforcement holds, visibility does not.** A script can
+catch the exception, make no further tool call and return ordinary output.
+The model then never sees the remedy. The run ends only if the model attempts
+another tool call; if it answers in prose instead, it may simply not mention
+the block. The request itself stays blocked, so the network policy is not
+defeated. What weakens is the guarantee that the block gets *reported*. The
+direct `bash` path has no such gap, because there the remedy *is* the tool
+result the model reads.
 
 #### D2: guard options
 
 - **A. Leave the guard as is; add a live codemode test (recommended).** The
-  behaviour above is what we want: a block turns into a script *exception*,
-  which is hard to ignore. Add one comment to the extension explaining why it
+  behaviour above is the best available: a block turns into a script
+  *exception*, which surfaces unless the script deliberately catches it, and
+  any further tool use is refused either way. Add one comment to the
+  extension explaining why it
   deliberately does not set `structuredContent`, so nobody "fixes" it later.
   Add a manual verification step (see [§5](#5-verification-plan-for-the-upgrade)).
 - **B. Return a bash-shaped `structuredContent`** (`{output: remedy, exit_code: 1, …}`),
@@ -335,6 +372,16 @@ The tamper story is unchanged. The guard is still registered from the
 agent-editable `~/.pi/agent/settings.json`. Pi still has no admin-tier
 settings. A trusted project can still add `-<path>` to `extensions`.
 
+One qualification applies to the tamper story as it stands today, upgrade or
+not. `sudo` is passwordless in this sandbox, and the agent is told so in its
+own instructions (`kits/sbxpi/spec.yaml`, "Sandbox environment"). The guard
+file being root-owned under `/usr/local/lib/sbxagent/` therefore stops
+accidental edits and ordinary unprivileged writes, but not an agent that runs
+`sudo`. [`docs/agents.md:34-35`](docs/agents.md) says the file "can be
+unregistered but not rewritten"; strictly, it cannot be rewritten *without
+sudo*. That is outside this upgrade's scope, but worth knowing when weighing
+D3's root-owned prefix.
+
 ### C3. Installation and supply chain
 
 **Upstream.** Up to 1.0.0 the npm package contained an `npm-shrinkwrap.json`,
@@ -354,8 +401,25 @@ dependency lifecycle scripts".
 **What the managed installer does.** `https://pi.dev/install.sh` downloads two
 files per release from `https://pi.dev/api/installer/releases/<version>/`: a
 `package.json` and a `package-lock.json`. It then installs from the lockfile.
-Probed for 1.3.0: lockfile v3, 120 packages, each with a `sha512` integrity
-hash. The `package.json` also carries `"overrides": {"protobufjs": "7.6.6"}`,
+
+Probed for 1.3.0: lockfile v3, 120 entries under `packages`, which is the
+root entry plus 119 installed packages. Every one has an exact version and a
+`resolved` registry URL. **112 of the 119 have an `integrity` hash; seven do
+not.** The seven are Pi's own packages, all at `1.3.0`:
+
+- `@earendil-works/pi-agent-core`
+- `@earendil-works/pi-ai`
+- `@earendil-works/pi-codemode`
+- `@earendil-works/pi-coding-agent`
+- `@earendil-works/pi-mcp`
+- `@earendil-works/pi-telemetry`
+- `@earendil-works/pi-tui`
+
+npm cannot verify the content of these seven against the lockfile. Their
+`sha512` hashes do exist on the registry (`npm view <pkg>@1.3.0 dist.integrity`
+returns one for each), so the gap can be filled; see D3-C.
+
+The `package.json` also carries `"overrides": {"protobufjs": "7.6.6"}`,
 which a plain `npm install -g` **does not apply**. So the npm route is not
 just unpinned; it can resolve a different `protobufjs` than upstream ships.
 
@@ -380,34 +444,53 @@ out of 120.
      from `pi.dev/api/installer/releases/${PI_VERSION}/`. `pi.dev` is already
      allowlisted.
   2. Compare their SHA-256 digests against values pinned in the spec, exactly
-     like the `sbx` tarball step does.
-  3. `npm ci --ignore-scripts` in a dedicated directory such as `/opt/pi`.
-     `npm ci` refuses to run if the lockfile and `package.json` disagree and
-     verifies every tarball's `integrity`.
-  4. Symlink `/opt/pi/node_modules/.bin/pi` onto `PATH`.
+     like the `sbx` tarball step does. This pins the versions, URLs and
+     override, and the 112 integrity hashes written in the lockfile.
+  3. Fill in the seven missing `integrity` fields from values pinned in the
+     spec, e.g. one `jq` pass over `.packages["node_modules/@earendil-works/<name>"]`.
+     Take the values once from `npm view @earendil-works/<name>@<v> dist.integrity`
+     when bumping. Fail the build if any of the seven entries is missing or
+     already carries a *different* hash.
+  4. `npm ci --ignore-scripts` in a dedicated directory such as `/opt/pi`.
+     `npm ci` refuses to run if the lockfile and `package.json` disagree. With
+     step 3 done, every one of the 119 tarballs has an `integrity` to be
+     checked against. Without step 3, the seven Pi packages would be
+     version-pinned but not content-verified.
+  5. Symlink `/opt/pi/node_modules/.bin/pi` onto `PATH`.
 
-  Bumping Pi then means updating one version and two digests: the same
-  ritual as `sbx`.
+  Bumping Pi then means updating one version, two file digests and seven
+  package hashes: more than for `sbx`, but the same kind of ritual. If seven
+  extra hashes feel excessive, the narrower guarantee of steps 1, 2 and 4 is
+  still far better than A: an exact dependency graph plus Pi's `protobufjs`
+  override, with 112 of 119 packages content-verified.
 
-  **Sub-decision: root-owned prefix.** Installing as root in `/opt/pi`, rather
-  than as user 1000 into npm's global prefix as today, means the agent cannot
-  edit Pi's own code. Today it could, for example, patch out the extension
-  loader, which would defeat the guard more quietly than unregistering it.
-  That fits the guard's existing "root-owned and outside `$HOME`" logic.
-  `pi install` packages still go to the user-owned `~/.pi/agent/npm`, so
-  Context7 is unaffected. **Recommended.** Verify that Pi's Node compile
-  cache (0.86.0) does not try to write inside the install directory; Node's
-  default cache location is the OS temp dir.
-- **D. Vendor the two files** into `kits/sbxpi/files/`. That gives the same
-  reproducibility as C with no build-time fetch from pi.dev. But kit files are
-  copied into the user's home as UID 1000, so the root-owned install would need
-  an extra copy step, and every bump adds a 120-entry lockfile diff to review.
-  A reasonable alternative if you would rather not depend on a pi.dev endpoint
-  that is undocumented (it lives under `/api/installer/`).
+  **Sub-decision: install prefix.** Installing as root in `/opt/pi`, rather
+  than as user 1000 into npm's global prefix as today, is good *hygiene*.
+  It is a conventional system location, and it stops ordinary unprivileged
+  writes such as an accidental `npm install -g` over it. **It is not a
+  security boundary against the agent.** The agent has passwordless `sudo`
+  and is told so, so it can replace anything under `/opt/pi`. Making Pi's
+  code genuinely tamper-proof would need a sandbox-authority change, such as
+  removing passwordless `sudo`, not different file ownership. That would
+  also break workflows the kit advertises. `pi install` packages still go to
+  the user-owned `~/.pi/agent/npm`, so Context7 is unaffected.
+  **Recommended for hygiene.** Verify that Pi's Node compile cache (0.86.0)
+  does not try to write inside the install directory; Node's default cache
+  location is the OS temp dir.
+- **D. Vendor a completed lockfile** (with the seven hashes already filled
+  in) and `package.json` into `kits/sbxpi/files/`. That gives the same
+  integrity as C, with no build-time fetch from pi.dev and no patch step.
+  But kit files are copied into the user's home as UID 1000, so installing
+  into `/opt/pi` needs an extra copy step, and every bump adds a 119-entry
+  lockfile diff to review. A reasonable alternative if you would rather not
+  depend on a pi.dev endpoint that is undocumented (it lives under
+  `/api/installer/`).
 
 **Test impact.** `tests/toolchain_test.sh` should assert `pi --version`
-(already does) and that `pi` resolves to the root-owned install. It should
-also assert no second copy of `@earendil-works/pi-coding-agent` under
+(already does) and that `pi` resolves to the `/opt/pi` install. That install
+should be root-owned, so a plain unprivileged write fails; with sudo
+available, that is a hygiene check, not a tamper check. It should also
+assert no second copy of `@earendil-works/pi-coding-agent` under
 `~/.pi/agent/npm/node_modules`. The Context7 package lists Pi as a peer
 dependency, and Pi suppresses automatic peer installation for managed
 packages
@@ -499,11 +582,26 @@ schemas are permissive enough to catch only type errors. Optional, low value.
 
 **`/share` destination (1.3.0, no decision needed).** `/share` is a *user*
 slash command, not a model tool. Its new `sessionShareDestination` setting
-defaults to `"auto"`: Radius if signed in, otherwise a GitHub gist. In
-`sbxpi`, gist hosts are allowlisted and the proxy injects GitHub credentials,
-so `/share` can publish a transcript to the user's GitHub. That was already
-true in 0.84.4; 1.3.0 only made it configurable. Leave as is, and mention it
-in `docs/agents.md` if you want: transcripts can contain secrets.
+defaults to `"auto"`: Radius if signed in, otherwise a private GitHub gist.
+The gist path first runs `gh auth status` and stops with "GitHub CLI is not
+logged in" if that fails, then runs `gh gist create --public=false`
+([`session-share.ts:79-81,182`](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/src/modes/interactive/session-share.ts)).
+
+In `sbxpi` the gist hosts are allowlisted, but no GitHub credential is
+declared: the only `credentials:` entry is `openrouter`, and nothing sets
+`GH_TOKEN` or `GITHUB_TOKEN`. Allowlisting alone injects nothing. So
+`/share` will normally report that the GitHub CLI is not logged in. Radius
+fails too: it is not signed in, and not allowlisted. That was equally true
+in 0.84.4; 1.3.0 only made the destination configurable.
+
+**No action needed for the upgrade.** If `/share` is *meant* to work, it
+needs the same GitHub credential path as D1-B. It would also need a test
+(`gh auth status` succeeds inside the sandbox) and a note in
+`docs/agents.md` that shared transcripts can contain secrets. A related
+point, outside this upgrade: the kit's instructions tell Pi to "use `git`
+and `gh` via bash for GitHub operations" (`kits/sbxpi/spec.yaml:87-89`), and
+the same missing credential limits what `gh` can do there. Worth one live
+`gh auth status` check during the upgrade test.
 
 **`/bug` (0.86.0, no decision needed).** Uploads redacted diagnostics to
 Radius. Its gateway is not on the allowlist, so uploads fail closed; the
@@ -524,9 +622,14 @@ No change to `models.json` is required. Changes to know about:
 - **The pinned models are still live.** OpenRouter's public API on
   2026-10-19: `qwen/qwen3-coder`, `qwen/qwen3-coder-next`,
   `moonshotai/kimi-k2.6`, `z-ai/glm-5.2` and `deepseek/deepseek-v4-pro` all
-  exist and all have a DeepInfra endpoint. So the `openRouterRouting` pins
-  in `models.json` still resolve. (Several *other* Pi providers dropped Kimi
-  K2.6 in 0.99.0; OpenRouter did not.)
+  exist. The four that `models.json` pins with `only: ["deepinfra"]` (all
+  except `qwen3-coder-next`) each have a DeepInfra endpoint, so those pins
+  still resolve. `qwen/qwen3-coder-next` is served only by Parasail. That is
+  consistent with `models.json`, which *ignores* DeepInfra for that model
+  instead of pinning it, so the ignore rule stays as it is. (Several *other*
+  Pi providers dropped Kimi K2.6 in 0.99.0; OpenRouter did not.) Endpoint
+  availability is live external state, not a property of Pi 1.3.0, which is
+  why the live OpenRouter check in §5 stays.
 - **Clean model switching (1.3.0,
   [#10995](https://github.com/earendil-works/pi/issues/10995)).** Switching
   models mid-session drops the previous model's hidden reasoning instead of
@@ -639,6 +742,10 @@ flag in the README so users can try it.
 
 **O2. GitHub MCP parity.** D1-B above. Suggested shape:
 
+- prerequisite: a GitHub credential path for `sbxpi`. Declare the `github`
+  service and export `GITHUB_TOKEN` from `GH_TOKEN` in an entrypoint wrapper,
+  as the siblings' parent kits and wrappers do. Without it the server has no
+  token.
 - user-level `~/.pi/agent/mcp.json` with `github-mcp-server` over stdio
 - `"exposure": "deferred"`, so its large toolset does not bloat requests,
   with a few read tools such as `get_*` and `search_*` promoted to `direct`
@@ -646,8 +753,11 @@ flag in the README so users can try it.
 - `"autoEnableCodemode": false`, so MCP does not switch codemode on behind
   the user's back
 - guard extended per D2-C
-- a toolchain test asserting `pi mcp list` exits 0, since `pi mcp list`
-  validates the config and connects
+- a toolchain test asserting `pi mcp list` exits 0. That only proves the
+  config parses and the server starts and connects. Add a second test that
+  makes one authenticated, read-only GitHub request through the server,
+  e.g. fetching this repository's metadata, to prove the credential reaches
+  it.
 
 **O3 / D10. Per-model compaction for small local models.** Auto-compaction
 triggers at `contextTokens > contextWindow − reserveTokens`, with defaults
@@ -697,14 +807,17 @@ marked experimental. Watch, don't adopt.
 
 ## 4. Implementation checklist (after decisions)
 
-Recommended options assumed: D1-A, D2-A, D3-C root-owned, D4 same change, D5
-keep, D6 keep, D7 add, D8 no, D9 bump, D10 add.
+Recommended options assumed: D1-A, D2-A, D3-C into `/opt/pi` with the
+integrity backfill, D4 same change, D5 keep, D6 keep, D7 add, D8 no, D9 bump,
+D10 add.
 
 - [ ] `kits/sbxpi/spec.yaml`
-  - `PI_VERSION=1.3.0` and the new install step (D3-C), with digests for
-    `package.json` and `package-lock.json`, `npm ci --ignore-scripts` into
-    `/opt/pi`, and the `pi` symlink. Moving from user 1000 to root changes
-    the step's `user:`.
+  - `PI_VERSION=1.3.0` and the new install step (D3-C). That means SHA-256
+    digests for `package.json` and `package-lock.json`, plus pinned `sha512`
+    values for the seven Pi packages filled into the lockfile, failing on a
+    missing entry or a conflicting existing hash. Then
+    `npm ci --ignore-scripts` into `/opt/pi`, and the `pi` symlink. Moving
+    from user 1000 to root changes the step's `user:`.
   - `CONTEXT7_PI_VERSION=0.1.3`
   - agent instructions line 88: Pi supports MCP; this kit configures no servers
   - comments at lines 119-122 (what pi.dev is contacted for)
@@ -716,8 +829,11 @@ keep, D6 keep, D7 add, D8 no, D9 bump, D10 add.
 - [ ] `tests/toolchain_test.sh`
   - `EXPECTED_PI_VERSION` and `EXPECTED_CONTEXT7_PI_VERSION`
   - reword the comments at 94, 580 and 588
-  - assert `pi` resolves to the root-owned install and is not writable by
-    the agent
+  - assert `pi` resolves to `/opt/pi`, that the install is root-owned, and
+    that an unprivileged write into it fails. Describe this as hygiene: with
+    passwordless `sudo` the agent can still change it.
+  - assert every `packages` entry of the installed lockfile
+    (`/opt/pi/package-lock.json`) has an `integrity` field
   - assert no nested `@earendil-works/pi-coding-agent` under `~/.pi/agent/npm`
   - assert `$schema` and the compaction override
 - [ ] Docs: `README.md:161-163`, `docs/agents.md` (MCP paragraph line 61,
@@ -753,18 +869,35 @@ Manual checks in the new sandbox, once:
 
 1. **Guard, direct path:** ask Pi to `curl https://example.org`. Expect the
    remedy in place of the output, then the run ending at the next call.
-2. **Guard, codemode path:** `pi -t +codemode`, then ask it to fetch the same
-   URL from a codemode script. Expect `Script failed … Script error:` with the
-   remedy, and any further tool call refused. This is the new path C2 reasons
-   about from source; it needs one real observation.
-3. **OpenRouter:** `/model` lists the pinned models (per-key list), and one
+2. **Guard, codemode path, uncaught.** Start `pi -t +codemode` and ask Pi to
+   run exactly this script, not one it writes itself, so the result does not
+   depend on the model's own error handling:
+   `await tools.bash({ command: "curl -sS https://example.org" }); return "done";`.
+   Expect `Script failed … Script error:` followed by the remedy, and the run
+   ending at the model's next tool call.
+3. **Guard, codemode path, caught.** In a fresh prompt, again verbatim:
+   `try { await tools.bash({ command: "curl -sS https://example.org" }); } catch (e) {} return await tools.bash({ command: "echo still-here" });`.
+   Expect the second, harmless `bash` call to be *refused* with the remedy as
+   its reason. That is the armed `tool_call` handler at work. Together with
+   check 2, this covers both halves of C2's argument: the remedy is visible
+   when uncaught, and further tool use is refused when caught. It also shows
+   the limit C2 names: a script that caught the exception and made no further
+   call would have returned quietly.
+4. **OpenRouter:** `/model` lists the pinned models (per-key list), and one
    tool call on each succeeds.
-4. **Ollama** (if enabled on the host): one tool call on `qwen3-coder:30b`.
-5. **TUI:** attach, scroll, select and copy, detach and re-attach (D5).
-6. **Network:** `sbx policy log` on the host shows no new blocked hosts at
+5. **Ollama** (if enabled on the host): one tool call on `qwen3-coder:30b`.
+6. **TUI:** attach, scroll, select and copy, detach and re-attach (D5).
+7. **Network:** `sbx policy log` on the host shows no new blocked hosts at
    startup.
-7. **Traces:** run the trace skill's `inspect` on the session just recorded.
+8. **Traces:** run the trace skill's `inspect` on the session just recorded.
    The `system` messages and any `usage` entries appear and are counted.
+9. **Install integrity (D3-C):** corrupt one of the seven backfilled
+   `integrity` values in a scratch copy of the lockfile and run `npm ci`
+   against it. It must fail with `EINTEGRITY`, which proves the backfilled
+   hashes are actually enforced.
+10. **GitHub CLI:** `gh auth status` inside the sandbox. A failure confirms C5:
+    `/share` to a gist will not work, and `gh` has no credential. That is
+    expected today, but it should be a known state rather than a surprise.
 
 ## 6. Sources
 
@@ -784,7 +917,14 @@ All checked 2026-10-19.
   `src/core/tools/bash.ts` (`bashOutputSchema`).
 - Published schemas: `packages/coding-agent/schemas/{settings,models}.schema.json`
   at `v1.3.0`; the kit's JSON files validated with Python `jsonschema`.
-- npm registry: `npm view @earendil-works/pi-coding-agent@<v> _hasShrinkwrap engines dependencies`.
+- Pi source at `v1.3.0`: `src/modes/interactive/session-share.ts` (the
+  `/share` gist path and its `gh auth status` precheck).
+- npm registry: `npm view @earendil-works/pi-coding-agent@<v> _hasShrinkwrap engines dependencies`,
+  and `npm view @earendil-works/<name>@1.3.0 dist.integrity` for the seven Pi
+  packages whose lockfile entries lack `integrity`.
+- This repo's credential wiring: `kits/sbxpi/spec.yaml` (`credentials:`, only
+  `openrouter`) and the sibling entrypoint wrappers in
+  `kits/sbxcodex/spec.yaml` and `kits/sbxcursor/spec.yaml`.
 - Managed installer: `https://pi.dev/install.sh`,
   `https://pi.dev/api/installer/releases/1.3.0/package.json` and
   `…/package-lock.json`.
