@@ -10,6 +10,17 @@ and this project adheres to
 
 ### Added
 
+- `sbxpi` runs the GitHub MCP server (`github-mcp-server` `1.12.2`, the same
+  SHA-256-pinned binary as the other kits), configured in
+  `~/.pi/agent/mcp.json`. Its tools are deferred: Pi's `tool_search`, now on
+  by default, loads the ones a task needs. `autoEnableCodemode` is off, so MCP
+  does not switch codemode on by itself, but codemode scripts can still call
+  the GitHub tools once you enable it. The network-block guard does not
+  inspect GitHub MCP results.
+- `sbxpi` declares the `github` credential itself, as the other kits inherit
+  it from their parent, so `gh`, `git` over HTTPS and Pi's `/share` are now
+  authenticated. This needs the `github` secret bound before the sandbox is
+  created (see `docs/setup.md`), and so does `make test-toolchain AGENT=pi`.
 - `sbxpi` gives the small local `ollama/qwen2.5-coder:7b` model its own
   compaction budget (`reserveTokens` 4096, `keepRecentTokens` 8192). With
   Pi's defaults, its 32K context window compacted at half full and kept
@@ -28,7 +39,6 @@ and this project adheres to
   `shell-docker` template beneath it, which used to float, so template fixes
   now arrive only with a digest bump. `fd` comes from the image too, as both
   `fd` and `fdfind`.
-- Pi `1.3.0` supports MCP; `sbxpi` still configures no MCP servers.
 - `sbxpi`'s Context7 Pi package is `0.1.3`, up from `0.1.2`.
 - `read-pi-session-traces` reads Pi `1.3.0` traces. `inspect` now counts
   standalone `usage` entries, such as prompt-cache warming, under a new

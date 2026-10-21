@@ -166,9 +166,9 @@ None of this table applies to a sandbox started from a published kit; see [(1) a
 | Claude Code | `sbxclaude` | `CLAUDE.md` | `~/.claude.json` | yes |
 | Codex | `sbxcodex` | `AGENTS.md` | `~/.codex/config.toml` | yes |
 | Cursor | `sbxcursor` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
-| Pi | `sbxpi` | `AGENTS.md` | none | yes |
+| Pi | `sbxpi` | `AGENTS.md` | `~/.pi/agent/mcp.json` | yes |
 
-`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` has no built-in Pi agent to extend, so the kit starts from Docker's own Pi image ([`docker/sbx-kits-contrib`](https://github.com/docker/sbx-kits-contrib/tree/main/pi)), pinned by digest, and installs the rest of the toolchain itself. And it **configures no MCP servers**: Pi supports MCP, but this kit leaves it unused, so it lists no MCP config. Its model and provider settings live in `~/.pi/agent/models.json` and `~/.pi/agent/settings.json` instead.
+`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` has no built-in Pi agent to extend, so the kit starts from Docker's own Pi image ([`docker/sbx-kits-contrib`](https://github.com/docker/sbx-kits-contrib/tree/main/pi)), pinned by digest, and installs the rest of the toolchain itself. And it **declares its own credentials**: an OpenRouter key for its models, and the `github` credential the other kits inherit from their parent. Its model and provider settings live in `~/.pi/agent/models.json` and `~/.pi/agent/settings.json`.
 
 A `yes` means a guard runs, not that it cannot be escaped. [docs/agents.md](docs/agents.md) says how strong each one is, why the four CLIs differ, and what every guard misses.
 

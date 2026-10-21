@@ -22,9 +22,9 @@ sandbox:
   # image is the shell-docker template plus Pi, installed with
   # `npm install -g` as the agent user, `fd-find` with an `fd` link, and the
   # `pi` flavor label that `sbx ls` reports. So, unlike the siblings, there is
-  # still no parent setup to merge with and no token export to wrap — and no
-  # trace relocation for the entrypoint to do either, now that the startup
-  # step below is the only call site for that.
+  # still no parent setup to merge with — and no trace relocation for the
+  # entrypoint to do either, now that the startup step below is the only call
+  # site for that.
   #
   # The tag is rebuilt nightly against Pi's npm `latest`, so it is pinned by
   # its index digest instead. That freezes Pi, the npm dependency tree it
@@ -32,7 +32,29 @@ sandbox:
   # both architectures at once. Template fixes therefore reach this kit only
   # with a new digest; docs/toolchain.md has the check to run before bumping.
   image: "docker.io/sbx/pi-image@sha256:551b1f8494c242068117cff12d45a0ca99230ae5a6581b20a88fe88c35fa218e"
-  entrypoint: [pi]
+  # This wrapper exists only for the token exports below; otherwise it is
+  # `entrypoint: [pi]`.
+  entrypoint:
+    - sh
+    - -c
+    - |
+      set -eu
+      # The `github` MCP server in ~/.pi/agent/mcp.json reads
+      # GITHUB_PERSONAL_ACCESS_TOKEN, which mcp.json sets from
+      # "${GITHUB_TOKEN}"; Pi expands that from this process's environment,
+      # so the variable has to exist before Pi starts. GH_TOKEN here is the
+      # proxy-managed `github` service sentinel declared under credentials:
+      # below, which the credential proxy swaps for the real token on
+      # requests to api.github.com. GITHUB_PERSONAL_ACCESS_TOKEN is exported
+      # too, for anything that expects that name directly.
+      # This only covers the agent session this entrypoint starts; a `pi`
+      # launched by hand from `sbxpi exec bash` does not inherit it.
+      if [ -n "${GH_TOKEN:-}" ]; then
+        export GITHUB_TOKEN="$GH_TOKEN"
+        export GITHUB_PERSONAL_ACCESS_TOKEN="$GH_TOKEN"
+      fi
+      exec pi "$@"
+    - sbxpi-entrypoint
 # resources:
 #   cpu: 8
 #   memory: 24g
@@ -94,9 +116,13 @@ agentInstructions:
     - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`, `tree`
     - Sandbox kits: `sbx`, with the restrictions above
     - Docs: Context7 is installed as a native Pi package, not an MCP server —
-      it registers its own tools directly. Pi supports MCP, but this kit
-      configures no MCP servers yet, so there is no GitHub MCP server either;
-      use `git` and `gh` via bash for GitHub operations instead.
+      it registers its own tools directly.
+    - GitHub: the `github` MCP server is configured, but its tools are
+      deferred, so they are not declared until you load them. Call
+      `tool_search` with what you need (for example "pull request review
+      comments"), then call the `mcp__github__*` tools it loads. `gh`, and
+      `git` over HTTPS, carry the same proxy-managed credential, so use them
+      via bash where they fit better.
 
     Prefer `rg` over recursive `grep`, `ruff` over installing another Python
     linter or formatter, and `uv` over `pip`. Install project dependencies when
@@ -143,9 +169,10 @@ permissions:
       - "playwright.download.prss.microsoft.com:443"
       # The Context7 native Pi package calls its documentation API here.
       - "context7.com:443"
-      # GitHub release downloads (sbx CLI), `gh`, and page assets Playwright
-      # browses. This kit registers no GitHub MCP server, so `gh` over the
-      # proxy is how Pi reaches issues and pull requests.
+      # GitHub release downloads (sbx CLI, github-mcp-server), `gh`, git over
+      # HTTPS, the GitHub MCP server's API calls, and page assets Playwright
+      # browses. The `github` credential below is injected for api.github.com
+      # and github.com; the gist hosts serve Pi's `/share`.
       - "api.github.com:443"
       - "github.com:443"
       - "github.githubassets.com:443"
@@ -173,6 +200,25 @@ credentials:
         - domain: openrouter.ai
           header: Authorization
           format: "Bearer %s"
+  # The siblings inherit the `github` service from their parent kits; sbxpi
+  # has none, so it declares it, in the same shape as Docker's github-clone
+  # mixin (docker/sbx-kits-contrib). GH_TOKEN is the sentinel: a bearer token
+  # on api.github.com (gh, github-mcp-server) and x-access-token basic auth
+  # on github.com (git over HTTPS). `sbx secret set github` on the host binds
+  # it, and only at create time; with nothing bound, SBX_CRED_GITHUB_MODE
+  # reads `none`.
+  - service: github
+    apiKey:
+      name: GH_TOKEN
+      proxyManaged: true
+      inject:
+        - domain: api.github.com
+          header: Authorization
+          format: "Bearer %s"
+        - domain: github.com
+          header: Authorization
+          username: x-access-token
+          format: "%s"
 
 setup:
   install:
@@ -247,6 +293,38 @@ setup:
         install -m 0755 "$tmp/docker-sbx/sbx" /usr/local/bin/sbx
         sbx version
       description: sbx CLI for offline kit commands
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v1.12.2 release assets.
+        case "$arch" in
+          amd64)
+            asset="Linux_x86_64"
+            expected_sha256="95843162759da2c31dde082dd145be35db82164594796c294414b69790c2290e"
+            ;;
+          arm64)
+            asset="Linux_arm64"
+            expected_sha256="2b30f9fcc061b57456cbe38ddc0f13c88863bad49557508a9196f2d1c4cb17a5"
+            ;;
+          *)
+            echo "unsupported architecture for github-mcp-server: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/github/github-mcp-server/releases/download/v1.12.2/github-mcp-server_${asset}.tar.gz" \
+          -o "$tmp/gms.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "github-mcp-server checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/gms.tar.gz" -C "$tmp" github-mcp-server
+        install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
+        github-mcp-server --version
+      description: GitHub MCP server, run locally over stdio
     - command: |
         set -eu
         install -d -m 0755 /usr/local/lib/sbxagent

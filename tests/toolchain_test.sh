@@ -91,12 +91,8 @@ check_tool_version yamllint "${EXPECTED_YAMLLINT_VERSION}" yamllint --version
 check_tool_version markdownlint-cli2 "v${EXPECTED_MARKDOWNLINT_VERSION}" markdownlint-cli2 --version
 check_tool_version cspell "${EXPECTED_CSPELL_VERSION}" cspell --version
 check_tool_version sbx "${EXPECTED_SBX_VERSION}" sbx version
-# sbxpi does not install this: the kit configures no MCP servers, so the binary
-# would never run. The sbxpi block below asserts it is absent.
-if [[ "${KIT_NAME}" != "sbxpi" ]]; then
-	check_tool_version github-mcp-server "${EXPECTED_GITHUB_MCP_VERSION}" \
-		github-mcp-server --version
-fi
+check_tool_version github-mcp-server "${EXPECTED_GITHUB_MCP_VERSION}" \
+	github-mcp-server --version
 
 # Kit-specific files below are written by `setup:`, which only re-runs on a
 # rebuild. A sandbox created before a kit change has none of them, and a bare
@@ -577,10 +573,9 @@ pass "context7 and github are pre-approved, so the TUI does not prompt for them"
 fi # end sbxcursor-only
 
 # ---------------------------------------------------------------------------
-# sbxpi only. Pi has no parent kit, and the kit configures no MCP servers —
-# there is no MCP config file to check here. Its config lives directly under
-# files/home/.pi/agent/ (models.json, settings.json), and GitHub operations go
-# through `git`/`gh` on PATH instead of a registered MCP server.
+# sbxpi only. Pi has no parent kit, so its config lives directly under
+# files/home/.pi/agent/ (models.json, settings.json, mcp.json), and the
+# `github` credential the siblings inherit is declared by the kit itself.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxpi" ]]; then
 
@@ -618,13 +613,7 @@ fi
 	fail "a second Pi is installed under ${NESTED_PI}, pulled in by a Pi package (${REBUILD_HINT})"
 pass "Pi packages pulled in no second copy of Pi"
 
-# The kit configures no MCP servers, so GitHub work goes through the `gh` CLI
-# instead, and the github-mcp-server binary the other kits install is
-# deliberately absent.
 check_tool gh gh --version
-! command -v github-mcp-server >/dev/null 2>&1 ||
-	fail "github-mcp-server is installed but sbxpi never runs it (${REBUILD_HINT})"
-pass "github-mcp-server is not installed"
 
 # Pi's file-search tool downloads `fd` from GitHub releases at first launch
 # unless it finds `fd` or `fdfind` on PATH — unpinned, and network traffic on
@@ -638,6 +627,7 @@ pass "fd and fdfind are preinstalled, so Pi fetches nothing at first launch"
 
 PI_MODELS_JSON="${HOME}/.pi/agent/models.json"
 PI_SETTINGS_JSON="${HOME}/.pi/agent/settings.json"
+PI_MCP_JSON="${HOME}/.pi/agent/mcp.json"
 
 [[ -s "${PI_MODELS_JSON}" ]] || fail "${PI_MODELS_JSON} is missing (${REBUILD_HINT})"
 jq -e . "${PI_MODELS_JSON}" >/dev/null 2>&1 ||
@@ -706,6 +696,39 @@ jq -e '.defaultProvider == "openrouter" and .defaultModel == "qwen/qwen3-coder-n
 	fail "defaultProvider/defaultModel are not set to openrouter/qwen3-coder-next in ${PI_SETTINGS_JSON}"
 pass "settings.json defaults to openrouter / qwen/qwen3-coder-next"
 
+# GitHub MCP tools are deferred: nothing declares them until tool_search loads
+# them, so without it the model could not reach the server at all.
+jq -e '.defaultTools | index("+tool_search") != null' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "settings.json defaultTools does not enable +tool_search in ${PI_SETTINGS_JSON}"
+pass "settings.json enables tool_search for the deferred GitHub MCP tools"
+
+[[ -s "${PI_MCP_JSON}" ]] || fail "${PI_MCP_JSON} is missing (${REBUILD_HINT})"
+jq -e . "${PI_MCP_JSON}" >/dev/null 2>&1 ||
+	fail "${PI_MCP_JSON} is not valid JSON"
+pass "${PI_MCP_JSON} is valid JSON"
+
+[[ -O "${PI_MCP_JSON}" ]] || fail "${PI_MCP_JSON} is not owned by the sandbox user"
+pass "${PI_MCP_JSON} is owned by the sandbox user"
+
+# Without this, Pi switches codemode on by itself whenever a codemode-exposed
+# server connects. Codemode can still reach the deferred tools once a user
+# enables it; this only stops MCP from enabling it behind their back.
+jq -e '.autoEnableCodemode == false' "${PI_MCP_JSON}" >/dev/null ||
+	fail "autoEnableCodemode is not false in ${PI_MCP_JSON}"
+pass "mcp.json keeps MCP from switching codemode on"
+
+# Exact equality, so a toolExposure that promotes tools to direct, or a
+# different token source, fails here too.
+jq -e '.mcpServers.github == {
+		"command": "github-mcp-server",
+		"args": ["stdio"],
+		"env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"},
+		"exposure": "deferred"
+	}' "${PI_MCP_JSON}" >/dev/null ||
+	fail "the github server in ${PI_MCP_JSON} is not the kit's deferred stdio github-mcp-server entry"
+pass "mcp.json runs github-mcp-server over stdio, deferred behind tool_search"
+
 # `pi install` merges this key into the shipped settings.json at build time —
 # the kit does not hand-write it, so this is what proves that step ran and its
 # result survived. Without the entry Pi loads no Context7 tools at all.
@@ -745,6 +768,150 @@ pass "guard extension is registered in settings.json"
 [[ -s "${HOME}/.pi/agent/APPEND_SYSTEM.md" ]] ||
 	fail "APPEND_SYSTEM.md is missing (${REBUILD_HINT})"
 pass "APPEND_SYSTEM.md restates the no-workaround rule"
+
+# The rest needs a real GitHub token behind the proxy. GH_TOKEN is always set
+# to a placeholder in a local sandbox; SBX_CRED_GITHUB_MODE reads `none` when
+# no host secret was bound at create time, and binding one later does not
+# reach an existing sandbox.
+if [[ -z "${GH_TOKEN:-}" || "${SBX_CRED_GITHUB_MODE:-}" == "none" ]]; then
+	fail "no GitHub token was bound when this sandbox was created. See docs/setup.md, run \`echo \"\$(gh auth token)\" | sbx secret set github\` on the host, then \`./scripts/sbxpi rm && ./scripts/sbxpi create\`."
+fi
+pass "a GitHub credential was bound when this sandbox was created"
+
+if ! GH_STATUS="$(gh auth status 2>&1)"; then
+	fail "gh auth status failed, so gh and Pi's /share have no working GitHub credential: ${GH_STATUS}"
+fi
+pass "gh is authenticated through the proxy"
+
+# `sbx exec` skips the entrypoint, so make the same exports it makes. mcp.json
+# expands "${GITHUB_TOKEN}" from this environment.
+export GITHUB_TOKEN="${GH_TOKEN}"
+export GITHUB_PERSONAL_ACCESS_TOKEN="${GH_TOKEN}"
+
+# Exits 1 when a config entry is invalid or an enabled server is not
+# connected; the JSON on stdout carries each server's state and error.
+if ! PI_MCP_LIST="$(pi mcp list --json)"; then
+	fail "pi mcp list failed: ${PI_MCP_LIST}"
+fi
+printf '%s\n' "${PI_MCP_LIST}" |
+	jq -e 'any(.servers[]; .name == "github" and .state == "connected" and (.tools | length) > 0)' \
+		>/dev/null ||
+	fail "pi mcp list does not show github connected with tools: ${PI_MCP_LIST}"
+pass "pi mcp list shows the github server connected, with tools"
+
+# `pi mcp list` proves the server starts and lists tools, which needs no
+# credential. One read-only call proves the proxy authenticates the server's
+# requests: it swaps in the bound token on api.github.com whatever the server
+# sends, so this fails only when no real token is behind the sentinel.
+if ! GITHUB_LOGIN="$(
+	python3 - <<'PY'
+import json
+import queue
+import subprocess
+import sys
+import threading
+import time
+
+deadline = time.monotonic() + 60
+server = subprocess.Popen(
+    ["github-mcp-server", "stdio"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    bufsize=1,
+)
+lines = queue.Queue()
+stderr = []
+
+
+def pump(stream, sink):
+    for line in stream:
+        sink(line)
+    if stream is server.stdout:
+        lines.put(None)
+
+
+threading.Thread(target=pump, args=(server.stdout, lines.put), daemon=True).start()
+threading.Thread(target=pump, args=(server.stderr, stderr.append), daemon=True).start()
+
+
+def fail(message):
+    server.kill()
+    time.sleep(0.2)
+    print(message, file=sys.stderr)
+    tail = "".join(stderr)[-4000:]
+    if tail:
+        print("github-mcp-server stderr:\n" + tail, file=sys.stderr)
+    sys.exit(1)
+
+
+def send(message):
+    server.stdin.write(json.dumps(message) + "\n")
+    server.stdin.flush()
+
+
+def response(request_id):
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            fail(f"no response to request {request_id} within 60 s")
+        try:
+            line = lines.get(timeout=left)
+        except queue.Empty:
+            continue
+        if line is None:
+            fail(f"github-mcp-server exited before answering request {request_id}")
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(message, dict) and message.get("id") == request_id:
+            if "error" in message:
+                fail(f"request {request_id} failed: {message['error']}")
+            return message.get("result") or {}
+
+
+send(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "sbxpi-toolchain-test", "version": "1"},
+        },
+    }
+)
+response(1)
+send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+send(
+    {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "get_me", "arguments": {}},
+    }
+)
+result = response(2)
+if result.get("isError"):
+    fail(f"get_me returned an error: {json.dumps(result)[:2000]}")
+try:
+    me = json.loads(result["content"][0]["text"])
+except (KeyError, IndexError, TypeError, ValueError):
+    fail(f"get_me returned no JSON text: {json.dumps(result)[:2000]}")
+login = me.get("login") if isinstance(me, dict) else None
+if not isinstance(login, str) or not login:
+    fail(f"get_me returned no login: {json.dumps(me)[:2000]}")
+server.stdin.close()
+server.terminate()
+print(login)
+PY
+)"; then
+	fail "github-mcp-server could not make an authenticated GitHub request (see above)"
+fi
+pass "github-mcp-server reaches GitHub authenticated, as ${GITHUB_LOGIN}"
 
 fi # end sbxpi-only
 

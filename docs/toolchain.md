@@ -51,9 +51,10 @@ organisation policy needs IT, because the user cannot lift it. See
 
 The agent itself runs with approvals bypassed on `sbxclaude`, `sbxcodex` and
 `sbxcursor`. Context7 and GitHub MCP servers are registered whatever the
-project's own MCP config says — except on `sbxpi`. Pi supports MCP, but that
-kit configures no MCP servers: Context7 ships as a native Pi package, and
-GitHub work goes through `git` and `gh`.
+project's own MCP config says — except on `sbxpi`. There Context7 ships as a
+native Pi package rather than an MCP server, and the GitHub MCP server, next
+to `gh`, is registered in `~/.pi/agent/mcp.json`, which a trusted project's
+`.pi/mcp.json` can override.
 
 Each kit spec lives in `kits/<command>/spec.yaml`. `scripts/sbxagent` wraps the
 `sbx` CLI and builds, or re-attaches to, one sandbox per project, named
@@ -82,7 +83,7 @@ package.
 | `playwright` (+ Chromium) | `kits/*/spec.yaml` | `1.63.0` |
 | `mermaid-cli` (`mmdc`) | `kits/*/spec.yaml` | `11.17.0` |
 | Context7 MCP | `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `kits/*/` MCP configs | `4.1.1` |
-| `github-mcp-server` | `kits/*/spec.yaml`, except `sbxpi` | `1.12.2` (SHA-256 verified) |
+| `github-mcp-server` | `kits/*/spec.yaml` | `1.12.2` (SHA-256 verified) |
 | `@earendil-works/pi-coding-agent` | `kits/sbxpi/spec.yaml`, as the `docker.io/sbx/pi-image` digest in `sandbox.image` | `1.3.0` |
 | `@upstash/context7-pi` | `kits/sbxpi/spec.yaml` | `0.1.3` |
 | `esbuild` (TypeScript lint) | `Makefile` | `0.28.2`, fetched via `npx` |
