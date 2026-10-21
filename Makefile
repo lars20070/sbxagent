@@ -131,7 +131,7 @@ validate:
 	./scripts/sbxcodex kit validate
 	./scripts/sbxcursor kit validate
 	./scripts/sbxpi kit validate
-	sbx kit validate mixins/open-network
+	sbx kit validate --offline mixins/open-network
 
 # Rehearse the release publish path for every kit: stage a tracked-files-only
 # copy, validate and inspect it, and print what would be pushed. No network, no

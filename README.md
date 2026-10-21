@@ -113,7 +113,7 @@ sbxcodex exec bash
 
 You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with KVM available. Docker Desktop is not required. Install the `sbx` CLI and sign in.
 
-> **sbx v0.48.0 is required.** sbx is experimental. A later version may break `sbxagent`.
+> **sbx v0.49.1 is required.** sbx is experimental. A later version may break `sbxagent`.
 
 [macOS:](https://docs.docker.com/ai/sandboxes/install/#install-on-macos)
 
@@ -147,7 +147,7 @@ All four commands take the same signatures. `sbx<agent>` below is any of `sbxcla
 | `sbx<agent> inspect` | Show the sandbox's state |
 | `sbx<agent> policy log` | Show the sandbox policy log |
 | `sbx<agent> policy check HOST` | Check sandbox network access to `HOST` |
-| `sbx<agent> kit validate` | Check the kit against the current schema |
+| `sbx<agent> kit validate` | Check the kit against the current schema (offline) |
 | `sbx<agent> help` | Show usage |
 
 The wrapper accepts only these signatures. It does not forward prompts or agent flags. Use `sbx` and the name directly for anything outside the table. For example:

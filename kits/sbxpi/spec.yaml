@@ -86,11 +86,9 @@ agentInstructions:
     only way forward, so do it first rather than spending the one call you have
     left on a workaround.
 
-    The in-sandbox `sbx` runs only `sbx version` and `sbx kit pack`.
-    `sbx kit validate` and `sbx kit inspect` need a Docker sign-in the
-    sandbox does not have (docker/sbx-releases#685): check a kit here with
-    `sbx kit pack <kit> --output <file>.zip`, and ask the user to run
-    `validate` or `inspect` on the host. All sandbox management commands,
+    The in-sandbox `sbx` runs only daemon-free commands. Check a kit here
+    with `sbx kit validate --offline <kit>` and
+    `sbx kit inspect --offline <kit>`. All sandbox management commands,
     including `run`, `create`, `rm`, `exec`, `inspect`, and `policy`, require
     the host CLI and `sandboxd`; ask the user to run them on the host.
 
@@ -266,13 +264,13 @@ setup:
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.48.0 release assets.
+        # Digests of the v0.49.1 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="609a2e4b881ba9a7fd21543077e53d3b863a6b99eebee1f208e51a097ab56a05"
+            expected_sha256="4f2aa3dc6404e3700925e6baeda72ca26d8a36768d2bfe8056f1e8ecdfd4540e"
             ;;
           arm64)
-            expected_sha256="83eb3a2cdebf28b1b8e3e8f5d8e964c60d8bb8323c52447ac947864fdca0fd15"
+            expected_sha256="3a3feaf4832ffc070c76e5eddd99fb32aa29a9e686ae9c8ac8117c9ecd49920e"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -282,7 +280,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.48.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.49.1/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then

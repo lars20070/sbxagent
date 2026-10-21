@@ -100,14 +100,7 @@ jobs:
   # Static check — no Docker or login; only the CLI download needs the
   # network. Install steps mirror docker/sbx-kits-contrib's
   # .github/workflows/e2e.yml.
-  #
-  # Switched off: since sbx v0.47.0, `sbx kit validate` needs a running
-  # daemon and `sbx login`, which this job has neither of
-  # (https://github.com/docker/sbx-releases/issues/685). The fix, an
-  # `--offline` flag, is in v0.49.0-rc3 but not in a stable release yet.
-  # Re-enable once `latest` ships it and `make validate` passes `--offline`.
   validate:
-    if: false
     strategy:
       fail-fast: false
       matrix:

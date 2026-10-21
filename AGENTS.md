@@ -55,13 +55,9 @@ Unknown-but-correct words go in `.cspell.json`.
 ## Critical Requirement
 
 Before finishing any task that touches any `kits/*/spec.yaml` or `kits/*/files/`,
-run `make validate` — it validates every kit against the schema. Until sbx
-ships `kit validate --offline`
-([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685)),
-it needs a host with `sbx login`, so ask the user to run it there. Inside a
-sandbox, run `sbx kit pack <kit> --output <scratch>.zip` on every changed kit
-instead; it is an offline schema check, but it does not print `validate`'s
-warnings. The CI `validate` job is switched off for the same reason.
+run `make validate` — it validates every kit, and it's a static schema
+check with no Docker, no `sbx login`, and no network, so there's no reason to
+skip it.
 
 Before finishing any task that touches `scripts/sbxagent` or any other shell
 script, run `make lint` — it runs `shellcheck` and `bash -n` over every tracked
@@ -128,10 +124,8 @@ Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which publishes
 every kit to `ghcr.io/lars20070/<kit>:X.Y.Z`, re-points `latest` at the same
 digest, and creates the GitHub Release. There is no other publish trigger.
 
-- Rehearse with `make publish-dry-run` first. It stages each kit, checks it
-  with `sbx kit pack` (the offline stand-in for `kit validate` until
-  docker/sbx-releases#685 ships) and prints what would be pushed, without a
-  registry or credentials.
+- Rehearse with `make publish-dry-run` first. It stages, validates and inspects
+  each kit and prints what would be pushed, without a registry or credentials.
 - **The `CHANGELOG.md` section must have a body, not just a heading.** The
   Release notes are that section (`scripts/release-notes.sh`), and `verify`
   runs the same script before anything is published, so a version cut with

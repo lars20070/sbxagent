@@ -47,6 +47,15 @@ and this project adheres to
   under `nestedTools`, apart from direct calls. `show` lists system messages
   by section and tool names only, never their prompt text, and marks an entry
   that a later `context_edit` hides or replaces.
+- `sbx` v0.49.1 is now required, up from v0.48.0.
+- `sbx<agent> kit validate` and the check before a new sandbox starts now run
+  `sbx kit validate --offline`, so they no longer need `sbx login` or a
+  running daemon
+  ([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685),
+  fixed in v0.49.1). Inside a sandbox, `make validate`,
+  `sbx kit validate --offline` and `sbx kit inspect --offline` work again.
+  `scripts/publish-kit.sh` validates and inspects each kit again instead of
+  using `sbx kit pack`.
 
 ## [0.4.11] - 2026-10-18
 
