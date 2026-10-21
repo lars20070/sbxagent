@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.12] - 2026-10-21
+
 ### Added
 
 - `sbxpi` runs the GitHub MCP server (`github-mcp-server` `1.12.2`, the same
