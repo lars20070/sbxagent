@@ -163,6 +163,7 @@
     "subfolders",
     "lseek",
     "ENOTEMPTY",
-    "pipx"
+    "pipx",
+    "codemode"
   ]
 }

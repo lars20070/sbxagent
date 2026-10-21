@@ -8,6 +8,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `read-pi-session-traces` reads Pi `1.3.0` traces. `inspect` now counts
+  standalone `usage` entries, such as prompt-cache warming, under a new
+  `auxiliary` source and in a new `usage.total`; before, that spend was
+  silently left out. It also counts a codemode script's inner tool calls
+  under `nestedTools`, apart from direct calls. `show` lists system messages
+  by section and tool names only, never their prompt text, and marks an entry
+  that a later `context_edit` hides or replaces.
+
 ## [0.4.11] - 2026-10-18
 
 ### Changed
