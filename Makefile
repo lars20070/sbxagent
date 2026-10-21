@@ -37,7 +37,7 @@ NO_SKILLS := ':(exclude,glob)**/skills/**'
 # every kit heredoc that ships them, and that VERSION, every kits/*/spec.yaml
 # version, and CHANGELOG's latest release all agree.
 lint:
-	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' $(NO_SKILLS) | xargs -0 $(MARKDOWNLINT)
+	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' ':!tmp/*' $(NO_SKILLS) | xargs -0 $(MARKDOWNLINT)
 	git ls-files -z -- '*.json' | xargs -0 -n1 jq empty
 	git ls-files -z -- '*.jq' | xargs -0 -n1 sh -c 'jq -n -f "$$1" >/dev/null' --
 	git ls-files -z -- '*.ts' | xargs -0 -n1 sh -c '$(ESBUILD) --loader=ts --log-level=warning <"$$1" >/dev/null' --
@@ -46,7 +46,7 @@ lint:
 	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 -n1 bash -n
 	find .claude/skills/read-pi-session-traces -name '*.py' -print0 | xargs -0 $(RUFF) check --target-version py39
 	find .claude/skills/read-pi-session-traces -name '*.py' -print0 | xargs -0 $(RUFF) format --check --target-version py39
-	git ls-files -z -- ':!.claude/plans/*' ':!.cursor/plans/*' $(NO_SKILLS) | xargs -0 $(CSPELL) --no-progress
+	git ls-files -z -- ':!.claude/plans/*' ':!.cursor/plans/*' ':!tmp/*' $(NO_SKILLS) | xargs -0 $(CSPELL) --no-progress
 	for kit in kits/*/; do \
 		dir="$${kit%/}"; name="$$(basename "$$dir")"; \
 		grep -qx "name: $$name" "$$dir/spec.yaml" || { \
@@ -131,7 +131,7 @@ validate:
 	./scripts/sbxcodex kit validate
 	./scripts/sbxcursor kit validate
 	./scripts/sbxpi kit validate
-	sbx kit validate mixins/open-network
+	sbx kit validate --offline mixins/open-network
 
 # Rehearse the release publish path for every kit: stage a tracked-files-only
 # copy, validate and inspect it, and print what would be pushed. No network, no

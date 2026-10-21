@@ -1,6 +1,9 @@
 {
   "version": "0.2",
   "language": "en",
+  "ignorePaths": [
+    "tmp/**"
+  ],
   "words": [
     "okf",
     "frontmatter",
@@ -160,6 +163,10 @@
     "subfolders",
     "lseek",
     "ENOTEMPTY",
-    "pipx"
+    "pipx",
+    "codemode",
+    "buildx",
+    "Popen",
+    "isinstance"
   ]
 }

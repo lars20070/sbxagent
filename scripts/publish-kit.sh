@@ -72,8 +72,9 @@ require() {
 # fd 3 carries machine-readable key=value output for $GITHUB_OUTPUT. CI opens
 # it (3>>"$GITHUB_OUTPUT"); when it is closed, fall back to the real stdout so a
 # local run still prints the values. Everything else is redirected to stderr, so
-# that `sbx kit pack`'s output and oras's chatter can never land in
-# $GITHUB_OUTPUT and fail the step with "Invalid format".
+# that `sbx kit validate`'s result line, `sbx kit inspect`'s report and
+# oras's chatter can never land in $GITHUB_OUTPUT and fail the step with
+# "Invalid format".
 if ! { : >&3; } 2>/dev/null; then
 	exec 3>&1
 fi
@@ -125,10 +126,10 @@ staged="${stage}/kits/${kit}"
 [[ -f "${staged}/spec.yaml" ]] ||
 	die "kits/${kit} is not committed at HEAD, so nothing was staged"
 
-# Check the kit before the dry-run exit, so a dry run still catches a broken
-# kit. `sbx kit pack` is the offline schema check until sbx ships
-# `kit validate --offline` (docker/sbx-releases#685).
-sbx kit pack "${staged}" --output "${stage}/${kit}.zip"
+# Validate and inspect before the dry-run exit, so a dry run still catches a
+# broken kit and still shows exactly what would ship.
+sbx kit validate --offline "${staged}"
+sbx kit inspect --offline "${staged}"
 
 # Same extraction the Makefile's version-agreement check uses. `make lint`
 # checks this repo-wide; repeating it per kit keeps the script safe to run on

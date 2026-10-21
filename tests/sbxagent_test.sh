@@ -276,7 +276,7 @@ MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${NAME_A#*-}"
 # and this agent's subfolder read-write.
 clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_A}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
 	"${CLAUDE_KIT}" "${SANDBOX}" "${PROJECT_DIR}/sbxclaude" \
 	"${CLAUDE_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxclaude")" "new sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "new attach passed --"
@@ -328,7 +328,7 @@ assert_eq "700" "$(file_mode "${MESSAGEBOARD_DIR}")" "messageboard folder mode"
 
 clear_log
 run_claude "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s' "${CLAUDE_KIT}")" "kit validate"
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CLAUDE_KIT}")" "kit validate"
 
 clear_log
 run_claude "${WORK_A}" policy log >/dev/null
@@ -399,7 +399,7 @@ assert_eq "sbxcodex ${EXPECTED_VERSION}" "${CODEX_VERSION_OUT}" "codex version o
 CODEX_KIT="${ROOT}/kits/sbxcodex"
 clear_log
 run_codex "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s' "${CODEX_KIT}")" "codex kit path"
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CODEX_KIT}")" "codex kit path"
 
 clear_log
 run_codex "${WORK_A}" create >/dev/null
@@ -450,7 +450,7 @@ assert_eq "sbxcursor ${EXPECTED_VERSION}" "${CURSOR_VERSION_OUT}" "cursor versio
 CURSOR_KIT="${ROOT}/kits/sbxcursor"
 clear_log
 run_cursor "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s' "${CURSOR_KIT}")" "cursor kit path"
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CURSOR_KIT}")" "cursor kit path"
 
 clear_log
 run_cursor "${WORK_A}" create >/dev/null
@@ -487,7 +487,7 @@ assert_eq "sbxpi ${EXPECTED_VERSION}" "${PI_VERSION_OUT}" "pi version output"
 PI_KIT="${ROOT}/kits/sbxpi"
 clear_log
 run_pi "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s' "${PI_KIT}")" "pi kit path"
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${PI_KIT}")" "pi kit path"
 
 clear_log
 run_pi "${WORK_A}" create >/dev/null
@@ -550,7 +550,7 @@ assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\t
 
 clear_log
 CROSS_SANDBOX_VISIBILITY=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
 	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "attach without visibility"
 
 BEFORE="$(ls "${STATE_ROOT}")"
@@ -586,7 +586,7 @@ assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\t
 	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create with NETWORK_ALLOWLIST=false"
 clear_log
 NETWORK_ALLOWLIST=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s\t%s' \
 	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" \
 	"${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "new sandbox attach with NETWORK_ALLOWLIST=false"
 NETWORK_ALLOWLIST=bogus reject_without_call "${WORK_B}" create
@@ -666,7 +666,7 @@ mkdir -p "${LINK_BIN}" "${LINK_BIN2}"
 ln -s "${CLAUDE_SCRIPT}" "${LINK_BIN}/sbxclaude"
 (cd "${LINK_BIN2}" && ln -s ../bin-link/sbxclaude sbxclaude)
 (cd "${WORK_B}" && "${LINK_BIN2}/sbxclaude" kit validate >/dev/null)
-assert_log "$(printf 'kit\tvalidate\t%s' "${CLAUDE_KIT}")" "kit path via symlinked wrapper"
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CLAUDE_KIT}")" "kit path via symlinked wrapper"
 pass "a symlinked wrapper still resolves the repo kit"
 
 # `help` is deliberately not exempt: in this state the refusal message is the

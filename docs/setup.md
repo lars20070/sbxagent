@@ -18,12 +18,17 @@ rewrites `git@github.com:` and `ssh://git@github.com/` remotes to
 `https://github.com/` for the sandbox user only, so `git fetch` works without
 changing the host checkout's remote URL.
 
-Public repositories need no extra setup. For private repositories, store a
-GitHub token on the host so the credential proxy can inject it:
+Public Git operations need no token. Store a GitHub token on the host so the
+credential proxy can inject it for private repositories — and, on `sbxpi`, for
+the GitHub MCP server, an authenticated `gh` and Pi's `/share`:
 
 ```bash
 echo "$(gh auth token)" | sbx secret set github
 ```
+
+`make test-toolchain AGENT=pi` needs it too. A sandbox picks the secret up only
+when it is created, so set it before creating the sandbox, or recreate the
+sandbox afterwards with `./scripts/sbxpi rm` and `./scripts/sbxpi create`.
 
 ## Environment variables
 

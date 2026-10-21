@@ -32,7 +32,7 @@
  * block and `make lint` keeps every copy of it in sync.
  *
  * Two phases, because a tool_result handler cannot end a run: it may only
- * patch content, details, isError and usage.
+ * patch content, details, isError, usage and structuredContent.
  *   1. tool_result — replace the blocked tool's output with the remedy.
  *   2. tool_call   — refuse every later call and terminate the run.
  * The net effect matches sbxclaude's hard stop, one beat later.
@@ -126,6 +126,11 @@ export default function (pi: ExtensionAPI) {
     const stop = verdict(event);
     if (!stop) return;
     blocked = stop;
+    // structuredContent is left out on purpose. Replacing content without it
+    // makes Pi drop bash's own structuredContent, so codemode throws
+    // Error(remedy) into a script that called tools.bash(). A bash-shaped
+    // value here would resolve normally instead, and the script could ignore
+    // its exit code.
     return { content: [{ type: "text", text: stop }], isError: true };
   });
 

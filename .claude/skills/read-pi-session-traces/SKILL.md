@@ -12,7 +12,7 @@ it whole. The command streams records, projects only allowlisted fields, clips
 large fields, and caps total output at 20,000 characters unless `--unlimited`
 is explicit.
 
-This skill is pinned to Pi `0.84.4`, the version installed by `sbxpi`. Unknown
+This skill is pinned to Pi `1.3.0`, the version installed by `sbxpi`. Unknown
 entry, role, and block types are metadata only. Read
 [`references/schema.md`](references/schema.md) when field-level interpretation
 matters or the repository's Pi pin changes.
@@ -84,7 +84,7 @@ There are no generated continuation commands. Calculate them from counts:
   `--before 0 --after N`. That id prints again, as the new anchor. Add
   `--leaf ID` when preserving a non-default branch matters.
 
-## Pi 0.84.4 traps
+## Pi 1.3.0 traps
 
 - The header is not a tree node. A session may have several leaves, plus
   cycles, orphans, or duplicate ids in malformed files.
@@ -93,13 +93,22 @@ There are no generated continuation commands. Calculate them from counts:
 - Thinking text is hidden and unsearched unless `--thinking` is passed.
 - Tool `details` are opaque metadata. A recorded `fullOutputPath` is reported
   but never opened.
-- Assistant messages, tool results, compactions, and branch summaries are the
-  Pi 0.84.4 usage carriers. `inspect` reports sums by source and model. Unknown
+- Assistant messages, tool results, compactions, branch summaries, and
+  standalone `usage` entries (such as cache warming) are the Pi 1.3.0 usage
+  carriers. `inspect` reports a total plus sums by source and model. Unknown
   future entries are not counted as usage.
+- System messages carry the prompt and tool loadout. Only section names and
+  added or removed tool names are shown; prompt text is never printed or
+  searched.
+- A codemode tool result records its inner calls in `nestedCalls`. `inspect`
+  counts them under `nestedTools`, apart from direct `tools`.
 - A fork copies its parent's history, so its recorded usage includes copied
   history. Call the result a "sum of recorded usage", not total cost.
 - Compaction replaces earlier model context; a branch summary adds a summary
-  while retaining ancestors. `show` annotates both on the selected path.
+  while retaining ancestors. A `context_edit` hides or replaces one earlier
+  entry in later model context only; raw history is unchanged and the
+  replacement is never shown. `show` annotates all three on the selected
+  path.
 
 ## Reporting and security
 

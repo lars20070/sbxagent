@@ -9,7 +9,13 @@
 
 A single script `sbxagent` serves four different commands — `sbxclaude`, `sbxcodex`, `sbxcursor` and `sbxpi` — by dispatching on the name it was invoked as. Each gets its own sandbox and its own credentials, so all four can run against the same project at once.
 
+<!-- cspell:disable -->
+
 ```mermaid
+---
+config:
+  layout: dagre
+---
 flowchart LR
   subgraph IN[" "]
     direction TB
@@ -54,6 +60,8 @@ flowchart LR
   style IN fill:none,stroke:none
   style NET fill:none,stroke:none
 ```
+
+<!-- cspell:enable -->
 
 <br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board.*
 
@@ -105,7 +113,7 @@ sbxcodex exec bash
 
 You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with KVM available. Docker Desktop is not required. Install the `sbx` CLI and sign in.
 
-> **sbx v0.48.0 is required.** sbx is experimental. A later version may break `sbxagent`.
+> **sbx v0.49.1 is required.** sbx is experimental. A later version may break `sbxagent`.
 
 [macOS:](https://docs.docker.com/ai/sandboxes/install/#install-on-macos)
 
@@ -139,7 +147,7 @@ All four commands take the same signatures. `sbx<agent>` below is any of `sbxcla
 | `sbx<agent> inspect` | Show the sandbox's state |
 | `sbx<agent> policy log` | Show the sandbox policy log |
 | `sbx<agent> policy check HOST` | Check sandbox network access to `HOST` |
-| `sbx<agent> kit validate` | Check the kit against the current schema |
+| `sbx<agent> kit validate` | Check the kit against the current schema (offline) |
 | `sbx<agent> help` | Show usage |
 
 The wrapper accepts only these signatures. It does not forward prompts or agent flags. Use `sbx` and the name directly for anything outside the table. For example:
@@ -158,9 +166,9 @@ None of this table applies to a sandbox started from a published kit; see [(1) a
 | Claude Code | `sbxclaude` | `CLAUDE.md` | `~/.claude.json` | yes |
 | Codex | `sbxcodex` | `AGENTS.md` | `~/.codex/config.toml` | yes |
 | Cursor | `sbxcursor` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
-| Pi | `sbxpi` | `AGENTS.md` | none | yes |
+| Pi | `sbxpi` | `AGENTS.md` | `~/.pi/agent/mcp.json` | yes |
 
-`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` ships no Pi agent, so the kit builds on the bare `shell-docker` template and installs everything itself. And Pi has **no MCP support at all**, so the kit lists no MCP config; its model and provider settings live in `~/.pi/agent/models.json` and `~/.pi/agent/settings.json` instead.
+`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` has no built-in Pi agent to extend, so the kit starts from Docker's own Pi image ([`docker/sbx-kits-contrib`](https://github.com/docker/sbx-kits-contrib/tree/main/pi)), pinned by digest, and installs the rest of the toolchain itself. And it **declares its own credentials**: an OpenRouter key for its models, and the `github` credential the other kits inherit from their parent. Its model and provider settings live in `~/.pi/agent/models.json` and `~/.pi/agent/settings.json`.
 
 A `yes` means a guard runs, not that it cannot be escaped. [docs/agents.md](docs/agents.md) says how strong each one is, why the four CLIs differ, and what every guard misses.
 

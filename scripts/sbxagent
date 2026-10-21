@@ -248,7 +248,7 @@ case "${1:-}" in
 	if sbx inspect "${SANDBOX}" >/dev/null 2>&1; then
 		exec sbx run --name "${SANDBOX}"
 	fi
-	sbx kit validate "${KIT}" >/dev/null
+	sbx kit validate --offline "${KIT}" >/dev/null
 	compute_state_mounts
 	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"} "${AGENT_DIR}"
 	;;
@@ -301,7 +301,7 @@ kit)
 		shift
 		no_args "kit validate" "$@"
 		require_sbx
-		exec sbx kit validate "${KIT}"
+		exec sbx kit validate --offline "${KIT}"
 		;;
 	"") die "'kit' requires a subcommand: validate" ;;
 	*) die "unknown kit command: $1" ;;

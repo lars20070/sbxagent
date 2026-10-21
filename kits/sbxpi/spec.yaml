@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxpi
-version: "0.4.11"
+version: "0.4.12"
 displayName: Pi with custom toolchain
 description: Pi with custom toolchain
 
@@ -15,14 +15,46 @@ args:
     description: Skip Playwright, Chromium, mermaid-cli and XeTeX
 
 sandbox:
-  # No `extends:` — Pi has no parent kit (only claude, codex, copilot, cursor,
-  # gemini, kiro, opencode are valid `extends:` values). Built on the bare
-  # shell-docker template instead, so unlike the siblings there is no parent
-  # setup to merge with and no token export to wrap — and no trace relocation
-  # for the entrypoint to do either, now that the startup step below is the
-  # only call site for that.
-  image: "docker/sandbox-templates:shell-docker"
-  entrypoint: [pi]
+  # Docker's own Pi image (docker/sbx-kits-contrib, pi/Dockerfile), reused as
+  # a plain image. This is not `extends:` — that accepts only claude, codex,
+  # copilot, cursor, gemini, kiro and opencode — and nothing of that repo's Pi
+  # kit spec comes along: none of its credentials, allowlist or setup. The
+  # image is the shell-docker template plus Pi, installed with
+  # `npm install -g` as the agent user, `fd-find` with an `fd` link, and the
+  # `pi` flavor label that `sbx ls` reports. So, unlike the siblings, there is
+  # still no parent setup to merge with — and no trace relocation for the
+  # entrypoint to do either, now that the startup step below is the only call
+  # site for that.
+  #
+  # The tag is rebuilt nightly against Pi's npm `latest`, so it is pinned by
+  # its index digest instead. That freezes Pi, the npm dependency tree it
+  # resolved without a lockfile, and the shell-docker template beneath it, for
+  # both architectures at once. Template fixes therefore reach this kit only
+  # with a new digest; docs/toolchain.md has the check to run before bumping.
+  image: "docker.io/sbx/pi-image@sha256:551b1f8494c242068117cff12d45a0ca99230ae5a6581b20a88fe88c35fa218e"
+  # This wrapper exists only for the token exports below; otherwise it is
+  # `entrypoint: [pi]`.
+  entrypoint:
+    - sh
+    - -c
+    - |
+      set -eu
+      # The `github` MCP server in ~/.pi/agent/mcp.json reads
+      # GITHUB_PERSONAL_ACCESS_TOKEN, which mcp.json sets from
+      # "${GITHUB_TOKEN}"; Pi expands that from this process's environment,
+      # so the variable has to exist before Pi starts. GH_TOKEN here is the
+      # proxy-managed `github` service sentinel declared under credentials:
+      # below, which the credential proxy swaps for the real token on
+      # requests to api.github.com. GITHUB_PERSONAL_ACCESS_TOKEN is exported
+      # too, for anything that expects that name directly.
+      # This only covers the agent session this entrypoint starts; a `pi`
+      # launched by hand from `sbxpi exec bash` does not inherit it.
+      if [ -n "${GH_TOKEN:-}" ]; then
+        export GITHUB_TOKEN="$GH_TOKEN"
+        export GITHUB_PERSONAL_ACCESS_TOKEN="$GH_TOKEN"
+      fi
+      exec pi "$@"
+    - sbxpi-entrypoint
 # resources:
 #   cpu: 8
 #   memory: 24g
@@ -54,11 +86,9 @@ agentInstructions:
     only way forward, so do it first rather than spending the one call you have
     left on a workaround.
 
-    The in-sandbox `sbx` runs only `sbx version` and `sbx kit pack`.
-    `sbx kit validate` and `sbx kit inspect` need a Docker sign-in the
-    sandbox does not have (docker/sbx-releases#685): check a kit here with
-    `sbx kit pack <kit> --output <file>.zip`, and ask the user to run
-    `validate` or `inspect` on the host. All sandbox management commands,
+    The in-sandbox `sbx` runs only daemon-free commands. Check a kit here
+    with `sbx kit validate --offline <kit>` and
+    `sbx kit inspect --offline <kit>`. All sandbox management commands,
     including `run`, `create`, `rm`, `exec`, `inspect`, and `policy`, require
     the host CLI and `sandboxd`; ask the user to run them on the host.
 
@@ -66,8 +96,8 @@ agentInstructions:
     Follow the project's own instructions and use its declared dependencies
     first. For general development tasks, these tools are already on `PATH`:
 
-    - Search and data: `rg` (ripgrep), `fdfind` (fd — Ubuntu names it
-      `fdfind`, not `fd`), `jq`
+    - Search and data: `rg` (ripgrep), `fd` (also on `PATH` as `fdfind`,
+      Ubuntu's name for it), `jq`
     - Shell: `shellcheck`; use `bash -n` for syntax checks
     - Python: `python3`, `ruff` for lint and format, `uv` for packages,
       PyYAML for YAML parsing (`import yaml`)
@@ -84,9 +114,13 @@ agentInstructions:
     - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`, `tree`
     - Sandbox kits: `sbx`, with the restrictions above
     - Docs: Context7 is installed as a native Pi package, not an MCP server —
-      it registers its own tools directly. There is no GitHub MCP server in
-      this kit either; Pi has no MCP support at all, so use `git` and `gh`
-      via bash for GitHub operations instead.
+      it registers its own tools directly.
+    - GitHub: the `github` MCP server is configured, but its tools are
+      deferred, so they are not declared until you load them. Call
+      `tool_search` with what you need (for example "pull request review
+      comments"), then call the `mcp__github__*` tools it loads. `gh`, and
+      `git` over HTTPS, carry the same proxy-managed credential, so use them
+      via bash where they fit better.
 
     Prefer `rg` over recursive `grep`, `ruff` over installing another Python
     linter or formatter, and `uv` over `pip`. Install project dependencies when
@@ -119,7 +153,8 @@ permissions:
       # Pi service bootstrap, telemetry and version checks (both disabled
       # above, but the host is still contacted).
       - "pi.dev"
-      # npm: pi-coding-agent, context7-pi, markdownlint-cli2, cspell.
+      # npm: context7-pi, markdownlint-cli2, cspell. Pi itself comes prebuilt
+      # in the base image, so npm no longer installs pi-coding-agent.
       - "registry.npmjs.org:443"
       # uv tool install: ruff, yamllint (index + wheels).
       - "pypi.org:443"
@@ -132,9 +167,10 @@ permissions:
       - "playwright.download.prss.microsoft.com:443"
       # The Context7 native Pi package calls its documentation API here.
       - "context7.com:443"
-      # GitHub release downloads (sbx CLI), `gh`, and page assets Playwright
-      # browses. This kit registers no GitHub MCP server, so `gh` over the
-      # proxy is how Pi reaches issues and pull requests.
+      # GitHub release downloads (sbx CLI, github-mcp-server), `gh`, git over
+      # HTTPS, the GitHub MCP server's API calls, and page assets Playwright
+      # browses. The `github` credential below is injected for api.github.com
+      # and github.com; the gist hosts serve Pi's `/share`.
       - "api.github.com:443"
       - "github.com:443"
       - "github.githubassets.com:443"
@@ -162,6 +198,25 @@ credentials:
         - domain: openrouter.ai
           header: Authorization
           format: "Bearer %s"
+  # The siblings inherit the `github` service from their parent kits; sbxpi
+  # has none, so it declares it, in the same shape as Docker's github-clone
+  # mixin (docker/sbx-kits-contrib). GH_TOKEN is the sentinel: a bearer token
+  # on api.github.com (gh, github-mcp-server) and x-access-token basic auth
+  # on github.com (git over HTTPS). `sbx secret set github` on the host binds
+  # it, and only at create time; with nothing bound, SBX_CRED_GITHUB_MODE
+  # reads `none`.
+  - service: github
+    apiKey:
+      name: GH_TOKEN
+      proxyManaged: true
+      inject:
+        - domain: api.github.com
+          header: Authorization
+          format: "Bearer %s"
+        - domain: github.com
+          header: Authorization
+          username: x-access-token
+          format: "%s"
 
 setup:
   install:
@@ -185,14 +240,10 @@ setup:
             "$@"
         }
         apt_get update
-        # fd-find is not part of the sibling toolchain: Pi's file-search tool
-        # shells out to `fd`, and if it finds neither `fd` nor `fdfind` on PATH
-        # it downloads the binary from GitHub releases at first launch —
-        # resolving "latest" at runtime, with no version pin and no checksum,
-        # unlike every other binary this kit installs. Ubuntu
-        # ships the binary as `fdfind` (the name `fd` is taken), which Pi
-        # accepts natively via its systemBinaryNames list, so no symlink is
-        # needed. ripgrep covers Pi's other bundled tool the same way.
+        # No fd-find here: the base image ships it, with an `fd` link next to
+        # Ubuntu's `fdfind`. Pi needs one of the two on PATH, or it downloads
+        # an unpinned `fd` from GitHub releases at first launch.
+        # ripgrep covers Pi's other bundled tool the same way.
         #
         # python3-yaml gives scripts `import yaml` (PyYAML) without a
         # separate pip install. build-essential + python3-dev let `uv`/`pip`
@@ -201,7 +252,6 @@ setup:
           build-essential \
           ca-certificates \
           curl \
-          fd-find \
           jq \
           pandoc \
           python3 \
@@ -214,13 +264,13 @@ setup:
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.48.0 release assets.
+        # Digests of the v0.49.1 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="609a2e4b881ba9a7fd21543077e53d3b863a6b99eebee1f208e51a097ab56a05"
+            expected_sha256="4f2aa3dc6404e3700925e6baeda72ca26d8a36768d2bfe8056f1e8ecdfd4540e"
             ;;
           arm64)
-            expected_sha256="83eb3a2cdebf28b1b8e3e8f5d8e964c60d8bb8323c52447ac947864fdca0fd15"
+            expected_sha256="3a3feaf4832ffc070c76e5eddd99fb32aa29a9e686ae9c8ac8117c9ecd49920e"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -230,7 +280,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.48.0/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.49.1/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
@@ -241,6 +291,38 @@ setup:
         install -m 0755 "$tmp/docker-sbx/sbx" /usr/local/bin/sbx
         sbx version
       description: sbx CLI for offline kit commands
+    - command: |
+        set -eu
+        arch="$(dpkg --print-architecture)"
+        # Digests of the v1.12.2 release assets.
+        case "$arch" in
+          amd64)
+            asset="Linux_x86_64"
+            expected_sha256="95843162759da2c31dde082dd145be35db82164594796c294414b69790c2290e"
+            ;;
+          arm64)
+            asset="Linux_arm64"
+            expected_sha256="2b30f9fcc061b57456cbe38ddc0f13c88863bad49557508a9196f2d1c4cb17a5"
+            ;;
+          *)
+            echo "unsupported architecture for github-mcp-server: $arch" >&2
+            exit 1
+            ;;
+        esac
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
+          "https://github.com/github/github-mcp-server/releases/download/v1.12.2/github-mcp-server_${asset}.tar.gz" \
+          -o "$tmp/gms.tar.gz"
+        actual_sha256="$(sha256sum "$tmp/gms.tar.gz" | cut -d' ' -f1)"
+        if [ "$actual_sha256" != "$expected_sha256" ]; then
+          echo "github-mcp-server checksum mismatch: got ${actual_sha256}, want ${expected_sha256}" >&2
+          exit 1
+        fi
+        tar xzf "$tmp/gms.tar.gz" -C "$tmp" github-mcp-server
+        install -m 0755 "$tmp/github-mcp-server" /usr/local/bin/github-mcp-server
+        github-mcp-server --version
+      description: GitHub MCP server, run locally over stdio
     - command: |
         set -eu
         install -d -m 0755 /usr/local/lib/sbxagent
@@ -355,7 +437,7 @@ setup:
          * block and `make lint` keeps every copy of it in sync.
          *
          * Two phases, because a tool_result handler cannot end a run: it may only
-         * patch content, details, isError and usage.
+         * patch content, details, isError, usage and structuredContent.
          *   1. tool_result — replace the blocked tool's output with the remedy.
          *   2. tool_call   — refuse every later call and terminate the run.
          * The net effect matches sbxclaude's hard stop, one beat later.
@@ -449,6 +531,11 @@ setup:
             const stop = verdict(event);
             if (!stop) return;
             blocked = stop;
+            // structuredContent is left out on purpose. Replacing content without it
+            // makes Pi drop bash's own structuredContent, so codemode throws
+            // Error(remedy) into a script that called tools.bash(). A bash-shaped
+            // value here would resolve normally instead, and the script could ignore
+            // its exit code.
             return { content: [{ type: "text", text: stop }], isError: true };
           });
 
@@ -535,35 +622,7 @@ setup:
       description: mermaid-cli, reusing the Playwright Chromium (SBXAGENT_LITE=false only)
     - command: |
         set -eu
-        PI_VERSION=0.84.4
-
-        # Pi is the one install worth retrying: it is the agent itself, so a
-        # transient proxy failure here leaves an unusable sandbox. One socket,
-        # 10-minute fetch, five attempts.
-        npm_install_retry() {
-          pkg=$1
-          attempt=1
-          until npm install -g --ignore-scripts --maxsockets=1 \
-            --fetch-timeout=600000 "$pkg"
-          do
-            if [ "$attempt" -ge 5 ]; then
-              echo "${pkg} install failed after ${attempt} attempts" >&2
-              exit 1
-            fi
-            echo "${pkg} install failed (attempt ${attempt}/5), retrying..."
-            attempt=$((attempt + 1))
-            sleep 5
-          done
-        }
-
-        # Note the scope: @earendil-works, not the frozen, security-patch-less
-        # legacy @mariozechner/pi-coding-agent.
-        npm_install_retry "@earendil-works/pi-coding-agent@${PI_VERSION}"
-      user: "1000"
-      description: Pi coding agent
-    - command: |
-        set -eu
-        CONTEXT7_PI_VERSION=0.1.2
+        CONTEXT7_PI_VERSION=0.1.3
         # `pi install` and settings.json's `packages` key are the same
         # mechanism — this writes the entry AND materialises the package now,
         # so nothing is fetched from the network at first launch.

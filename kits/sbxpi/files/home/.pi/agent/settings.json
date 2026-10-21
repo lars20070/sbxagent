@@ -1,7 +1,9 @@
 {
+  "$schema": "https://pi.dev/schemas/settings.schema.json",
   "defaultProvider": "openrouter",
   "defaultModel": "qwen/qwen3-coder-next",
   "extensions": ["/usr/local/lib/sbxagent/network-block.ts"],
+  "defaultTools": ["+tool_search"],
   "defaultThinkingLevel": "off",
   "defaultProjectTrust": "ask",
   "enableInstallTelemetry": false,
@@ -11,6 +13,11 @@
     "provider": {
       "maxRetries": 0,
       "timeoutMs": 3600000
+    }
+  },
+  "compaction": {
+    "modelOverrides": {
+      "ollama/qwen2.5-coder:7b": { "reserveTokens": 4096, "keepRecentTokens": 8192 }
     }
   }
 }
