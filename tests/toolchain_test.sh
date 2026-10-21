@@ -20,8 +20,8 @@ EXPECTED_PLAYWRIGHT_VERSION="1.63.0"
 EXPECTED_MERMAID_VERSION="11.17.0"
 EXPECTED_CONTEXT7_MCP_VERSION="4.1.1"
 EXPECTED_GITHUB_MCP_VERSION="1.12.2"
-EXPECTED_PI_VERSION="0.84.4"
-EXPECTED_CONTEXT7_PI_VERSION="0.1.2"
+EXPECTED_PI_VERSION="1.3.0"
+EXPECTED_CONTEXT7_PI_VERSION="0.1.3"
 
 TESTS=0
 
@@ -91,8 +91,8 @@ check_tool_version yamllint "${EXPECTED_YAMLLINT_VERSION}" yamllint --version
 check_tool_version markdownlint-cli2 "v${EXPECTED_MARKDOWNLINT_VERSION}" markdownlint-cli2 --version
 check_tool_version cspell "${EXPECTED_CSPELL_VERSION}" cspell --version
 check_tool_version sbx "${EXPECTED_SBX_VERSION}" sbx version
-# sbxpi does not install this: Pi has no MCP support, so the binary would never
-# run. The sbxpi block below asserts it is absent.
+# sbxpi does not install this: the kit configures no MCP servers, so the binary
+# would never run. The sbxpi block below asserts it is absent.
 if [[ "${KIT_NAME}" != "sbxpi" ]]; then
 	check_tool_version github-mcp-server "${EXPECTED_GITHUB_MCP_VERSION}" \
 		github-mcp-server --version
@@ -577,16 +577,50 @@ pass "context7 and github are pre-approved, so the TUI does not prompt for them"
 fi # end sbxcursor-only
 
 # ---------------------------------------------------------------------------
-# sbxpi only. Pi has no parent kit and no MCP support at all — there is no MCP
-# config file to check here. Its config lives directly under
+# sbxpi only. Pi has no parent kit, and the kit configures no MCP servers —
+# there is no MCP config file to check here. Its config lives directly under
 # files/home/.pi/agent/ (models.json, settings.json), and GitHub operations go
 # through `git`/`gh` on PATH instead of a registered MCP server.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxpi" ]]; then
 
 check_tool_version pi "${EXPECTED_PI_VERSION}" pi --version
-# Pi has no MCP, so GitHub work goes through the `gh` CLI instead, and the
-# github-mcp-server binary the other kits install is deliberately absent.
+
+# Pi comes from the base image's `npm install -g`, not from a kit step. Checked
+# through known roots only, never a filesystem search, so nothing in the
+# user's project can satisfy or trip it. `readlink -f` is fine here: this test
+# runs inside the Linux sandbox.
+PI_PACKAGE_DIR="$(readlink -f "$(npm root -g)/@earendil-works/pi-coding-agent")"
+[[ -d "${PI_PACKAGE_DIR}" ]] ||
+	fail "Pi is not installed under npm's global root (${REBUILD_HINT})"
+PI_ON_PATH="$(command -v pi)"
+PI_REAL="$(readlink -f "${PI_ON_PATH}")"
+[[ "${PI_REAL}" == "${PI_PACKAGE_DIR}/"* ]] ||
+	fail "pi on PATH (${PI_ON_PATH} -> ${PI_REAL}) is not the base image's install in ${PI_PACKAGE_DIR} (${REBUILD_HINT})"
+pass "pi on PATH is the base image's npm install"
+
+[[ "$(readlink -f /usr/local/bin/pi)" == "${PI_REAL}" ]] ||
+	fail "/usr/local/bin/pi does not resolve to ${PI_REAL} (${REBUILD_HINT})"
+pass "/usr/local/bin/pi resolves to the same install"
+
+[[ ! -e /opt/pi ]] ||
+	fail "/opt/pi exists, so there is a second Pi install besides the base image's (${REBUILD_HINT})"
+pass "there is no second Pi install under /opt/pi"
+
+# Context7 lists Pi as a peer dependency. Pi suppresses peer installs for its
+# managed packages, so a nested copy here would be a second, unpinned Pi.
+PI_PACKAGES_ROOT="${HOME}/.pi/agent/npm/node_modules"
+NESTED_PI=""
+if [[ -d "${PI_PACKAGES_ROOT}" ]]; then
+	NESTED_PI="$(find "${PI_PACKAGES_ROOT}" -path '*/@earendil-works/pi-coding-agent' -print -quit)"
+fi
+[[ -z "${NESTED_PI}" ]] ||
+	fail "a second Pi is installed under ${NESTED_PI}, pulled in by a Pi package (${REBUILD_HINT})"
+pass "Pi packages pulled in no second copy of Pi"
+
+# The kit configures no MCP servers, so GitHub work goes through the `gh` CLI
+# instead, and the github-mcp-server binary the other kits install is
+# deliberately absent.
 check_tool gh gh --version
 ! command -v github-mcp-server >/dev/null 2>&1 ||
 	fail "github-mcp-server is installed but sbxpi never runs it (${REBUILD_HINT})"
@@ -594,10 +628,13 @@ pass "github-mcp-server is not installed"
 
 # Pi's file-search tool downloads `fd` from GitHub releases at first launch
 # unless it finds `fd` or `fdfind` on PATH — unpinned, and network traffic on
-# a cold start. The apt-installed `fdfind` is what suppresses that.
-command -v fdfind >/dev/null 2>&1 || command -v fd >/dev/null 2>&1 ||
-	fail "neither fd nor fdfind is on PATH, so Pi will download fd at launch (${REBUILD_HINT})"
-pass "fd is preinstalled, so Pi fetches nothing at first launch"
+# a cold start. The base image's `fd-find` is what suppresses that. It also
+# links `fd` to Ubuntu's `fdfind`, and the agent instructions name both.
+for fd_name in fd fdfind; do
+	command -v "${fd_name}" >/dev/null 2>&1 ||
+		fail "${fd_name} is not on PATH, though the agent instructions name it (${REBUILD_HINT})"
+done
+pass "fd and fdfind are preinstalled, so Pi fetches nothing at first launch"
 
 PI_MODELS_JSON="${HOME}/.pi/agent/models.json"
 PI_SETTINGS_JSON="${HOME}/.pi/agent/settings.json"
@@ -609,6 +646,11 @@ pass "${PI_MODELS_JSON} is valid JSON"
 
 [[ -O "${PI_MODELS_JSON}" ]] || fail "${PI_MODELS_JSON} is not owned by the sandbox user"
 pass "${PI_MODELS_JSON} is owned by the sandbox user"
+
+jq -e '."$schema" == "https://pi.dev/schemas/models.schema.json"' \
+	"${PI_MODELS_JSON}" >/dev/null ||
+	fail "${PI_MODELS_JSON} does not declare Pi's models.json \$schema"
+pass "models.json declares Pi's published \$schema"
 
 jq -e '.providers.openrouter.modelOverrides["qwen/qwen3-coder"].compat.openRouterRouting.only == ["deepinfra"]' \
 	"${PI_MODELS_JSON}" >/dev/null ||
@@ -645,6 +687,19 @@ pass "${PI_SETTINGS_JSON} is valid JSON"
 
 [[ -O "${PI_SETTINGS_JSON}" ]] || fail "${PI_SETTINGS_JSON} is not owned by the sandbox user"
 pass "${PI_SETTINGS_JSON} is owned by the sandbox user"
+
+jq -e '."$schema" == "https://pi.dev/schemas/settings.schema.json"' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "${PI_SETTINGS_JSON} does not declare Pi's settings.json \$schema"
+pass "settings.json declares Pi's published \$schema"
+
+# With Pi's defaults (reserve 16384, keep 20000), this 32K-context model would
+# compact at half its window and keep nearly everything each time.
+jq -e '.compaction.modelOverrides["ollama/qwen2.5-coder:7b"]
+	== {"reserveTokens": 4096, "keepRecentTokens": 8192}' \
+	"${PI_SETTINGS_JSON}" >/dev/null ||
+	fail "the compaction override for ollama/qwen2.5-coder:7b is missing or changed in ${PI_SETTINGS_JSON}"
+pass "settings.json tightens compaction for ollama/qwen2.5-coder:7b"
 
 jq -e '.defaultProvider == "openrouter" and .defaultModel == "qwen/qwen3-coder-next"' \
 	"${PI_SETTINGS_JSON}" >/dev/null ||

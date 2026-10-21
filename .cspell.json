@@ -164,6 +164,7 @@
     "lseek",
     "ENOTEMPTY",
     "pipx",
-    "codemode"
+    "codemode",
+    "buildx"
   ]
 }

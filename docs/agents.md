@@ -58,8 +58,8 @@ user hooks alone.
 `sbxclaude`, `sbxcodex` and `sbxcursor` install
 [`github-mcp-server`](https://github.com/github/github-mcp-server), and this
 repo and those three kits run it locally over stdio. `sbxpi` does not install
-it: Pi has no built-in MCP, so that kit registers no MCP servers at all, and a
-binary nothing would ever run is one less root-installed download. Pi uses
+it: Pi supports MCP, but that kit configures no MCP servers, and a binary
+nothing would ever run is one less root-installed download. Pi uses
 `git` and `gh` for GitHub work instead.
 
 One definition has to work on the host and inside the sandbox alike. The

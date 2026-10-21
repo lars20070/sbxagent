@@ -14,7 +14,7 @@ here it is `false`):
 | `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below | either |
 | `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below | either |
 | `sbx` | daemon-free commands — `version` and `kit pack`; `kit validate` and `kit inspect` need a host sign-in ([docker/sbx-releases#685](https://github.com/docker/sbx-releases/issues/685)) | pinned below | either |
-| `fd-find` | `sbxpi` only; the file finder Pi expects | tracks the distribution | either |
+| `fd-find` (`fd`, `fdfind`) | `sbxpi` only, from Docker's Pi image; the file finder Pi expects | frozen with the image digest | either |
 | `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image | either |
 | Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below | `false` |
 | `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below | `false` |
@@ -51,9 +51,9 @@ organisation policy needs IT, because the user cannot lift it. See
 
 The agent itself runs with approvals bypassed on `sbxclaude`, `sbxcodex` and
 `sbxcursor`. Context7 and GitHub MCP servers are registered whatever the
-project's own MCP config says — except on `sbxpi`, where Pi supports no MCP at
-all: Context7 ships as a native Pi package, and GitHub work goes through `git`
-and `gh`.
+project's own MCP config says — except on `sbxpi`. Pi supports MCP, but that
+kit configures no MCP servers: Context7 ships as a native Pi package, and
+GitHub work goes through `git` and `gh`.
 
 Each kit spec lives in `kits/<command>/spec.yaml`. `scripts/sbxagent` wraps the
 `sbx` CLI and builds, or re-attaches to, one sandbox per project, named
@@ -69,7 +69,8 @@ rebuild.
 
 Directly installed tools are pinned so sandbox rebuilds and CI lint use the
 same known versions. All four kits pin the same shared versions; `sbxpi`
-adds two of its own, for Pi and its Context7 package.
+adds two of its own: the digest of the image Pi comes in, and Pi's Context7
+package.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |
@@ -82,8 +83,8 @@ adds two of its own, for Pi and its Context7 package.
 | `mermaid-cli` (`mmdc`) | `kits/*/spec.yaml` | `11.17.0` |
 | Context7 MCP | `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `kits/*/` MCP configs | `4.1.1` |
 | `github-mcp-server` | `kits/*/spec.yaml`, except `sbxpi` | `1.12.2` (SHA-256 verified) |
-| `@earendil-works/pi-coding-agent` | `kits/sbxpi/spec.yaml` | `0.84.4` |
-| `@upstash/context7-pi` | `kits/sbxpi/spec.yaml` | `0.1.2` |
+| `@earendil-works/pi-coding-agent` | `kits/sbxpi/spec.yaml`, as the `docker.io/sbx/pi-image` digest in `sandbox.image` | `1.3.0` |
+| `@upstash/context7-pi` | `kits/sbxpi/spec.yaml` | `0.1.3` |
 | `esbuild` (TypeScript lint) | `Makefile` | `0.28.2`, fetched via `npx` |
 
 Intentional exceptions that stay on latest:
@@ -95,10 +96,11 @@ Intentional exceptions that stay on latest:
   floating integration surfaces
 - the host's own `github-mcp-server` comes from Homebrew and floats; only the
   in-sandbox copy is pinned, so the two can drift a version apart
-- `sbxpi` has no parent kit to float, but its base image
-  `docker/sandbox-templates:shell-docker` is a moving tag, and its apt packages
-  track the distribution. That includes `fd-find`, which Pi would otherwise
-  download unpinned at first launch
+- `sbxpi`'s own apt packages track the distribution. Its base image does not
+  float, though: `docker.io/sbx/pi-image` is pinned by digest, which freezes
+  Pi, the npm dependency tree Pi resolved without a lockfile, `fd-find` and
+  the `docker/sandbox-templates:shell-docker` template beneath them, all
+  together. Template fixes reach `sbxpi` only when that digest is bumped
 - `go` comes from the base image and is deliberately not pinned by any kit.
   A project's `go.mod` is the pin: since Go 1.21, `GOTOOLCHAIN=auto` fetches
   the version it names from `proxy.golang.org`, which every kit allowlists.
@@ -114,6 +116,27 @@ To bump a pin:
 3. Rebuild the sandboxes.
 4. Run `make lint`, `make test-unit` and `make validate`, then
    `make test-toolchain AGENT=<agent>` once per agent.
+
+Pi is bumped by image digest, not by version number. The image tag is rebuilt
+nightly against Pi's newest release, so read the version out of both platform
+images before pinning. This reads Pi's `package.json` without running either
+image, so it needs no CPU emulation, but it does need a running Docker engine
+on the host:
+
+```bash
+docker buildx imagetools inspect docker.io/sbx/pi-image:latest   # note the top "Digest:"
+D=sha256:<index digest>
+for p in linux/amd64 linux/arm64; do
+  c=$(docker create --platform "$p" "docker.io/sbx/pi-image@$D")
+  docker cp "$c:/usr/local/share/npm-global/lib/node_modules/@earendil-works/pi-coding-agent/package.json" - \
+    | tar -xO | jq -r '"\(.name) \(.version)"'
+  docker rm "$c" >/dev/null
+done
+```
+
+Pin the index digest only if both platforms print the version you want. Put
+it in `sandbox.image` in `kits/sbxpi/spec.yaml`, and set
+`EXPECTED_PI_VERSION` in `tests/toolchain_test.sh` to match.
 
 ## Rebuild after kit changes
 

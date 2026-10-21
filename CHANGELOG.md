@@ -8,8 +8,28 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `sbxpi` gives the small local `ollama/qwen2.5-coder:7b` model its own
+  compaction budget (`reserveTokens` 4096, `keepRecentTokens` 8192). With
+  Pi's defaults, its 32K context window compacted at half full and kept
+  nearly everything each time.
+- `sbxpi`'s `settings.json` and `models.json` declare Pi's published
+  `$schema`, for editor completion and validation. Pi itself ignores it.
+
 ### Changed
 
+- `sbxpi` runs Pi `1.3.0`, up from `0.84.4`. Pi now comes prebuilt in
+  Docker's own Pi image, `docker.io/sbx/pi-image`, pinned by digest, instead
+  of a kit-time `npm install -g`. Pi stopped shipping a lockfile in 1.0.1, so
+  npm no longer pins Pi's dependencies: the image's install resolved them
+  when Docker built it, the digest freezes that result, and Pi's own
+  `protobufjs` override is not applied. The digest also freezes the
+  `shell-docker` template beneath it, which used to float, so template fixes
+  now arrive only with a digest bump. `fd` comes from the image too, as both
+  `fd` and `fdfind`.
+- Pi `1.3.0` supports MCP; `sbxpi` still configures no MCP servers.
+- `sbxpi`'s Context7 Pi package is `0.1.3`, up from `0.1.2`.
 - `read-pi-session-traces` reads Pi `1.3.0` traces. `inspect` now counts
   standalone `usage` entries, such as prompt-cache warming, under a new
   `auxiliary` source and in a new `usage.total`; before, that spend was
