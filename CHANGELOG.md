@@ -11,9 +11,11 @@ and this project adheres to
 ### Added
 
 - `sbxpi` runs the GitHub MCP server (`github-mcp-server` `1.12.2`, the same
-  SHA-256-pinned binary as the other kits), configured in
-  `~/.pi/agent/mcp.json`. Its tools are deferred: Pi's `tool_search`, now on
-  by default, loads the ones a task needs. `autoEnableCodemode` is off, so MCP
+  SHA-256-pinned binary as the other kits), now that Pi has a built-in MCP
+  client (Pi 0.99.0,
+  [earendil-works/pi#10040](https://github.com/earendil-works/pi/pull/10040)).
+  It is configured in `~/.pi/agent/mcp.json`. Its tools are deferred: Pi's
+  `tool_search`, now on by default, loads the ones a task needs. `autoEnableCodemode` is off, so MCP
   does not switch codemode on by itself, but codemode scripts can still call
   the GitHub tools once you enable it. The network-block guard does not
   inspect GitHub MCP results.
@@ -31,15 +33,24 @@ and this project adheres to
 ### Changed
 
 - `sbxpi` runs Pi `1.3.0`, up from `0.84.4`. Pi now comes prebuilt in
-  Docker's own Pi image, `docker.io/sbx/pi-image`, pinned by digest, instead
-  of a kit-time `npm install -g`. Pi stopped shipping a lockfile in 1.0.1, so
-  npm no longer pins Pi's dependencies: the image's install resolved them
+  Docker's own Pi image, `docker.io/sbx/pi-image`
+  ([`docker/sbx-kits-contrib`](https://github.com/docker/sbx-kits-contrib/tree/main/pi)),
+  pinned by digest, instead of a kit-time `npm install -g`. Pi stopped
+  shipping a lockfile in 1.0.1
+  ([earendil-works/pi#5653](https://github.com/earendil-works/pi/issues/5653)),
+  so npm no longer pins Pi's dependencies: the image's install resolved them
   when Docker built it, the digest freezes that result, and Pi's own
   `protobufjs` override is not applied. The digest also freezes the
   `shell-docker` template beneath it, which used to float, so template fixes
   now arrive only with a digest bump. `fd` comes from the image too, as both
-  `fd` and `fdfind`.
-- `sbxpi`'s Context7 Pi package is `0.1.3`, up from `0.1.2`.
+  `fd` and `fdfind`. Since Pi 1.0.0 the TUI runs fullscreen by default; set
+  `tuiMode` to `"regular"` to keep the terminal's own scrollback. Everything
+  else that changed upstream is in
+  [Pi's changelog](https://github.com/earendil-works/pi/blob/v1.3.0/packages/coding-agent/CHANGELOG.md),
+  0.85.0 to 1.3.0.
+- `sbxpi`'s Context7 Pi package is `0.1.3`, up from `0.1.2`. Upstream only
+  updated the Next.js examples in its tool descriptions
+  ([changelog](https://github.com/upstash/context7/blob/master/packages/pi/CHANGELOG.md)).
 - `read-pi-session-traces` reads Pi `1.3.0` traces. `inspect` now counts
   standalone `usage` entries, such as prompt-cache warming, under a new
   `auxiliary` source and in a new `usage.total`; before, that spend was
@@ -47,7 +58,10 @@ and this project adheres to
   under `nestedTools`, apart from direct calls. `show` lists system messages
   by section and tool names only, never their prompt text, and marks an entry
   that a later `context_edit` hides or replaces.
-- `sbx` v0.49.1 is now required, up from v0.48.0.
+- `sbx` v0.49.1 is now required, up from v0.48.0. There was no v0.49.0; see
+  the [v0.49.1 release notes](https://github.com/docker/sbx-releases/releases/tag/v0.49.1).
+  Among its fixes, `sbxcursor` no longer shows a Workspace Trust prompt for a
+  project path that contains characters such as `.` or `_`.
 - `sbx<agent> kit validate` and the check before a new sandbox starts now run
   `sbx kit validate --offline`, so they no longer need `sbx login` or a
   running daemon
@@ -56,6 +70,19 @@ and this project adheres to
   `sbx kit validate --offline` and `sbx kit inspect --offline` work again.
   `scripts/publish-kit.sh` validates and inspects each kit again instead of
   using `sbx kit pack`.
+
+### Security
+
+- On `sbxpi`, trusting a project now also applies its `.pi/mcp.json`, which
+  can add MCP servers or override the kit's — a stdio server is an arbitrary
+  command — and switch `autoEnableCodemode` back on. The kit keeps
+  `defaultProjectTrust: "ask"`, so Pi asks before a project's config applies.
+  See `docs/agents.md`.
+- Pi's `/share`, now authenticated on `sbxpi`, uploads the session as a secret
+  GitHub gist. A secret gist is unlisted, not private: anyone with the link
+  can read it, and the transcript holds everything the session saw. Read a
+  session before you share it, and remove the gist with `gh gist delete <id>`
+  when you are done.
 
 ## [0.4.11] - 2026-10-18
 
