@@ -1,10 +1,10 @@
-# Pi 1.3.0 session fields used by this skill
+# Pi 1.4.0 session fields used by this skill
 
 This reference covers only saved-session behavior consumed by `pi-trace.py`.
-It is pinned to `@earendil-works/pi-coding-agent` `1.3.0`, the version in
-`kits/sbxpi/spec.yaml`. The trace format is still version 3; Pi 0.86.0 to
-1.3.0 added carriers inside it, and older traces read the same way. Treat every field as optional and unknown types as
-metadata.
+It is pinned to `@earendil-works/pi-coding-agent` `1.4.0`, the version in
+`kits/sbxpi/spec.yaml`. The trace format is still version 3 through Pi 1.4.0;
+Pi 0.86.0 to 1.3.0 added carriers inside it, and older traces read the same
+way. Treat every field as optional and unknown types as metadata.
 
 ## File and header
 
@@ -40,7 +40,7 @@ other leaves are abandoned or alternate branches. Malformed traces may contain
 missing parents, cycles, duplicate ids, non-string ids, or very large ids.
 Traversal retains full ids internally, but output clips ids to 200 characters.
 
-Pi 1.3.0 entry types consumed by the skill:
+Pi 1.4.0 entry types consumed by the skill:
 
 | Type | Allowlisted fields |
 | --- | --- |
@@ -121,7 +121,7 @@ to reconstruct the exact model request.
 
 ## Usage and tools
 
-Only Pi 1.3.0 carriers are counted:
+Only Pi 1.4.0 carriers are counted:
 
 | Source | Carrier | Model attribution |
 | --- | --- | --- |

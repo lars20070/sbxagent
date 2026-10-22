@@ -271,15 +271,17 @@ MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${NAME_A#*-}"
 
 # Attach: creates (validate + kit) only when the sandbox is missing, and
 # re-attaches directly when it already exists. Neither call passes `--`,
-# since the wrapper never forwards agent arguments. Creation mounts the
+# since the wrapper never forwards agent arguments. Only creation passes
+# `--pull always`, so a re-attach never re-pulls. Creation mounts the
 # project's state folder read-only, the project's messageboard read-write,
 # and this agent's subfolder read-write.
 clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_A}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
 	"${CLAUDE_KIT}" "${SANDBOX}" "${PROJECT_DIR}/sbxclaude" \
 	"${CLAUDE_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxclaude")" "new sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "new attach passed --"
+[[ "$(<"${SBX_LOG}")" == *$'\t--pull\talways\t'* ]] || fail "new attach did not pass --pull always"
 [[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "attach did not create ${PROJECT_DIR}/sbxclaude"
 [[ -d "${MESSAGEBOARD_DIR}" ]] || fail "attach did not create ${MESSAGEBOARD_DIR}"
 
@@ -287,6 +289,7 @@ clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=0 run_claude "${WORK_A}" >/dev/null
 assert_log "$(printf 'run\t--name\t%s' "${SANDBOX}")" "existing sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "existing attach passed --"
+[[ "$(<"${SBX_LOG}")" != *--pull* ]] || fail "existing attach passed --pull"
 pass "attach creates only when missing"
 
 # rm is the one destructive command: it must never pass --force, so sbx's own
@@ -319,8 +322,9 @@ assert_log "$(printf 'inspect\t%s' "${SANDBOX}")" "inspect"
 rm -rf "${STATE_ROOT}" "${MESSAGEBOARD_ROOT}"
 clear_log
 run_claude "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
 	"${SANDBOX}" "${PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxclaude")" "create"
+[[ "$(<"${SBX_LOG}")" == *$'\t--pull\talways\t'* ]] || fail "create did not pass --pull always"
 [[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR}/sbxclaude"
 assert_eq "700" "$(file_mode "${PROJECT_DIR}/sbxclaude")" "agent state folder mode"
 [[ -d "${MESSAGEBOARD_DIR}" ]] || fail "create did not create ${MESSAGEBOARD_DIR}"
@@ -403,7 +407,7 @@ assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CODEX_KIT}")" "codex kit 
 
 clear_log
 run_codex "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
 	"${CODEX_NAME}" "${PROJECT_DIR}/sbxcodex" "${CODEX_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxcodex")" "codex create"
 pass "sbxcodex dispatches to its own kit, sandbox name and kit operand"
 
@@ -454,7 +458,7 @@ assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CURSOR_KIT}")" "cursor ki
 
 clear_log
 run_cursor "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
 	"${CURSOR_NAME}" "${PROJECT_DIR}/sbxcursor" "${CURSOR_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxcursor")" "cursor create"
 pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
 
@@ -491,7 +495,7 @@ assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${PI_KIT}")" "pi kit path"
 
 clear_log
 run_pi "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
 	"${PI_NAME}" "${PROJECT_DIR}/sbxpi" "${PI_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxpi")" "pi create"
 pass "sbxpi dispatches to its own kit, sandbox name and kit operand"
 
@@ -526,7 +530,7 @@ MESSAGEBOARD_DIR_B="${MESSAGEBOARD_ROOT}/${NAME_B#*-}"
 BEFORE="$(ls "${PROJECT_DIR}")"
 clear_log
 run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
 	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create in another directory"
 [[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR_B}/sbxclaude"
 assert_eq "${BEFORE}" "$(ls "${PROJECT_DIR}")" "other project's state folder untouched"
@@ -542,7 +546,7 @@ pass "each directory gets its own project state folder"
 # never-created case is asserted with a fresh project key in the .env block.
 clear_log
 CROSS_SANDBOX_VISIBILITY=false run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
 	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "create without visibility"
 [[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create without visibility removed ${PROJECT_DIR_B}/sbxclaude"
 [[ -d "${MESSAGEBOARD_DIR_B}" ]] ||
@@ -550,7 +554,7 @@ assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\t
 
 clear_log
 CROSS_SANDBOX_VISIBILITY=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
 	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "attach without visibility"
 
 BEFORE="$(ls "${STATE_ROOT}")"
@@ -568,7 +572,7 @@ pass "CROSS_SANDBOX_VISIBILITY=false drops the shared mount and rejects other va
 # flag, a bad value is rejected only on the creating paths.
 clear_log
 SBXAGENT_LITE=false run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s:ro\t%s\t%s' \
 	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create with SBXAGENT_LITE=false"
 SBXAGENT_LITE=bogus reject_without_call "${WORK_B}" create
 LITE_BOGUS_NAME="$(SBXAGENT_LITE=bogus run_claude "${WORK_B}" name)" ||
@@ -582,11 +586,11 @@ pass "SBXAGENT_LITE is passed as a kit arg and rejects other values"
 OPEN_NETWORK_KIT="${ROOT}/mixins/open-network"
 clear_log
 NETWORK_ALLOWLIST=false run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s\t%s' \
 	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create with NETWORK_ALLOWLIST=false"
 clear_log
 NETWORK_ALLOWLIST=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s\t%s' \
 	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" \
 	"${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "new sandbox attach with NETWORK_ALLOWLIST=false"
 NETWORK_ALLOWLIST=bogus reject_without_call "${WORK_B}" create
@@ -618,7 +622,7 @@ DOTENV_PROJECT_DIR="${STATE_ROOT}/${DOTENV_NAME#*-}"
 DOTENV_MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${DOTENV_NAME#*-}"
 clear_log
 run_claude "${WORK_ENV}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t--kit\t%s\t%s\t.\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t--kit\t%s\t%s\t.\t%s' \
 	"${DOTENV_NAME}" "${DOTENV_PROJECT_DIR}/sbxclaude" "${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${DOTENV_PROJECT_DIR}/sbxclaude")" \
 	".env CROSS_SANDBOX_VISIBILITY=false drops the shared mount, SBXAGENT_LITE=false reaches the kit, NETWORK_ALLOWLIST=false stacks the mixin"
 # The only project key in the suite whose first create runs with visibility
@@ -629,7 +633,7 @@ assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\t
 
 clear_log
 NETWORK_ALLOWLIST=true run_claude "${WORK_ENV}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s' \
 	"${DOTENV_NAME}" "${DOTENV_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${DOTENV_PROJECT_DIR}/sbxclaude")" \
 	"real env NETWORK_ALLOWLIST=true beats .env"
 
@@ -648,7 +652,7 @@ EMPTY_PROJECT_DIR="${STATE_ROOT}/${EMPTY_NAME#*-}"
 EMPTY_MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${EMPTY_NAME#*-}"
 clear_log
 run_claude "${EMPTY_SLUG}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
+assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
 	"${EMPTY_NAME}" "${EMPTY_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${EMPTY_PROJECT_DIR}" "${EMPTY_MESSAGEBOARD_DIR}" "${EMPTY_PROJECT_DIR}/sbxclaude")" "create with empty slug"
 [[ -d "${EMPTY_PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${EMPTY_PROJECT_DIR}/sbxclaude"
 [[ -d "${EMPTY_MESSAGEBOARD_DIR}" ]] || fail "create did not create ${EMPTY_MESSAGEBOARD_DIR}"

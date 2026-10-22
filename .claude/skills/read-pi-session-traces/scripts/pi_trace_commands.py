@@ -1,4 +1,4 @@
-"""Command handlers, fixed output budgeting, and Pi 1.3.0 statistics."""
+"""Command handlers, fixed output budgeting, and Pi 1.4.0 statistics."""
 
 from __future__ import annotations
 
@@ -781,7 +781,7 @@ def _inspect_record(session, chars, warnings):
             key: value.as_dict() for key, value in sorted(stats.nested_tools.items())
         },
         "usage": {
-            "note": "sum of usage recorded by Pi 1.3.0 carriers",
+            "note": "sum of usage recorded by Pi 1.4.0 carriers",
             "total": stats.total.as_dict(),
             "bySource": {
                 key: value.as_dict() for key, value in stats.by_source.items()

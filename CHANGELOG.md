@@ -8,6 +8,40 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.13] - 2026-10-22
+
+### Changed
+
+- `sbxpi` runs Pi `1.4.0`, up from `1.3.0`. Compaction and branch summaries
+  now use the model's own output limit, so `compaction.reserveTokens` only
+  decides when compaction starts. The kit's override for
+  `ollama/qwen2.5-coder:7b` keeps working unchanged. Everything else that
+  changed upstream is in
+  [Pi's changelog](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/CHANGELOG.md).
+- `read-pi-session-traces` reads Pi `1.4.0` traces. The trace format did not
+  change, so older traces read the same way.
+- `sbx<agent>` and `sbx<agent> create` now pass `--pull always` when they
+  create a sandbox, so `sbx` refreshes the images the current kit selects
+  instead of reusing a stale cached copy. A digest-pinned image, like
+  `sbxpi`'s, still only changes with a new release. Re-attaching to an
+  existing sandbox does not pull.
+
+### Security
+
+- `sbx` v0.49.2 is now required, up from v0.49.1. It is Docker's response to
+  the
+  [eMudhra certificate authority compromise](https://docs.docker.com/security/security-announcements/#docker-sandboxes-response-to-emudhra-ca-compromise)
+  ([release notes](https://github.com/docker/sbx-releases/releases/tag/v0.49.2)).
+  Docker rebuilt its base images with updated CA certificates. Upgrading the
+  host `sbx` alone does **not** fix sandboxes that already exist. For every
+  agent you use, save any files and unpushed commits that live only inside
+  the sandbox, then recreate it:
+
+  ```bash
+  ./scripts/sbx<agent> rm
+  ./scripts/sbx<agent> create
+  ```
+
 ## [0.4.12] - 2026-10-21
 
 ### Added

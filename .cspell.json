@@ -167,6 +167,8 @@
     "codemode",
     "buildx",
     "Popen",
-    "isinstance"
+    "isinstance",
+    "Mudhra",
+    "unpushed"
   ]
 }

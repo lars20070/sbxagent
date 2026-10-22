@@ -250,7 +250,10 @@ case "${1:-}" in
 	fi
 	sbx kit validate --offline "${KIT}" >/dev/null
 	compute_state_mounts
-	exec sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"} "${AGENT_DIR}"
+	# sbx defaults to --pull missing for kits, which reuses a cached, possibly
+	# stale copy of the kit's images (e.g. one without CA fixes). Creating
+	# always refreshes them.
+	exec sbx run --name "${SANDBOX}" --pull always -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"} "${AGENT_DIR}"
 	;;
 name)
 	shift
@@ -286,7 +289,7 @@ create)
 	no_args create "$@"
 	require_sbx
 	compute_state_mounts
-	exec sbx create --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"} "${AGENT_DIR}"
+	exec sbx create --name "${SANDBOX}" --pull always -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"} "${AGENT_DIR}"
 	;;
 rm)
 	shift
