@@ -75,7 +75,7 @@ package.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |
-| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.49.1` (SHA-256 verified) |
+| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.49.2` (SHA-256 verified) |
 | `ruff` | `kits/*/spec.yaml` | `0.16.8` |
 | `yamllint` | `kits/*/spec.yaml` | `1.38.0` |
 | `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.3` |
@@ -84,7 +84,7 @@ package.
 | `mermaid-cli` (`mmdc`) | `kits/*/spec.yaml` | `11.17.0` |
 | Context7 MCP | `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `kits/*/` MCP configs | `4.1.1` |
 | `github-mcp-server` | `kits/*/spec.yaml` | `1.12.2` (SHA-256 verified) |
-| `@earendil-works/pi-coding-agent` | `kits/sbxpi/spec.yaml`, as the `docker.io/sbx/pi-image` digest in `sandbox.image` | `1.3.0` |
+| `@earendil-works/pi-coding-agent` | `kits/sbxpi/spec.yaml`, as the `docker.io/sbx/pi-image` digest in `sandbox.image` | `1.4.0` |
 | `@upstash/context7-pi` | `kits/sbxpi/spec.yaml` | `0.1.3` |
 | `esbuild` (TypeScript lint) | `Makefile` | `0.28.2`, fetched via `npx` |
 

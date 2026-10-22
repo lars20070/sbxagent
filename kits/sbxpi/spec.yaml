@@ -1,7 +1,7 @@
 schemaVersion: "2"
 kind: sandbox
 name: sbxpi
-version: "0.4.12"
+version: "0.4.13"
 displayName: Pi with custom toolchain
 description: Pi with custom toolchain
 
@@ -31,7 +31,7 @@ sandbox:
   # resolved without a lockfile, and the shell-docker template beneath it, for
   # both architectures at once. Template fixes therefore reach this kit only
   # with a new digest; docs/toolchain.md has the check to run before bumping.
-  image: "docker.io/sbx/pi-image@sha256:551b1f8494c242068117cff12d45a0ca99230ae5a6581b20a88fe88c35fa218e"
+  image: "docker.io/sbx/pi-image@sha256:134b48cfc7b83a270d12d2c0ad0b7b7d0d40ffedf7dd567792246a9215a1d2d5"
   # This wrapper exists only for the token exports below; otherwise it is
   # `entrypoint: [pi]`.
   entrypoint:
@@ -264,13 +264,13 @@ setup:
     - command: |
         set -eu
         arch="$(dpkg --print-architecture)"
-        # Digests of the v0.49.1 release assets.
+        # Digests of the v0.49.2 release assets.
         case "$arch" in
           amd64)
-            expected_sha256="4f2aa3dc6404e3700925e6baeda72ca26d8a36768d2bfe8056f1e8ecdfd4540e"
+            expected_sha256="a3f363998cd9f6caa7b02323a5d671987a9887a278fb888aca20fa9f80851e87"
             ;;
           arm64)
-            expected_sha256="3a3feaf4832ffc070c76e5eddd99fb32aa29a9e686ae9c8ac8117c9ecd49920e"
+            expected_sha256="53c5250c480b8ef671d89413d824af62e08575c3b0051570dc5efa9f48a94eb6"
             ;;
           *)
             echo "unsupported architecture for sbx: $arch" >&2
@@ -280,7 +280,7 @@ setup:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-          "https://github.com/docker/sbx-releases/releases/download/v0.49.1/DockerSandboxes-linux-${arch}.tar.gz" \
+          "https://github.com/docker/sbx-releases/releases/download/v0.49.2/DockerSandboxes-linux-${arch}.tar.gz" \
           -o "$tmp/sbx.tar.gz"
         actual_sha256="$(sha256sum "$tmp/sbx.tar.gz" | cut -d' ' -f1)"
         if [ "$actual_sha256" != "$expected_sha256" ]; then
