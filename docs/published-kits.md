@@ -113,7 +113,7 @@ sbx run ghcr.io/lars20070/sbxclaude:<version> --kit ./my-extras
 ```
 
 You cannot yet **derive** a kit from one. The spec has a `mixins:` field for
-exactly that, but as of `sbx` v0.49.2 it is still accepted and then ignored —
+exactly that, but as of `sbx` v0.50.0 it is still accepted and then ignored —
 `sbx kit validate --offline <local kit>` says so out loud:
 
 ```text
