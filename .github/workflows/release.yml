@@ -205,13 +205,13 @@ jobs:
       # Digest-checked, also unlike ci.yml: this binary runs install.sh under sudo
       # and then pushes and signs every published kit, so the archive is
       # verified before anything in it is extracted or executed. The digest is
-      # the one the kits pin for the same v0.49.2 Linux archive — the generic
+      # the one the kits pin for the same v0.50.0 Linux archive — the generic
       # and -amd64 assets are byte-identical — so bump SBX_VERSION and
       # SBX_SHA256 together, alongside the kits (docs/toolchain.md).
       - name: Install sbx CLI
         env:
-          SBX_VERSION: v0.49.2
-          SBX_SHA256: a3f363998cd9f6caa7b02323a5d671987a9887a278fb888aca20fa9f80851e87
+          SBX_VERSION: v0.50.0
+          SBX_SHA256: bca9f2ff2bd9cab845d05d057964905da93990e68661efb6c46267e96c794949
         run: |
           set -euo pipefail
           curl -fsSL \

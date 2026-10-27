@@ -8,6 +8,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Security
+
+- `sbx` v0.50.0 is now required, up from v0.49.2
+  ([release notes](https://github.com/docker/sbx-releases/releases/tag/v0.50.0)).
+  It hardens the host side of the sandbox: host Git commands no longer run
+  programs a sandbox configured through the workspace's `.git` directory,
+  `sbx cp` rejects symlinks that escape the workspace through an alternate
+  host path, browser, clipboard and self-update helpers only run from trusted
+  system locations, and MCP OAuth blocks cross-origin credential redirects.
+  The first `sbx<agent>` after upgrading rebuilds the local kit once.
+
 ## [0.4.13] - 2026-10-22
 
 ### Changed
