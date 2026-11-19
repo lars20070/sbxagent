@@ -165,11 +165,15 @@ test-unit:
 # SBXAGENT_LITE and NETWORK_ALLOWLIST this was run with are what the sandbox
 # must report, so set them to the values the sandbox was created with;
 # EXPECTED_GITHUB=unbound checks a sandbox created with no GitHub secret.
+# EXPECTED_HOST_CHROME_ACCESS is false (nothing installed), true (setup only,
+# no Chrome needed) or live (Chrome up and the policy rule added; fails hard
+# if anything is missing). Unset, it skips the check.
 test-toolchain:
 	./scripts/sbx$(AGENT) exec env \
 		EXPECTED_SBXAGENT_LITE="$${SBXAGENT_LITE:-}" \
 		EXPECTED_NETWORK_ALLOWLIST="$${NETWORK_ALLOWLIST:-}" \
 		EXPECTED_GITHUB="$${EXPECTED_GITHUB:-bound}" \
+		EXPECTED_HOST_CHROME_ACCESS="$${EXPECTED_HOST_CHROME_ACCESS:-}" \
 		./tests/toolchain_test.sh
 
 # Prove the trace mount survives the sandbox lifecycle, checked from the host:

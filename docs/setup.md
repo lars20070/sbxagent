@@ -53,10 +53,11 @@ commented out keeps its default.
 | Var | Default | Does what |
 | --- | --- | --- |
 | `CROSS_SANDBOX_VISIBILITY` | `true` | `false` hides sibling agents' state folders from a new sandbox and drops its shared message board; an existing board on the host is left in place |
-| `XDG_STATE_HOME` | `~/.local/state` | where sbxagent stores its per-project state tree; must be absolute, a relative value falls back to the default |
+| `XDG_STATE_HOME` | `~/.local/state` | where sbxagent stores its per-project state tree and the `HOST_CHROME_ACCESS` Chrome profile; must be absolute, a relative value falls back to the default |
 | `HASH_LENGTH` | `8` | how many hash chars go in sandbox/state folder names |
 | `SBXAGENT_LITE` | `true` | `false` also installs Playwright, Chromium, `mmdc` and `xelatex`; takes effect at create time |
 | `NETWORK_ALLOWLIST` | `true` | `false` turns the network allow list off so the sandbox can reach any host (organisation-policy and local deny rules still apply); takes effect at create time |
+| `HOST_CHROME_ACCESS` | `false` | `true` lets the agent drive a Chrome on the host; you start Chrome and add one network rule, the wrapper prints both. See [host-chrome.md](host-chrome.md). Takes effect at create time |
 
 ## OpenRouter (`sbxpi`, cloud models)
 

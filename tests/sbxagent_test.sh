@@ -98,8 +98,13 @@ create_argv() {
 	if [[ -n "${network_kit}" ]]; then
 		line="${line}$(printf '\t--kit\t%s' "${network_kit}")"
 	fi
-	line="${line}$(printf '\t--kit-arg\t%s.lite=%s\t%s\t.\t%s:%s' \
-		"$(basename "${kit}")" "${lite}" "${workload}" "${trace_source}" "${trace_target}")"
+	line="${line}$(printf '\t--kit-arg\t%s.lite=%s' "$(basename "${kit}")" "${lite}")"
+	# HOST_CHROME_AGENT is set by the one caller that stacks mixins/host-chrome.
+	if [[ -n "${HOST_CHROME_AGENT:-}" ]]; then
+		line="${line}$(printf '\t--kit\t%s\t--kit-arg\thost-chrome.agent=%s' \
+			"${ROOT}/mixins/host-chrome" "${HOST_CHROME_AGENT}")"
+	fi
+	line="${line}$(printf '\t%s\t.\t%s:%s' "${workload}" "${trace_source}" "${trace_target}")"
 	for mount in "$@"; do
 		line="${line}$(printf '\t%s' "${mount}")"
 	done
@@ -648,6 +653,141 @@ NETWORK_BOGUS_NAME="$(NETWORK_ALLOWLIST=bogus run_claude "${WORK_B}" name)" ||
 assert_eq "${NAME_B}" "${NETWORK_BOGUS_NAME}" "name with bad NETWORK_ALLOWLIST value"
 pass "NETWORK_ALLOWLIST=false stacks the open-network mixin and rejects other values"
 
+# HOST_CHROME_ACCESS=true stacks the host-chrome mixin after the others, with
+# the agent name as a kit arg, and prints the two host-side commands. The
+# profile is XDG_STATE_HOME/sbxagent/browserprofile and must stay out of every
+# mount. The flag is create-time only.
+run_agent() {
+	local agent="$1" directory="$2"
+	shift 2
+	(cd "${directory}" && "${ROOT}/scripts/sbx${agent}" "$@")
+}
+CHROME_PROFILE="${XDG_STATE_HOME}/sbxagent/browserprofile"
+HOST_CHROME_WORK="${TEST_ROOT}/chrome/app"
+mkdir -p "${HOST_CHROME_WORK}"
+for agent in claude codex cursor pi; do
+	case "${agent}" in
+	pi) chrome_workload="docker.io/sbx/pi" ;;
+	*) chrome_workload="${agent}" ;;
+	esac
+	chrome_name="$(run_agent "${agent}" "${HOST_CHROME_WORK}" name)"
+	chrome_project="${STATE_ROOT}/${chrome_name#*-}"
+	chrome_board="${MESSAGEBOARD_ROOT}/${chrome_name#*-}"
+	case "${agent}" in
+	claude) chrome_sub=projects chrome_target=/home/agent/.claude/projects ;;
+	codex) chrome_sub=sessions chrome_target=/home/agent/.codex/sessions ;;
+	cursor) chrome_sub=projects chrome_target=/home/agent/.cursor/projects ;;
+	pi) chrome_sub=sessions chrome_target=/home/agent/.pi/agent/sessions ;;
+	*) fail "unknown agent ${agent}" ;;
+	esac
+	clear_log
+	HOST_CHROME_ACCESS=true run_agent "${agent}" "${HOST_CHROME_WORK}" create >/dev/null 2>&1
+	assert_log "$(HOST_CHROME_AGENT="${agent}" create_argv create "${chrome_name}" \
+		"${ROOT}/kits/sbx${agent}" "${chrome_workload}" true "" \
+		"${chrome_project}/sbx${agent}/${chrome_sub}" "${chrome_target}" "${chrome_project}:ro" "${chrome_board}")" \
+		"${agent} create with HOST_CHROME_ACCESS=true"
+done
+pass "HOST_CHROME_ACCESS=true stacks the host-chrome mixin for each agent"
+
+CHROME_NAME="$(run_claude "${HOST_CHROME_WORK}" name)"
+CHROME_PROJECT="${STATE_ROOT}/${CHROME_NAME#*-}"
+CHROME_BOARD="${MESSAGEBOARD_ROOT}/${CHROME_NAME#*-}"
+clear_log
+HOST_CHROME_ACCESS=true SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${HOST_CHROME_WORK}" >/dev/null 2>&1
+assert_log "$(HOST_CHROME_AGENT=claude create_argv run "${CHROME_NAME}" "${CLAUDE_KIT}" claude true "" \
+	"${CHROME_PROJECT}/sbxclaude/projects" "${CLAUDE_TRACES}" "${CHROME_PROJECT}:ro" "${CHROME_BOARD}")" \
+	"new sandbox attach with HOST_CHROME_ACCESS=true"
+# Both mixins stacked: the network mixin comes first.
+clear_log
+HOST_CHROME_ACCESS=true NETWORK_ALLOWLIST=false run_claude "${HOST_CHROME_WORK}" create >/dev/null 2>&1
+assert_log "$(HOST_CHROME_AGENT=claude create_argv create "${CHROME_NAME}" "${CLAUDE_KIT}" claude true "${OPEN_NETWORK_KIT}" \
+	"${CHROME_PROJECT}/sbxclaude/projects" "${CLAUDE_TRACES}" "${CHROME_PROJECT}:ro" "${CHROME_BOARD}")" \
+	"both mixins stacked"
+# Reattach ignores the flag, and a bogus value is rejected only on create paths.
+clear_log
+HOST_CHROME_ACCESS=true SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=0 run_claude "${HOST_CHROME_WORK}" >/dev/null 2>&1
+assert_log "$(printf 'run\t--name\t%s' "${CHROME_NAME}")" "reattach ignores HOST_CHROME_ACCESS"
+HOST_CHROME_ACCESS=bogus reject_without_call "${HOST_CHROME_WORK}" create
+CHROME_BOGUS_NAME="$(HOST_CHROME_ACCESS=bogus run_claude "${HOST_CHROME_WORK}" name)" ||
+	fail "'name' failed with a bad HOST_CHROME_ACCESS"
+assert_eq "${CHROME_NAME}" "${CHROME_BOGUS_NAME}" "name with bad HOST_CHROME_ACCESS value"
+
+# Printed commands: exact policy line, Chrome line re-parses to the right argv.
+CHROME_OUT="$(HOST_CHROME_ACCESS=true run_claude "${HOST_CHROME_WORK}" create 2>&1 >/dev/null)"
+[[ "${CHROME_OUT}" == *"  sbx policy allow network --sandbox ${CHROME_NAME} localhost:9222"* ]] ||
+	fail "printed policy line is wrong: ${CHROME_OUT}"
+[[ "${CHROME_OUT}" == *"bash/zsh syntax"* ]] || fail "Chrome line is not labelled: ${CHROME_OUT}"
+chrome_line="$(printf '%s\n' "${CHROME_OUT}" | grep -- '--remote-debugging-port=9222')"
+reparsed="$(eval "printf '%s\\n' ${chrome_line}")"
+[[ "$(printf '%s\n' "${reparsed}" | grep -c .)" -ge 5 ]] || fail "Chrome line did not re-parse: ${chrome_line}"
+printf '%s\n' "${reparsed}" | grep -Fxq -- "--user-data-dir=${CHROME_PROFILE}" ||
+	fail "Chrome line lacks the XDG profile path: ${chrome_line}"
+# Awkward characters in the path survive quoting.
+ODD_STATE="${TEST_ROOT}/odd \$x \`y\` 'q' \\b"
+mkdir -p "${ODD_STATE}"
+ODD_OUT="$(XDG_STATE_HOME="${ODD_STATE}" HOST_CHROME_ACCESS=true run_claude "${HOST_CHROME_WORK}" create 2>&1 >/dev/null)"
+odd_line="$(printf '%s\n' "${ODD_OUT}" | grep -- '--remote-debugging-port=9222')"
+odd_parsed="$(eval "printf '%s\\n' ${odd_line}")"
+printf '%s\n' "${odd_parsed}" | grep -Fxq -- "--user-data-dir=${ODD_STATE}/sbxagent/browserprofile" ||
+	fail "awkward path did not survive quoting: ${odd_line}"
+# Unset or relative XDG_STATE_HOME falls back to $HOME/.local/state.
+for xdg in "" "relative/state"; do
+	FALLBACK_OUT="$(XDG_STATE_HOME="${xdg}" HOME="${TEST_ROOT}/fakehome" HOST_CHROME_ACCESS=true \
+		run_claude "${HOST_CHROME_WORK}" create 2>&1 >/dev/null)"
+	[[ "${FALLBACK_OUT}" == *"${TEST_ROOT}/fakehome/.local/state/sbxagent/browserprofile"* ]] ||
+		fail "XDG_STATE_HOME='${xdg}' did not fall back to \$HOME/.local/state: ${FALLBACK_OUT}"
+done
+# Browser probe: a google-chrome on PATH is used.
+printf '#!/bin/sh\n' >"${FAKE_BIN}/google-chrome"
+chmod +x "${FAKE_BIN}/google-chrome"
+PROBE_OUT="$(HOST_CHROME_ACCESS=true run_claude "${HOST_CHROME_WORK}" create 2>&1 >/dev/null)"
+if [[ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]]; then
+	[[ "${PROBE_OUT}" == *"${FAKE_BIN}/google-chrome"* ]] || fail "fake google-chrome not found: ${PROBE_OUT}"
+fi
+rm -f "${FAKE_BIN}/google-chrome"
+if ! command -v google-chrome google-chrome-stable chromium chromium-browser >/dev/null 2>&1 &&
+	[[ ! -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]]; then
+	PLACEHOLDER_OUT="$(HOST_CHROME_ACCESS=true run_claude "${HOST_CHROME_WORK}" create 2>&1 >/dev/null)"
+	[[ "${PLACEHOLDER_OUT}" == *"Replace CHROME"* ]] || fail "no substitution hint without a browser: ${PLACEHOLDER_OUT}"
+	[[ "${PLACEHOLDER_OUT}" != *"<path-to-chrome>"* ]] || fail "angle brackets would be read as redirection: ${PLACEHOLDER_OUT}"
+fi
+pass "HOST_CHROME_ACCESS prints exact, correctly quoted host commands"
+
+# Path guard: the profile must not overlap any mount source.
+guard_rejects() {
+	local context="$1"
+	shift
+	local out status
+	clear_log
+	set +e
+	out="$(env "$@" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create 2>&1 >/dev/null)"
+	status=$?
+	set -e
+	[[ "${status}" -ne 0 ]] || fail "${context}: profile guard did not reject"
+	[[ "${out}" == *"overlaps"* || "${out}" == *".."* || "${out}" == *"does not resolve"* ]] || fail "${context}: unexpected error: ${out}"
+	assert_no_log "${context}"
+}
+GUARD_WORK="${TEST_ROOT}/guard/app"
+mkdir -p "${GUARD_WORK}/inside" "${TEST_ROOT}/guard/sibling"
+(
+	cd "${GUARD_WORK}"
+	guard_rejects "profile in workspace" XDG_STATE_HOME="${GUARD_WORK}/inside"
+	guard_rejects "profile with .." XDG_STATE_HOME="${TEST_ROOT}/guard/sibling/../app/inside"
+	ln -sfn "${GUARD_WORK}/inside" "${TEST_ROOT}/guard/link"
+	guard_rejects "symlink into the workspace" XDG_STATE_HOME="${TEST_ROOT}/guard/link"
+	# A dangling profile link that would resolve into the trace mount once the
+	# wrapper creates it must be rejected, and must not reach sbx.
+	GUARD_STATE="${TEST_ROOT}/guard/dangling"
+	mkdir -p "${GUARD_STATE}/sbxagent"
+	GUARD_TRACE_SRC="$(XDG_STATE_HOME="${GUARD_STATE}" "${CLAUDE_SCRIPT}" name)"
+	ln -sfn "${GUARD_STATE}/sbxagent/traces/${GUARD_TRACE_SRC#sbxclaude-}/sbxclaude/projects" "${GUARD_STATE}/sbxagent/browserprofile"
+	guard_rejects "dangling symlink to a future mount source" XDG_STATE_HOME="${GUARD_STATE}"
+	clear_log
+	XDG_STATE_HOME="${TEST_ROOT}/guard/sibling" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create >/dev/null 2>&1 ||
+		fail "a sibling profile directory was rejected"
+)
+pass "the Chrome profile is kept out of every mount"
+
 # .env file: a config layer weaker than a real exported env var, stronger
 # than scripts/sbxagent's own defaults. ${ROOT}/.env is backed up for the
 # whole suite (see top of file); this is the only block that writes one, and
@@ -660,6 +800,7 @@ HASH_LENGTH=6
 CROSS_SANDBOX_VISIBILITY=false
 SBXAGENT_LITE=false
 NETWORK_ALLOWLIST=false
+HOST_CHROME_ACCESS=true
 EOF
 
 clear_log
@@ -671,9 +812,9 @@ DOTENV_PROJECT_DIR="${STATE_ROOT}/${DOTENV_NAME#*-}"
 DOTENV_MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${DOTENV_NAME#*-}"
 clear_log
 run_claude "${WORK_ENV}" create >/dev/null
-assert_log "$(create_argv create "${DOTENV_NAME}" "${CLAUDE_KIT}" claude false "${OPEN_NETWORK_KIT}" \
+assert_log "$(HOST_CHROME_AGENT=claude create_argv create "${DOTENV_NAME}" "${CLAUDE_KIT}" claude false "${OPEN_NETWORK_KIT}" \
 	"${DOTENV_PROJECT_DIR}/sbxclaude/projects" "${CLAUDE_TRACES}")" \
-	".env CROSS_SANDBOX_VISIBILITY=false drops the shared mount, SBXAGENT_LITE=false reaches the kit, NETWORK_ALLOWLIST=false stacks the mixin"
+	".env CROSS_SANDBOX_VISIBILITY=false drops the shared mount, SBXAGENT_LITE=false reaches the kit, NETWORK_ALLOWLIST=false and HOST_CHROME_ACCESS=true stack the mixins"
 # The only project key in the suite whose first create runs with visibility
 # off, so this is where "never created" can be told apart from "created by an
 # earlier visible create and correctly left alone".
@@ -682,9 +823,14 @@ assert_log "$(create_argv create "${DOTENV_NAME}" "${CLAUDE_KIT}" claude false "
 
 clear_log
 NETWORK_ALLOWLIST=true run_claude "${WORK_ENV}" create >/dev/null
-assert_log "$(create_argv create "${DOTENV_NAME}" "${CLAUDE_KIT}" claude false "" \
+assert_log "$(HOST_CHROME_AGENT=claude create_argv create "${DOTENV_NAME}" "${CLAUDE_KIT}" claude false "" \
 	"${DOTENV_PROJECT_DIR}/sbxclaude/projects" "${CLAUDE_TRACES}")" \
 	"real env NETWORK_ALLOWLIST=true beats .env"
+clear_log
+HOST_CHROME_ACCESS=false run_claude "${WORK_ENV}" create >/dev/null 2>&1
+assert_log "$(create_argv create "${DOTENV_NAME}" "${CLAUDE_KIT}" claude false "${OPEN_NETWORK_KIT}" \
+	"${DOTENV_PROJECT_DIR}/sbxclaude/projects" "${CLAUDE_TRACES}")" \
+	"real env HOST_CHROME_ACCESS=false beats .env"
 
 ENV_OVERRIDE_NAME="$(HASH_LENGTH=9 run_claude "${WORK_ENV}" name)"
 assert_match "^sbxclaude-$(expected_slug "${WORK_ENV}")-[0-9a-f]{9}$" \

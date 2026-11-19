@@ -8,6 +8,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `HOST_CHROME_ACCESS=true` lets the agent drive a Chrome on the host over the
+  Chrome DevTools Protocol, through the new `mixins/host-chrome` kit (all four
+  agents). The wrapper prints the two host-side commands: one
+  `sbx policy allow` rule and the Chrome launch line. Opt-in and create-time
+  only; see [docs/host-chrome.md](docs/host-chrome.md). Verified on macOS;
+  Linux hosts are untested.
+
 ### Changed
 
 - `sbx` v0.54.0 is now required, up from v0.50.0

@@ -1,0 +1,232 @@
+# syntax=docker/sandbox-kit:3@sha256:8561468d43a0466e24dd048e3c6c2115d878ee36d71c4571195f1de2a63c2b5b
+# Let the agent drive a Chrome on the host through the Chrome DevTools Protocol.
+#
+# Stacked by scripts/sbxagent with a second --kit when HOST_CHROME_ACCESS=true.
+# Declaration-only: no recipe, so the kit is this descriptor alone. Its file
+# name is unique on purpose (see open-network.yaml for why).
+#
+# The one install hook only installs socat, so order cannot matter. The
+# startup hook starts the forwarder, installs the MCP package (Node arrives
+# later, from the kit), and registers it. It runs on every start, after every install hook and after the
+# workload seeded its config, so the MCP entry it writes cannot be clobbered
+# and the forwarder survives a restart.
+#
+# No network-policy entry: a kit cannot express localhost:9222. The host
+# grants it with `sbx policy allow network --sandbox <name> localhost:9222`,
+# which the wrapper prints. See docs/host-chrome.md.
+schemaVersion: "3"
+kind: mixin
+displayName: Host Chrome access
+description: Forward localhost:9222 to a Chrome on the host and register the Playwright MCP server
+sourceUrl: https://github.com/lars20070/sbxagent
+licenses: [MIT]
+
+args:
+  # Passed by the wrapper: which agent's MCP config to write.
+  agent:
+    description: Which agent this sandbox runs
+    enum: ["claude", "codex", "cursor", "pi"]
+  # Exported so the toolchain test can tell this mixin is present. Fixed.
+  hostChromeAccess:
+    default: "true"
+    enum: ["true"]
+    description: Reports that host Chrome access is on
+    env: HOST_CHROME_ACCESS
+
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -eu
+            timeout 600 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 update
+            timeout 600 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 install -y --no-install-recommends socat
+            command -v socat >/dev/null
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy]
+          description: socat, for the forwarder to the host Chrome
+      startup:
+        - command: |
+            exec bash -s <<'SBXAGENT_HOST_CHROME'
+            set -u
+            agent="${{ kit.args.agent }}"
+            endpoint="http://localhost:9222"
+            pkg_version="0.0.85"
+            warn() { echo "host-chrome: $*" >&2; }
+
+            # --- forwarder -------------------------------------------------
+            # Started first: the MCP entry is only registered once OUR socat
+            # owns the listening socket, so a foreign service on 9222 is never
+            # configured as the browser endpoint.
+            dir="$HOME/.cache/sbxagent/host-chrome"
+            mkdir -p "$dir" && chmod 700 "$dir" || { warn "cannot create $dir"; exit 0; }
+            cmd="socat TCP-LISTEN:9222,bind=127.0.0.1,fork,reuseaddr PROXY:gateway.docker.internal:host.docker.internal:9222,proxyport=3128"
+
+            # PID of whatever holds the listening socket on port 9222 (0x2406),
+            # found through the socket inode. The forked per-connection socat
+            # children do not hold the listening socket, so they never count.
+            listener_pid() {
+              local inode f
+              inode="$(cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$4 == "0A" && $2 ~ /:2406$/ { print $10; exit }')"
+              [ -n "$inode" ] || return 1
+              for f in /proc/[0-9]*/fd/*; do
+                if [ "$(readlink "$f" 2>/dev/null)" = "socket:[$inode]" ]; then
+                  f="${f#/proc/}"
+                  echo "${f%%/*}"
+                  return 0
+                fi
+              done
+              return 1
+            }
+            listening() { cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$4 == "0A" && $2 ~ /:2406$/ { f = 1 } END { exit !f }'; }
+            ours() {
+              local pid
+              pid="$(listener_pid)" || return 1
+              [ "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)" = "$cmd " ]
+            }
+
+            start_forwarder() { # 0 = our forwarder is listening
+              # flock is released when the shell exits, so a crash cannot leave
+              # a stale lock. The socat child gets fd 9 closed below.
+              exec 9>"$dir/lock"
+              if command -v flock >/dev/null 2>&1; then
+                flock -w 10 9 || { warn "could not take the lock"; return 1; }
+              fi
+              if ours; then return 0; fi
+              if listening; then
+                warn "port 9222 is taken by something else; host Chrome access unavailable"
+                return 1
+              fi
+              nohup setsid $cmd >"$dir/socat.log" 2>&1 </dev/null 9>&- &
+              local i=0
+              while [ "$i" -lt 30 ]; do
+                if ours; then return 0; fi
+                sleep 0.1
+                i=$((i + 1))
+              done
+              warn "forwarder did not start; see $dir/socat.log"
+              return 1
+            }
+            start_forwarder || exit 0
+            exec 9>&-
+
+            # --- MCP package -----------------------------------------------
+            # Installed here, not in an install hook: Node comes from the
+            # kit's own install hook, which runs after this mixin's. Bounded,
+            # and the entry is only registered once the pinned version is there.
+            pkg_ok() {
+              command -v playwright-mcp >/dev/null 2>&1 &&
+                [ "$(npm ls --global --depth=0 --json 2>/dev/null | jq -r '.dependencies["@playwright/mcp"].version // empty')" = "$pkg_version" ]
+            }
+            command -v jq >/dev/null 2>&1 || { warn "jq is missing"; exit 0; }
+            command -v npm >/dev/null 2>&1 || { warn "npm is missing; no MCP entry registered"; exit 0; }
+            if ! pkg_ok; then
+              timeout 180 npm install --global "@playwright/mcp@$pkg_version" >&2 ||
+                warn "could not install @playwright/mcp@$pkg_version"
+              pkg_ok || { warn "@playwright/mcp@$pkg_version is not ready; no MCP entry registered"; exit 0; }
+            fi
+
+            # --- registration ----------------------------------------------
+            # Validate a candidate, then replace the live file atomically: a
+            # temp file in the same directory, same mode, moved into place.
+            install_config() { # kind tmp live
+              local kind="$1" tmp="$2" live="$3"
+              case "$kind" in
+              json) jq -e . "$tmp" >/dev/null 2>&1 || { warn "built an invalid config for $live, left it alone"; return 1; } ;;
+              toml) python3 -c 'import sys,tomllib; tomllib.load(open(sys.argv[1],"rb"))' "$tmp" 2>/dev/null ||
+                { warn "built an invalid config for $live, left it alone"; return 1; } ;;
+              esac
+              chmod "$(stat -c %a "$live" 2>/dev/null || echo 600)" "$tmp" 2>/dev/null || true
+              mv -f "$tmp" "$live"
+            }
+
+            # Returns 0 when the live file holds OUR entry, 2 when a foreign
+            # "playwright" entry is there (kept), 1 on failure. Ours = command
+            # playwright-mcp with --cdp-endpoint first, so a changed endpoint
+            # is ours and gets rewritten.
+            register_json() { # live entry-json
+              local live="$1" entry="$2" tmp
+              mkdir -p "$(dirname "$live")"
+              [ -f "$live" ] || printf '%s\n' '{}' > "$live"
+              if jq -e '.mcpServers.playwright // empty' "$live" >/dev/null 2>&1 &&
+                ! jq -e '.mcpServers.playwright.command == "playwright-mcp" and .mcpServers.playwright.args[0] == "--cdp-endpoint"' "$live" >/dev/null 2>&1; then
+                warn "$live already has its own 'playwright' MCP entry; kept it"
+                return 2
+              fi
+              if jq -e --argjson e "$entry" '.mcpServers.playwright == $e' "$live" >/dev/null 2>&1; then
+                return 0
+              fi
+              tmp="$(mktemp "$live.sbxagent.XXXXXX")" || return 1
+              jq --argjson e "$entry" '.mcpServers = ((.mcpServers // {}) + {"playwright": $e})' "$live" > "$tmp" || { rm -f "$tmp"; return 1; }
+              install_config json "$tmp" "$live" || { rm -f "$tmp"; return 1; }
+            }
+
+            register_codex() {
+              local live="$HOME/.codex/config.toml" tmp bad
+              mkdir -p "$(dirname "$live")"
+              [ -f "$live" ] || : > "$live"
+              # Refuse a marker layout we did not write: an orphaned or
+              # out-of-order marker would make the strip below eat other config.
+              bad="$(awk '$0 == "# BEGIN sbxagent host-chrome" { if (s) b = 1; s = 1; next }
+                $0 == "# END sbxagent host-chrome" { if (!s) b = 1; s = 0; next }
+                END { if (s) b = 1; print b + 0 }' "$live")"
+              if [ "$bad" != "0" ]; then
+                warn "$live has unbalanced sbxagent host-chrome markers; left it alone"
+                return 2
+              fi
+              tmp="$(mktemp "$live.sbxagent.XXXXXX")" || return 1
+              awk '$0 == "# BEGIN sbxagent host-chrome" { skip = 1; next }
+                $0 == "# END sbxagent host-chrome" { skip = 0; next }
+                skip { next }
+                $0 == "" { blanks++; next }
+                { while (blanks > 0) { print ""; blanks-- } print }' "$live" > "$tmp"
+              if grep -q '^\[mcp_servers\.playwright[].]' "$tmp"; then
+                warn "$live already has its own [mcp_servers.playwright]; kept it"
+                rm -f "$tmp"
+                return 2
+              fi
+              {
+                echo
+                echo '# BEGIN sbxagent host-chrome'
+                echo '[mcp_servers.playwright]'
+                echo 'command = "playwright-mcp"'
+                echo "args = [\"--cdp-endpoint\", \"$endpoint\"]"
+                echo '# END sbxagent host-chrome'
+              } >> "$tmp"
+              if cmp -s "$tmp" "$live"; then
+                rm -f "$tmp"
+                return 0
+              fi
+              install_config toml "$tmp" "$live" || { rm -f "$tmp"; return 1; }
+            }
+
+            entry="{\"command\":\"playwright-mcp\",\"args\":[\"--cdp-endpoint\",\"$endpoint\"]}"
+            rc=1
+            case "$agent" in
+            claude) register_json "$HOME/.claude.json" "{\"type\":\"stdio\",\"command\":\"playwright-mcp\",\"args\":[\"--cdp-endpoint\",\"$endpoint\"],\"env\":{}}"; rc=$? ;;
+            codex) register_codex; rc=$? ;;
+            cursor) register_json "$HOME/.cursor/mcp.json" "$entry"; rc=$? ;;
+            pi) register_json "$HOME/.pi/agent/mcp.json" "{\"command\":\"playwright-mcp\",\"args\":[\"--cdp-endpoint\",\"$endpoint\"],\"exposure\":\"deferred\"}"; rc=$? ;;
+            esac
+
+            # Cursor asks before using a new server. Approve ours, only when
+            # our entry is the one registered and the workspace does not
+            # define its own "playwright" that would shadow it. Bounded.
+            if [ "$agent" = cursor ] && [ "$rc" = 0 ] && [ -n "${WORKSPACE_DIR:-}" ]; then
+              if jq -e '.mcpServers.playwright // empty' "$WORKSPACE_DIR/.cursor/mcp.json" >/dev/null 2>&1; then
+                warn "the workspace defines its own 'playwright' MCP server; not approving ours"
+              else
+                PATH="$HOME/.local/bin:$PATH"
+                cli="$(command -v cursor-agent || command -v agent || true)"
+                if [ -n "$cli" ]; then
+                  (cd "$WORKSPACE_DIR" && timeout 20 "$cli" mcp enable playwright >/dev/null 2>&1) || true
+                fi
+              fi
+            fi
+            exit 0
+            SBXAGENT_HOST_CHROME
+          user: "1000"
+          env: [WORKSPACE_DIR, HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, NPM_CONFIG_PREFIX]
+          description: Register the Playwright MCP server and start the forwarder to the host Chrome

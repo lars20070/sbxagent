@@ -69,6 +69,12 @@ SBXAGENT_LITE="${SBXAGENT_LITE:-true}"
 # and local deny rules still apply). Takes effect at create time.
 NETWORK_ALLOWLIST="${NETWORK_ALLOWLIST:-true}"
 
+# true also lets the agent drive a Chrome on the host through the Chrome
+# DevTools Protocol: the mixin kit in mixins/host-chrome is stacked with a
+# second --kit. The wrapper only prints the host-side commands; it never
+# changes host policy. Takes effect at create time.
+HOST_CHROME_ACCESS="${HOST_CHROME_ACCESS:-false}"
+
 no_args() {
 	local command="$1"
 	shift
@@ -162,6 +168,17 @@ compute_state_mounts() {
 	false) NETWORK_KIT="${REPO}/mixins/open-network" ;;
 	*) die "NETWORK_ALLOWLIST must be true or false, not '${NETWORK_ALLOWLIST}'" ;;
 	esac
+	case "${HOST_CHROME_ACCESS}" in
+	true)
+		HOST_CHROME_KIT="${REPO}/mixins/host-chrome"
+		case "${XDG_STATE_HOME:-}" in
+		/*) BROWSER_PROFILE="${XDG_STATE_HOME}/sbxagent/browserprofile" ;;
+		*) BROWSER_PROFILE="${HOME}/.local/state/sbxagent/browserprofile" ;;
+		esac
+		;;
+	false) HOST_CHROME_KIT="" ;;
+	*) die "HOST_CHROME_ACCESS must be true or false, not '${HOST_CHROME_ACCESS}'" ;;
+	esac
 	mkdir -p "${PROJECT_DIR}"
 	chmod 700 "${PROJECT_DIR}"
 	mkdir -p "${AGENT_DIR}"
@@ -174,6 +191,90 @@ compute_state_mounts() {
 		mkdir -p "${MESSAGEBOARD_DIR}"
 		chmod 700 "${MESSAGEBOARD_DIR}"
 	fi
+	# After every mount source exists, so a symlink that only resolves once
+	# the wrapper has created a source is seen for what it is.
+	if [[ -n "${HOST_CHROME_KIT}" ]]; then
+		check_profile_outside_mounts
+	fi
+}
+
+# Resolve P to an absolute physical path (symlinks followed) without GNU
+# `readlink -f`. P need not exist: the nearest existing ancestor is resolved
+# and the not-yet-created tail is re-appended. A `..` component is rejected,
+# because it cannot be resolved textually once symlinks are involved.
+physical_path() {
+	local p="$1" tail="" base head
+	case "${p}" in
+	/*) ;;
+	*) die "path must be absolute: ${p}" ;;
+	esac
+	case "/${p}/" in
+	*/../*) die "path must not contain '..': ${p}" ;;
+	*) ;;
+	esac
+	while [[ ! -d "${p}" ]]; do
+		[[ ! -L "${p}" ]] || die "path contains a symlink that does not resolve: ${p}"
+		base="$(basename "${p}")"
+		tail="/${base}${tail}"
+		head="$(dirname "${p}")"
+		[[ "${head}" != "${p}" ]] || break
+		p="${head}"
+	done
+	p="$(cd -P "${p}" && pwd -P)" || die "cannot resolve ${1}"
+	[[ "${p}" != "/" ]] || p=""
+	printf '%s%s\n' "${p}" "${tail}"
+}
+
+# True if A equals B or either contains the other, on path-component
+# boundaries (so /a/b and /a/bc do not overlap). Both must be physical paths.
+path_overlaps() {
+	local a="${1%/}" b="${2%/}"
+	[[ "${a}" == "${b}" || "${a}/" == "${b}/"* || "${b}/" == "${a}/"* ]]
+}
+
+# The Chrome profile holds the user's logins, so it must never be visible to a
+# sandbox: die if it overlaps the source of any host mount the wrapper builds.
+check_profile_outside_mounts() {
+	local profile src
+	profile="$(physical_path "${BROWSER_PROFILE}")"
+	for src in "${DIR}" "${AGENT_DIR}/${TRACE_SUBDIR}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR:-}"; do
+		[[ -n "${src}" ]] || continue
+		if path_overlaps "${profile}" "$(physical_path "${src}")"; then
+			die "the Chrome profile ${BROWSER_PROFILE} overlaps a mounted folder (${src}); set XDG_STATE_HOME elsewhere"
+		fi
+	done
+}
+
+# Print the two host-side steps HOST_CHROME_ACCESS needs. Quoted with %q so the
+# lines paste into bash or zsh whatever the path holds. The Chrome binary is
+# found by capability, never by OS name.
+print_host_chrome_steps() {
+	local chrome="" candidate
+	if [[ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]]; then
+		chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+	else
+		for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+			if chrome="$(command -v "${candidate}" 2>/dev/null)"; then
+				break
+			fi
+			chrome=""
+		done
+	fi
+	[[ -n "${chrome}" ]] || chrome="<path-to-chrome>" # sentinel, never printed
+	{
+		echo "Host Chrome access: run these on the host (with 'create', before attaching)."
+		echo "1. Allow the sandbox to reach Chrome:"
+		printf '   sbx policy allow network --sandbox %q localhost:9222\n' "${SANDBOX}"
+		echo "2. Start Chrome (bash/zsh syntax):"
+		if [[ "${chrome}" == "<path-to-chrome>" ]]; then
+			echo "   (No Chrome found. Replace CHROME below with the path to your Chrome or Chromium executable.)"
+			chrome="CHROME"
+			printf '   %s' "${chrome}"
+		else
+			printf '   %q' "${chrome}"
+		fi
+		printf ' --remote-debugging-port=9222 --user-data-dir=%q --no-first-run --no-default-browser-check\n' "${BROWSER_PROFILE}"
+	} >&2
 }
 
 # Dispatch on the name we were invoked as. SELF is the basename of $0, taken
@@ -280,7 +381,10 @@ case "${1:-}" in
 	# sbx defaults to --pull missing for kits, which reuses a cached, possibly
 	# stale copy of the workload image (e.g. one without CA fixes). Creating
 	# always refreshes it. The kit is a source kit, which sbx builds itself.
-	exec sbx run --name "${SANDBOX}" --pull always --kit "${KIT}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} --kit-arg "${KIT_NAME}.lite=${SBXAGENT_LITE}" "${WORKLOAD}" . "${TRACE_MOUNT}" ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"}
+	if [[ -n "${HOST_CHROME_KIT}" ]]; then
+		print_host_chrome_steps
+	fi
+	exec sbx run --name "${SANDBOX}" --pull always --kit "${KIT}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} --kit-arg "${KIT_NAME}.lite=${SBXAGENT_LITE}" ${HOST_CHROME_KIT:+--kit "${HOST_CHROME_KIT}"} ${HOST_CHROME_KIT:+--kit-arg "host-chrome.agent=${KIT_NAME#sbx}"} "${WORKLOAD}" . "${TRACE_MOUNT}" ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"}
 	;;
 name)
 	shift
@@ -316,7 +420,10 @@ create)
 	no_args create "$@"
 	require_sbx
 	compute_state_mounts
-	exec sbx create --name "${SANDBOX}" --pull always --kit "${KIT}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} --kit-arg "${KIT_NAME}.lite=${SBXAGENT_LITE}" "${WORKLOAD}" . "${TRACE_MOUNT}" ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"}
+	if [[ -n "${HOST_CHROME_KIT}" ]]; then
+		print_host_chrome_steps
+	fi
+	exec sbx create --name "${SANDBOX}" --pull always --kit "${KIT}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} --kit-arg "${KIT_NAME}.lite=${SBXAGENT_LITE}" ${HOST_CHROME_KIT:+--kit "${HOST_CHROME_KIT}"} ${HOST_CHROME_KIT:+--kit-arg "host-chrome.agent=${KIT_NAME#sbx}"} "${WORKLOAD}" . "${TRACE_MOUNT}" ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"}
 	;;
 rm)
 	shift

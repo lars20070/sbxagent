@@ -41,7 +41,9 @@ the default), and half the host memory capped at 32 GiB.
 
 Network access is an allowlist, not the open internet, unless the sandbox was
 created with `NETWORK_ALLOWLIST=false` — that stacks the `mixins/open-network`
-mixin kit, which allows every host (deny rules still win). Every kit rewrites
+mixin kit, which allows every host (deny rules still win). `HOST_CHROME_ACCESS=true` stacks
+`mixins/host-chrome`, which adds `socat` and the Playwright MCP server so the
+agent can drive a Chrome on the host (see [host-chrome.md](host-chrome.md)). Every kit rewrites
 GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
 allowlisted port 443 without changing the host checkout. On `sbxclaude`,
 `sbxcodex` and `sbxpi`, a root-owned guard catches a blocked request and prints
@@ -133,8 +135,8 @@ sbxclaude      # recreates from the kit and attaches
 ```
 
 Pin bumps in `kits/` only take effect after this rebuild, and so
-do the create-time settings `SBXAGENT_LITE`, `CROSS_SANDBOX_VISIBILITY` and
-`NETWORK_ALLOWLIST`.
+do the create-time settings `SBXAGENT_LITE`, `CROSS_SANDBOX_VISIBILITY`,
+`NETWORK_ALLOWLIST` and `HOST_CHROME_ACCESS`.
 
 A rebuild also picks up the newest workload. `sbx` reads each agent's login
 from the credentials stored on the host, so a rebuild needs no new sign-in.

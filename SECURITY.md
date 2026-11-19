@@ -33,6 +33,12 @@ Inside that boundary the agent can still:
   example). Docker's Pi workload, for one, also allows Anthropic's API.
   A sandbox created with `NETWORK_ALLOWLIST=false` opts out of that list and
   can reach any host that no deny rule blocks.
+- **Drive your host Chrome, if you opt in.** With `HOST_CHROME_ACCESS=true`
+  and the network rule you add yourself, any process in the sandbox gets raw
+  Chrome DevTools Protocol access: every tab, cookie and login in that
+  browser profile, and pages are fetched from the host, so the sandbox
+  allowlist does not limit them. Use a dedicated profile. See
+  [docs/host-chrome.md](docs/host-chrome.md).
 
 The network-block guard is a courtesy, not a wall, and it lands with
 different force in each agent: Claude Code is a hard stop, Codex is soft

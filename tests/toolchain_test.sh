@@ -7,7 +7,9 @@
 # `make test-toolchain` passes the toggles the host asked for as
 # EXPECTED_SBXAGENT_LITE and EXPECTED_NETWORK_ALLOWLIST, and EXPECTED_GITHUB
 # (bound, the default, or unbound) for the GitHub credential, so a lost
-# override can never silently test the other branch.
+# override can never silently test the other branch. EXPECTED_HOST_CHROME_ACCESS
+# is false, true (setup only) or live (needs Chrome and the policy rule); unset
+# skips it.
 set -euo pipefail
 
 # Which kit built this sandbox. The wrapper names every sandbox
@@ -201,6 +203,111 @@ else
 		fail "example.com returned '${NETWORK_PROBE_STATUS}', not the proxy's 403, with NETWORK_ALLOWLIST=${NETWORK_ALLOWLIST:-unset} (${REBUILD_HINT})"
 	pass "the network allow list is on: example.com is blocked (NETWORK_ALLOWLIST=${NETWORK_ALLOWLIST:-unset})"
 fi
+
+# HOST_CHROME_ACCESS: false = nothing of the mixin is present; true = setup
+# only (no Chrome needed); live = also a real MCP round trip to the host Chrome.
+# Unset skips the whole block so ordinary runs never need Chrome.
+host_chrome_entry_count() {
+	local n=0 f
+	for f in "${HOME}/.claude.json" "${HOME}/.cursor/mcp.json" "${HOME}/.pi/agent/mcp.json"; do
+		if [[ -f "${f}" ]] && jq -e '.mcpServers.playwright' "${f}" >/dev/null 2>&1; then
+			n=$((n + 1))
+		fi
+	done
+	if [[ -f "${HOME}/.codex/config.toml" ]]; then
+		n=$((n + $(grep -c '^\[mcp_servers\.playwright\]' "${HOME}/.codex/config.toml" || true)))
+	fi
+	printf '%s\n' "${n}"
+}
+HOST_CHROME_FORWARDER="socat TCP-LISTEN:9222,bind=127.0.0.1,fork,reuseaddr PROXY:gateway.docker.internal:host.docker.internal:9222,proxyport=3128"
+case "${EXPECTED_HOST_CHROME_ACCESS:-}" in
+"") ;;
+false)
+	[[ -z "${HOST_CHROME_ACCESS:-}" ]] ||
+		fail "HOST_CHROME_ACCESS is '${HOST_CHROME_ACCESS}' but the host asked for false (${REBUILD_HINT})"
+	! (exec 3<>/dev/tcp/127.0.0.1/9222) 2>/dev/null || fail "something listens on 9222 with HOST_CHROME_ACCESS off"
+	[[ "$(host_chrome_entry_count)" == "0" ]] || fail "a playwright MCP entry exists with HOST_CHROME_ACCESS off"
+	! command -v playwright-mcp >/dev/null 2>&1 || fail "playwright-mcp is installed with HOST_CHROME_ACCESS off"
+	pass "host Chrome access is off: no forwarder, no playwright entry, no playwright-mcp"
+	;;
+true | live)
+	[[ "${HOST_CHROME_ACCESS:-}" == "true" ]] ||
+		fail "HOST_CHROME_ACCESS is '${HOST_CHROME_ACCESS:-unset}' but the host asked for true (${REBUILD_HINT})"
+	command -v socat >/dev/null 2>&1 || fail "socat is missing"
+	command -v playwright-mcp >/dev/null 2>&1 || fail "playwright-mcp is missing"
+	forwarder_listener_pid() {
+		local inode f
+		inode="$(cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$4 == "0A" && $2 ~ /:2406$/ { print $10; exit }')"
+		[[ -n "${inode}" ]] || return 1
+		for f in /proc/[0-9]*/fd/*; do
+			if [[ "$(readlink "${f}" 2>/dev/null)" == "socket:[${inode}]" ]]; then
+				f="${f#/proc/}"
+				echo "${f%%/*}"
+				return 0
+			fi
+		done
+		return 1
+	}
+	fwd_pid="$(forwarder_listener_pid)" || fail "nothing owns the listening socket on 9222"
+	[[ "$(tr '\0' ' ' <"/proc/${fwd_pid}/cmdline")" == "${HOST_CHROME_FORWARDER} " ]] ||
+		fail "the listener on 9222 is not our socat forwarder"
+	[[ "$(host_chrome_entry_count)" == "1" ]] || fail "expected exactly one playwright MCP entry, found $(host_chrome_entry_count)"
+	case "${KIT_NAME}" in
+	sbxclaude)
+		cfg="${HOME}/.claude.json"
+		jq -e '.mcpServers.playwright.command == "playwright-mcp" and (.mcpServers | has("context7") and has("github"))' "${cfg}" >/dev/null ||
+			fail "playwright entry or the kit's own MCP servers are missing from ${cfg}"
+		;;
+	sbxcodex)
+		cfg="${HOME}/.codex/config.toml"
+		python3 -c 'import sys,tomllib; d=tomllib.load(open(sys.argv[1],"rb"))["mcp_servers"]; assert "playwright" in d and "context7" in d and "github" in d' "${cfg}" ||
+			fail "playwright table or the kit's own MCP servers are missing from ${cfg}"
+		;;
+	sbxcursor)
+		cfg="${HOME}/.cursor/mcp.json"
+		jq -e '.mcpServers | has("playwright") and has("context7") and has("github")' "${cfg}" >/dev/null ||
+			fail "playwright entry or the kit's own MCP servers are missing from ${cfg}"
+		;;
+	sbxpi)
+		cfg="${HOME}/.pi/agent/mcp.json"
+		jq -e '.mcpServers | has("playwright") and has("github")' "${cfg}" >/dev/null ||
+			fail "playwright entry or github server missing from ${cfg}"
+		;;
+	*) fail "unknown kit ${KIT_NAME}" ;;
+	esac
+	[[ "$(stat -c %U "${cfg}" 2>/dev/null || stat -f %Su "${cfg}")" == "$(id -un)" ]] ||
+		fail "${cfg} is not owned by the agent user"
+	pass "host Chrome access is set up: forwarder running, one playwright entry in ${cfg}"
+	if [[ "${EXPECTED_HOST_CHROME_ACCESS}" == "live" ]]; then
+		version_json="$(curl -sf --max-time 10 http://localhost:9222/json/version)" ||
+			fail "http://localhost:9222/json/version failed: is Chrome running and the policy rule added? See docs/host-chrome.md"
+		printf '%s' "${version_json}" | jq -e '.webSocketDebuggerUrl | startswith("ws://localhost:9222/")' >/dev/null ||
+			fail "Chrome's WebSocket URL is not ws://localhost:9222/..."
+		# One real MCP round trip: initialize, then list the open tabs.
+		mcp_out="$({
+			printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"toolchain-test","version":"0"}}}'
+			printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+			printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"browser_tabs","arguments":{"action":"list"}}}'
+			sleep 8
+		} | timeout 30 playwright-mcp --cdp-endpoint http://localhost:9222 2>/dev/null)" || true
+		# The answer to id 2 must be a successful result, not an error, and must
+		# mention a tab Chrome itself reports (a real browser_tabs listing).
+		tab_url="$(curl -sf --max-time 10 http://localhost:9222/json/list | jq -r '[.[] | select(.type == "page")][0].url // empty')" ||
+			fail "could not list Chrome's tabs"
+		[[ -n "${tab_url}" ]] || fail "Chrome has no open tab; open one and retry"
+		printf '%s\n' "${mcp_out}" | jq -e -s --arg url "${tab_url}" '
+			[.[] | select(.id == 2)] | length == 1 and
+			(.[0] | has("error") | not) and
+			(.[0].result.isError // false | not) and
+			([.[0].result.content[]?.text] | join(" ") | contains($url))' >/dev/null ||
+			fail "browser_tabs did not return a successful listing containing ${tab_url}: ${mcp_out}"
+		curl -sf --max-time 10 http://localhost:9222/json/version >/dev/null ||
+			fail "Chrome stopped answering after the MCP session ended"
+		pass "a real MCP round trip to the host Chrome works and leaves Chrome running"
+	fi
+	;;
+*) fail "EXPECTED_HOST_CHROME_ACCESS must be false, true or live, not '${EXPECTED_HOST_CHROME_ACCESS}'" ;;
+esac
 
 # Sandbox policy allows github.com:443 but not SSH port 22; the kit rewrites
 # GitHub SSH remotes to HTTPS so fetches stay on the allowlist.
