@@ -35,7 +35,7 @@ flowchart LR
     direction TB
     LLM("Anthropic, OpenAI, <br/>OpenRouter, Ollama, ...")
     GH("GitHub, Context7, PyPI, ...")
-    CHROME("Chrome on host system<br/>(one sandbox at a time, profile per<br/>project and agent in<br/>~/.local/state/sbxagent/browserprofiles)")
+    CHROME("Chrome on host system<br/>(browser profiles in<br/>~/.local/state/sbxagent)")
   end
 
   PROJ -.->|"mounts"| VM
