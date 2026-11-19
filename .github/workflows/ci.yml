@@ -81,14 +81,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # SBXAGENT_REQUIRE_BIND turns mount_state_test.sh's "no bind mounts here"
-      # skip into a failure. Only Linux can bind-mount at all, so this is the
-      # one runner that can be held to it — without it, a permissions change
-      # could silently reduce every runner to the non-mount cases.
       - name: Test wrapper
         run: make test-unit
-        env:
-          SBXAGENT_REQUIRE_BIND: ${{ runner.os == 'Linux' && '1' || '' }}
 
       # macOS still ships bash 3.2 as /bin/bash, which is the oldest
       # interpreter the wrapper has to run under.
@@ -96,55 +90,44 @@ jobs:
         if: runner.os == 'macOS'
         run: make test-unit BASH=/bin/bash
 
-  # Validate kits/*/spec.yaml against the current Sandbox Kit schema.
-  # Static check — no Docker or login; only the CLI download needs the
-  # network. Install steps mirror docker/sbx-kits-contrib's
-  # .github/workflows/e2e.yml.
+  # Build every kit for both Linux architectures and check each result with
+  # kit-tck. sbx v0.54.0 cannot check a schema v3 source kit without its
+  # daemon, so sbx is not involved: how the kits compose with Docker's agent
+  # workloads is a host check (AGENTS.md). Linux only, because the macOS
+  # runners have no Docker.
   validate:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      # Install the latest sbx CLI. "latest" is intentional: the schema is
-      # bundled in the binary, so this surfaces schema drift as soon as it
-      # ships.
-      - name: Install sbx CLI
-        if: runner.os == 'Linux'
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Same version and digest the kits' recipes pin (docs/toolchain.md).
+      - name: Install kit-tck
+        env:
+          KIT_TCK_VERSION: 3.0.0-m.12
+          KIT_TCK_SHA256: 473b72d7bb48b11987250493e9b47fb2c616de601777e139191a86fc5e962f21
         run: |
           set -euo pipefail
           curl -fsSL \
-            "https://github.com/docker/sbx-releases/releases/latest/download/DockerSandboxes-linux.tar.gz" \
-            -o /tmp/DockerSandboxes-linux.tar.gz
-          tar xzf /tmp/DockerSandboxes-linux.tar.gz -C /tmp
-          sudo PREFIX="${HOME}/.docker/sbx" /tmp/docker-sbx/install.sh
-          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
+            "https://github.com/docker/sandbox-kit-spec/releases/download/v${KIT_TCK_VERSION}/kit-tck_${KIT_TCK_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/kit-tck.tar.gz
+          actual_sha256="$(sha256sum /tmp/kit-tck.tar.gz | cut -d' ' -f1)"
+          if [[ "${actual_sha256}" != "${KIT_TCK_SHA256}" ]]; then
+            echo "kit-tck checksum mismatch: got ${actual_sha256}, want ${KIT_TCK_SHA256}" >&2
+            exit 1
+          fi
+          mkdir -p "${HOME}/.local/bin"
+          tar xzf /tmp/kit-tck.tar.gz -C "${HOME}/.local/bin" kit-tck
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
 
-      # The darwin archive has no install.sh and a different layout: since
-      # v0.45.0 it is a signed Sbx.app bundle plus a bin/ directory whose
-      # bin/sbx is a relative symlink into the bundle, so extract the whole
-      # archive and put that bin on PATH. Homebrew is avoided here because
-      # `brew trust docker/tap` prompts.
-      - name: Install sbx CLI
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          curl -fsSL \
-            "https://github.com/docker/sbx-releases/releases/latest/download/DockerSandboxes-darwin.tar.gz" \
-            -o /tmp/DockerSandboxes-darwin.tar.gz
-          mkdir -p "${HOME}/.docker/sbx"
-          tar xzf /tmp/DockerSandboxes-darwin.tar.gz -C "${HOME}/.docker/sbx"
-          echo "${HOME}/.docker/sbx/bin" >> "$GITHUB_PATH"
-
-      - name: Verify sbx
-        run: sbx version
-
-      - name: Validate kit spec
-        run: make validate
+      - name: Build and check every kit
+        run: make validate PLATFORMS=linux/amd64,linux/arm64

@@ -8,7 +8,7 @@ set -euo pipefail
 # workflow_dispatch GITHUB_REF_NAME is a branch, which would fail the shape
 # check below, so a dispatch reads VERSION itself instead of calling this.
 #
-# This deliberately does NOT re-check kits/*/spec.yaml or CHANGELOG.md. `make
+# This deliberately does NOT re-check kits/*/<kit>.yaml or CHANGELOG.md. `make
 # lint` already fails when VERSION, any kit spec version, or CHANGELOG.md's
 # latest release heading disagree, and the release workflow runs `make lint` in
 # the same job. Duplicating that here would be a second copy to keep in sync.

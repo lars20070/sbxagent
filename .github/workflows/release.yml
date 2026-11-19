@@ -124,8 +124,8 @@ jobs:
             exit 1
           fi
           if [[ -n "${PROBE_KIT}" ]]; then
-            if [[ ! -f "kits/${PROBE_KIT}/spec.yaml" ]]; then
-              echo "no kit at kits/${PROBE_KIT}/spec.yaml" >&2
+            if [[ ! -f "kits/${PROBE_KIT}/${PROBE_KIT}.yaml" ]]; then
+              echo "no kit at kits/${PROBE_KIT}/${PROBE_KIT}.yaml" >&2
               exit 1
             fi
             jq -nc --arg k "${PROBE_KIT}" '[$k]' | sed 's/^/kits=/' >> "$GITHUB_OUTPUT"
@@ -205,13 +205,13 @@ jobs:
       # Digest-checked, also unlike ci.yml: this binary runs install.sh under sudo
       # and then pushes and signs every published kit, so the archive is
       # verified before anything in it is extracted or executed. The digest is
-      # the one the kits pin for the same v0.50.0 Linux archive — the generic
+      # the one the kits pin for the same v0.54.0 Linux archive — the generic
       # and -amd64 assets are byte-identical — so bump SBX_VERSION and
       # SBX_SHA256 together, alongside the kits (docs/toolchain.md).
       - name: Install sbx CLI
         env:
-          SBX_VERSION: v0.50.0
-          SBX_SHA256: bca9f2ff2bd9cab845d05d057964905da93990e68661efb6c46267e96c794949
+          SBX_VERSION: v0.54.0
+          SBX_SHA256: eded29017121a857c98d4a91cad593f6a9e00f4010e830679bd385f4a5edba4d
         run: |
           set -euo pipefail
           curl -fsSL \
@@ -229,6 +229,34 @@ jobs:
       - name: Verify sbx
         run: sbx version
 
+      # The kits are schema v3: Buildx builds each one for both Linux
+      # architectures and pushes it, and kit-tck checks the result first. sbx
+      # stays for `sbx kit sign` and `sbx kit verify`.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Same version and digest as ci.yml and the kits' recipes.
+      - name: Install kit-tck
+        env:
+          KIT_TCK_VERSION: 3.0.0-m.12
+          KIT_TCK_SHA256: 473b72d7bb48b11987250493e9b47fb2c616de601777e139191a86fc5e962f21
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/docker/sandbox-kit-spec/releases/download/v${KIT_TCK_VERSION}/kit-tck_${KIT_TCK_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/kit-tck.tar.gz
+          actual_sha256="$(sha256sum /tmp/kit-tck.tar.gz | cut -d' ' -f1)"
+          if [[ "${actual_sha256}" != "${KIT_TCK_SHA256}" ]]; then
+            echo "kit-tck checksum mismatch: got ${actual_sha256}, want ${KIT_TCK_SHA256}" >&2
+            exit 1
+          fi
+          mkdir -p "${HOME}/.local/bin"
+          tar xzf /tmp/kit-tck.tar.gz -C "${HOME}/.local/bin" kit-tck
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+
       # oras probes whether the version tag already exists and re-points the
       # rolling tag by digest. A dry run reaches neither, so both this and the
       # login below are skipped and a rehearsal needs no credentials at all.
@@ -236,8 +264,8 @@ jobs:
         if: env.DRY_RUN == ''
         uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
 
-      # `sbx kit push` authenticates through the Docker credential store, so a
-      # plain docker login is what it reads.
+      # Buildx and `sbx kit sign` both authenticate through the Docker
+      # credential store, so a plain docker login is what they read.
       - name: Log in to GHCR
         if: env.DRY_RUN == ''
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
@@ -247,7 +275,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # fd 3 carries the script's machine-readable key=value output, keeping
-      # `sbx kit validate`/`inspect` and oras chatter out of $GITHUB_OUTPUT.
+      # build, kit-tck and oras chatter out of $GITHUB_OUTPUT.
       - name: Publish
         env:
           KIT: ${{ matrix.kit }}

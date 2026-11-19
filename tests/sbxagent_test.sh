@@ -86,6 +86,38 @@ assert_log() {
 	assert_eq "${expected}" "${actual}" "${context}"
 }
 
+# The argv of a sandbox-creating call as the fake sbx logs it.
+#   create_argv VERB NAME KIT WORKLOAD LITE NETWORK_KIT TRACE_SOURCE TRACE_TARGET [MOUNT...]
+# NETWORK_KIT is empty unless NETWORK_ALLOWLIST=false stacks the mixin.
+create_argv() {
+	local verb="$1" name="$2" kit="$3" workload="$4" lite="$5" network_kit="$6"
+	local trace_source="$7" trace_target="$8"
+	shift 8
+	local line mount
+	line="$(printf '%s\t--name\t%s\t--pull\talways\t--kit\t%s' "${verb}" "${name}" "${kit}")"
+	if [[ -n "${network_kit}" ]]; then
+		line="${line}$(printf '\t--kit\t%s' "${network_kit}")"
+	fi
+	line="${line}$(printf '\t--kit-arg\t%s.lite=%s\t%s\t.\t%s:%s' \
+		"$(basename "${kit}")" "${lite}" "${workload}" "${trace_source}" "${trace_target}")"
+	for mount in "$@"; do
+		line="${line}$(printf '\t%s' "${mount}")"
+	done
+	printf '%s' "${line}"
+}
+
+# `kit validate` builds KIT into a throwaway OCI layout and checks it there.
+# The layout is a fresh temporary directory, so only its shape is asserted.
+assert_kit_validated() {
+	local kit="$1"
+	local context="$2"
+	local name tab
+	name="$(basename "${kit}")"
+	tab=$'\t'
+	assert_match "^docker${tab}buildx${tab}build${tab}--quiet${tab}-f${tab}${kit}/${name}\.yaml${tab}--output${tab}type=oci,dest=[^${tab}]+,tar=false,name=${name}${tab}${kit}"$'\n'"kit-tck${tab}validate${tab}--layout${tab}[^${tab}]+${tab}latest$" \
+		"$(<"${SBX_LOG}")" "${context}"
+}
+
 assert_no_log() {
 	local context="$1"
 	[[ ! -s "${SBX_LOG}" ]] || fail "${context}: sbx was called"
@@ -173,6 +205,21 @@ done
 printf '\n' >>"${SBX_LOG}"
 EOF
 chmod +x "${FAKE_BIN}/sbx"
+# `kit validate` builds with Docker and checks with kit-tck, not sbx. These
+# fakes log the same way, prefixed with their own name so the two calls can be
+# told apart.
+for tool in docker kit-tck; do
+	cat >"${FAKE_BIN}/${tool}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' "$(basename "$0")" >>"${SBX_LOG}"
+for arg in "$@"; do
+	printf '\t%s' "${arg}" >>"${SBX_LOG}"
+done
+printf '\n' >>"${SBX_LOG}"
+EOF
+	chmod +x "${FAKE_BIN}/${tool}"
+done
 export PATH="${FAKE_BIN}:${PATH}"
 export SBX_LOG
 # The wrapper creates its state tree under XDG_STATE_HOME on every
@@ -256,6 +303,9 @@ pass "version prints the kit name and version without calling sbx"
 
 SANDBOX="${NAME_A}"
 CLAUDE_KIT="${ROOT}/kits/sbxclaude"
+# Claude Code's native session-trace directory, which the agent's state
+# subfolder is mounted onto.
+CLAUDE_TRACES="/home/agent/.claude/projects"
 # The state tree is keyed by the project, not the agent: strip the agent
 # prefix from the sandbox name and every kit run against WORK_A shares the
 # result. Asserted below when a second kit creates into the same folder.
@@ -269,17 +319,17 @@ MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${NAME_A#*-}"
 [[ ! -e "${STATE_ROOT}" ]] || fail "name/version created ${STATE_ROOT}"
 [[ ! -e "${MESSAGEBOARD_ROOT}" ]] || fail "name/version created ${MESSAGEBOARD_ROOT}"
 
-# Attach: creates (validate + kit) only when the sandbox is missing, and
-# re-attaches directly when it already exists. Neither call passes `--`,
-# since the wrapper never forwards agent arguments. Only creation passes
-# `--pull always`, so a re-attach never re-pulls. Creation mounts the
-# project's state folder read-only, the project's messageboard read-write,
-# and this agent's subfolder read-write.
+# Attach: creates only when the sandbox is missing, and re-attaches directly
+# when it already exists. Neither call passes `--`, since the wrapper never
+# forwards agent arguments. Only creation passes `--pull always`, so a
+# re-attach never re-pulls. Creation stacks this agent's kit on its workload,
+# mounts this agent's trace subfolder read-write onto the agent's native trace
+# directory, the project's state folder read-only, and the project's
+# messageboard read-write.
 clear_log
 SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_A}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
-	"${CLAUDE_KIT}" "${SANDBOX}" "${PROJECT_DIR}/sbxclaude" \
-	"${CLAUDE_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxclaude")" "new sandbox attach"
+assert_log "$(create_argv run "${SANDBOX}" "${CLAUDE_KIT}" claude true "" \
+	"${PROJECT_DIR}/sbxclaude/projects" "${CLAUDE_TRACES}" "${PROJECT_DIR}:ro" "${MESSAGEBOARD_DIR}")" "new sandbox attach"
 [[ "$(<"${SBX_LOG}")" != *$'\t--\t'* ]] || fail "new attach passed --"
 [[ "$(<"${SBX_LOG}")" == *$'\t--pull\talways\t'* ]] || fail "new attach did not pass --pull always"
 [[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "attach did not create ${PROJECT_DIR}/sbxclaude"
@@ -322,8 +372,8 @@ assert_log "$(printf 'inspect\t%s' "${SANDBOX}")" "inspect"
 rm -rf "${STATE_ROOT}" "${MESSAGEBOARD_ROOT}"
 clear_log
 run_claude "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
-	"${SANDBOX}" "${PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxclaude")" "create"
+assert_log "$(create_argv create "${SANDBOX}" "${CLAUDE_KIT}" claude true "" \
+	"${PROJECT_DIR}/sbxclaude/projects" "${CLAUDE_TRACES}" "${PROJECT_DIR}:ro" "${MESSAGEBOARD_DIR}")" "create"
 [[ "$(<"${SBX_LOG}")" == *$'\t--pull\talways\t'* ]] || fail "create did not pass --pull always"
 [[ -d "${PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR}/sbxclaude"
 assert_eq "700" "$(file_mode "${PROJECT_DIR}/sbxclaude")" "agent state folder mode"
@@ -332,7 +382,7 @@ assert_eq "700" "$(file_mode "${MESSAGEBOARD_DIR}")" "messageboard folder mode"
 
 clear_log
 run_claude "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CLAUDE_KIT}")" "kit validate"
+assert_kit_validated "${CLAUDE_KIT}" "kit validate"
 
 clear_log
 run_claude "${WORK_A}" policy log >/dev/null
@@ -403,12 +453,12 @@ assert_eq "sbxcodex ${EXPECTED_VERSION}" "${CODEX_VERSION_OUT}" "codex version o
 CODEX_KIT="${ROOT}/kits/sbxcodex"
 clear_log
 run_codex "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CODEX_KIT}")" "codex kit path"
+assert_kit_validated "${CODEX_KIT}" "codex kit path"
 
 clear_log
 run_codex "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
-	"${CODEX_NAME}" "${PROJECT_DIR}/sbxcodex" "${CODEX_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxcodex")" "codex create"
+assert_log "$(create_argv create "${CODEX_NAME}" "${CODEX_KIT}" codex true "" \
+	"${PROJECT_DIR}/sbxcodex/sessions" /home/agent/.codex/sessions "${PROJECT_DIR}:ro" "${MESSAGEBOARD_DIR}")" "codex create"
 pass "sbxcodex dispatches to its own kit, sandbox name and kit operand"
 
 # The state folder is shared per project, not per agent: both kits' folders
@@ -454,18 +504,18 @@ assert_eq "sbxcursor ${EXPECTED_VERSION}" "${CURSOR_VERSION_OUT}" "cursor versio
 CURSOR_KIT="${ROOT}/kits/sbxcursor"
 clear_log
 run_cursor "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CURSOR_KIT}")" "cursor kit path"
+assert_kit_validated "${CURSOR_KIT}" "cursor kit path"
 
 clear_log
 run_cursor "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
-	"${CURSOR_NAME}" "${PROJECT_DIR}/sbxcursor" "${CURSOR_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxcursor")" "cursor create"
+assert_log "$(create_argv create "${CURSOR_NAME}" "${CURSOR_KIT}" cursor true "" \
+	"${PROJECT_DIR}/sbxcursor/projects" /home/agent/.cursor/projects "${PROJECT_DIR}:ro" "${MESSAGEBOARD_DIR}")" "cursor create"
 pass "sbxcursor dispatches to its own kit, sandbox name and kit operand"
 
 clear_log
 CURSOR_HELP="$(run_cursor "${WORK_A}" help)"
 assert_no_log "cursor help"
-[[ "${CURSOR_HELP}" == *"Use sbx or agent directly"* ]] ||
+[[ "${CURSOR_HELP}" == *"Use sbx or cursor-agent directly"* ]] ||
 	fail "cursor help did not name the agent CLI: ${CURSOR_HELP}"
 [[ "${CURSOR_HELP}" == *"sbxcursor name"* ]] ||
 	fail "cursor help did not use the invoked name"
@@ -491,12 +541,12 @@ assert_eq "sbxpi ${EXPECTED_VERSION}" "${PI_VERSION_OUT}" "pi version output"
 PI_KIT="${ROOT}/kits/sbxpi"
 clear_log
 run_pi "${WORK_A}" kit validate >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${PI_KIT}")" "pi kit path"
+assert_kit_validated "${PI_KIT}" "pi kit path"
 
 clear_log
 run_pi "${WORK_A}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
-	"${PI_NAME}" "${PROJECT_DIR}/sbxpi" "${PI_KIT}" "${PROJECT_DIR}" "${MESSAGEBOARD_DIR}" "${PROJECT_DIR}/sbxpi")" "pi create"
+assert_log "$(create_argv create "${PI_NAME}" "${PI_KIT}" docker.io/sbx/pi true "" \
+	"${PROJECT_DIR}/sbxpi/sessions" /home/agent/.pi/agent/sessions "${PROJECT_DIR}:ro" "${MESSAGEBOARD_DIR}")" "pi create"
 pass "sbxpi dispatches to its own kit, sandbox name and kit operand"
 
 clear_log
@@ -530,8 +580,8 @@ MESSAGEBOARD_DIR_B="${MESSAGEBOARD_ROOT}/${NAME_B#*-}"
 BEFORE="$(ls "${PROJECT_DIR}")"
 clear_log
 run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
-	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create in another directory"
+assert_log "$(create_argv create "${NAME_B}" "${CLAUDE_KIT}" claude true "" \
+	"${PROJECT_DIR_B}/sbxclaude/projects" "${CLAUDE_TRACES}" "${PROJECT_DIR_B}:ro" "${MESSAGEBOARD_DIR_B}")" "create in another directory"
 [[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create did not create ${PROJECT_DIR_B}/sbxclaude"
 assert_eq "${BEFORE}" "$(ls "${PROJECT_DIR}")" "other project's state folder untouched"
 pass "each directory gets its own project state folder"
@@ -546,16 +596,16 @@ pass "each directory gets its own project state folder"
 # never-created case is asserted with a fresh project key in the .env block.
 clear_log
 CROSS_SANDBOX_VISIBILITY=false run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
-	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "create without visibility"
+assert_log "$(create_argv create "${NAME_B}" "${CLAUDE_KIT}" claude true "" \
+	"${PROJECT_DIR_B}/sbxclaude/projects" "${CLAUDE_TRACES}")" "create without visibility"
 [[ -d "${PROJECT_DIR_B}/sbxclaude" ]] || fail "create without visibility removed ${PROJECT_DIR_B}/sbxclaude"
 [[ -d "${MESSAGEBOARD_DIR_B}" ]] ||
 	fail "create without visibility deleted the existing ${MESSAGEBOARD_DIR_B}"
 
 clear_log
 CROSS_SANDBOX_VISIBILITY=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s' \
-	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}/sbxclaude")" "attach without visibility"
+assert_log "$(create_argv run "${NAME_B}" "${CLAUDE_KIT}" claude true "" \
+	"${PROJECT_DIR_B}/sbxclaude/projects" "${CLAUDE_TRACES}")" "attach without visibility"
 
 BEFORE="$(ls "${STATE_ROOT}")"
 BEFORE_BOARD="$(ls "${MESSAGEBOARD_ROOT}")"
@@ -567,13 +617,13 @@ BOGUS_NAME="$(CROSS_SANDBOX_VISIBILITY=bogus run_claude "${WORK_B}" name)" ||
 assert_eq "${NAME_B}" "${BOGUS_NAME}" "name with bad visibility value"
 pass "CROSS_SANDBOX_VISIBILITY=false drops the shared mount and rejects other values"
 
-# SBXAGENT_LITE reaches the kit as --kit-arg lite=<value>; the default true
+# SBXAGENT_LITE reaches the kit as --kit-arg <kit>.lite=<value>; the default true
 # is already asserted by every create/run argv above. Like the visibility
 # flag, a bad value is rejected only on the creating paths.
 clear_log
 SBXAGENT_LITE=false run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s:ro\t%s\t%s' \
-	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create with SBXAGENT_LITE=false"
+assert_log "$(create_argv create "${NAME_B}" "${CLAUDE_KIT}" claude false "" \
+	"${PROJECT_DIR_B}/sbxclaude/projects" "${CLAUDE_TRACES}" "${PROJECT_DIR_B}:ro" "${MESSAGEBOARD_DIR_B}")" "create with SBXAGENT_LITE=false"
 SBXAGENT_LITE=bogus reject_without_call "${WORK_B}" create
 LITE_BOGUS_NAME="$(SBXAGENT_LITE=bogus run_claude "${WORK_B}" name)" ||
 	fail "'name' failed with a bad SBXAGENT_LITE"
@@ -586,13 +636,12 @@ pass "SBXAGENT_LITE is passed as a kit arg and rejects other values"
 OPEN_NETWORK_KIT="${ROOT}/mixins/open-network"
 clear_log
 NETWORK_ALLOWLIST=false run_claude "${WORK_B}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s\t%s' \
-	"${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" "${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "create with NETWORK_ALLOWLIST=false"
+assert_log "$(create_argv create "${NAME_B}" "${CLAUDE_KIT}" claude true "${OPEN_NETWORK_KIT}" \
+	"${PROJECT_DIR_B}/sbxclaude/projects" "${CLAUDE_TRACES}" "${PROJECT_DIR_B}:ro" "${MESSAGEBOARD_DIR_B}")" "create with NETWORK_ALLOWLIST=false"
 clear_log
 NETWORK_ALLOWLIST=false SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1 run_claude "${WORK_B}" >/dev/null
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s\nrun\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t--kit\t%s\t%s\t.\t%s:ro\t%s\t%s' \
-	"${CLAUDE_KIT}" "${NAME_B}" "${PROJECT_DIR_B}/sbxclaude" \
-	"${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${PROJECT_DIR_B}" "${MESSAGEBOARD_DIR_B}" "${PROJECT_DIR_B}/sbxclaude")" "new sandbox attach with NETWORK_ALLOWLIST=false"
+assert_log "$(create_argv run "${NAME_B}" "${CLAUDE_KIT}" claude true "${OPEN_NETWORK_KIT}" \
+	"${PROJECT_DIR_B}/sbxclaude/projects" "${CLAUDE_TRACES}" "${PROJECT_DIR_B}:ro" "${MESSAGEBOARD_DIR_B}")" "new sandbox attach with NETWORK_ALLOWLIST=false"
 NETWORK_ALLOWLIST=bogus reject_without_call "${WORK_B}" create
 NETWORK_BOGUS_NAME="$(NETWORK_ALLOWLIST=bogus run_claude "${WORK_B}" name)" ||
 	fail "'name' failed with a bad NETWORK_ALLOWLIST"
@@ -622,8 +671,8 @@ DOTENV_PROJECT_DIR="${STATE_ROOT}/${DOTENV_NAME#*-}"
 DOTENV_MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${DOTENV_NAME#*-}"
 clear_log
 run_claude "${WORK_ENV}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t--kit\t%s\t%s\t.\t%s' \
-	"${DOTENV_NAME}" "${DOTENV_PROJECT_DIR}/sbxclaude" "${OPEN_NETWORK_KIT}" "${CLAUDE_KIT}" "${DOTENV_PROJECT_DIR}/sbxclaude")" \
+assert_log "$(create_argv create "${DOTENV_NAME}" "${CLAUDE_KIT}" claude false "${OPEN_NETWORK_KIT}" \
+	"${DOTENV_PROJECT_DIR}/sbxclaude/projects" "${CLAUDE_TRACES}")" \
 	".env CROSS_SANDBOX_VISIBILITY=false drops the shared mount, SBXAGENT_LITE=false reaches the kit, NETWORK_ALLOWLIST=false stacks the mixin"
 # The only project key in the suite whose first create runs with visibility
 # off, so this is where "never created" can be told apart from "created by an
@@ -633,8 +682,8 @@ assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR
 
 clear_log
 NETWORK_ALLOWLIST=true run_claude "${WORK_ENV}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=false\t%s\t.\t%s' \
-	"${DOTENV_NAME}" "${DOTENV_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${DOTENV_PROJECT_DIR}/sbxclaude")" \
+assert_log "$(create_argv create "${DOTENV_NAME}" "${CLAUDE_KIT}" claude false "" \
+	"${DOTENV_PROJECT_DIR}/sbxclaude/projects" "${CLAUDE_TRACES}")" \
 	"real env NETWORK_ALLOWLIST=true beats .env"
 
 ENV_OVERRIDE_NAME="$(HASH_LENGTH=9 run_claude "${WORK_ENV}" name)"
@@ -652,8 +701,8 @@ EMPTY_PROJECT_DIR="${STATE_ROOT}/${EMPTY_NAME#*-}"
 EMPTY_MESSAGEBOARD_DIR="${MESSAGEBOARD_ROOT}/${EMPTY_NAME#*-}"
 clear_log
 run_claude "${EMPTY_SLUG}" create >/dev/null
-assert_log "$(printf 'create\t--name\t%s\t--pull\talways\t-e\tSBXAGENT_STATE_DIR=%s\t--kit-arg\tlite=true\t%s\t.\t%s:ro\t%s\t%s' \
-	"${EMPTY_NAME}" "${EMPTY_PROJECT_DIR}/sbxclaude" "${CLAUDE_KIT}" "${EMPTY_PROJECT_DIR}" "${EMPTY_MESSAGEBOARD_DIR}" "${EMPTY_PROJECT_DIR}/sbxclaude")" "create with empty slug"
+assert_log "$(create_argv create "${EMPTY_NAME}" "${CLAUDE_KIT}" claude true "" \
+	"${EMPTY_PROJECT_DIR}/sbxclaude/projects" "${CLAUDE_TRACES}" "${EMPTY_PROJECT_DIR}:ro" "${EMPTY_MESSAGEBOARD_DIR}")" "create with empty slug"
 [[ -d "${EMPTY_PROJECT_DIR}/sbxclaude" ]] || fail "create did not create ${EMPTY_PROJECT_DIR}/sbxclaude"
 [[ -d "${EMPTY_MESSAGEBOARD_DIR}" ]] || fail "create did not create ${EMPTY_MESSAGEBOARD_DIR}"
 pass "an empty slug keys the project state and messageboard folders by hash alone"
@@ -670,7 +719,7 @@ mkdir -p "${LINK_BIN}" "${LINK_BIN2}"
 ln -s "${CLAUDE_SCRIPT}" "${LINK_BIN}/sbxclaude"
 (cd "${LINK_BIN2}" && ln -s ../bin-link/sbxclaude sbxclaude)
 (cd "${WORK_B}" && "${LINK_BIN2}/sbxclaude" kit validate >/dev/null)
-assert_log "$(printf 'kit\tvalidate\t--offline\t%s' "${CLAUDE_KIT}")" "kit path via symlinked wrapper"
+assert_kit_validated "${CLAUDE_KIT}" "kit path via symlinked wrapper"
 pass "a symlinked wrapper still resolves the repo kit"
 
 # `help` is deliberately not exempt: in this state the refusal message is the

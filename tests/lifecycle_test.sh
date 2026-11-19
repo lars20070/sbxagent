@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Live proof that the trace bind mount survives the sandbox lifecycle: the
-# stock path stays a real directory, so a stop and a fresh start succeed and
-# the bind is re-made.
+# Live proof, checked from the host, that the trace mount survives the sandbox
+# lifecycle. The wrapper mounts the agent's trace folder in the host's project
+# state straight onto the agent's native session-trace directory, so these
+# checks write on one side and read on the other.
 #
 # Needs a live sbx daemon, so it is outside `make test`, next to test-toolchain.
 # It touches none of your real sandboxes: it works in a throwaway project
@@ -11,11 +12,11 @@
 # Usage: ./tests/lifecycle_test.sh [claude|codex|cursor|pi]
 #
 # Every `sbx` interaction is wrapped in a one-line function below, because a few
-# of them encode assumptions about the CLI that could not be checked when this
-# was written: that `sbx run --name X -- <flag>` runs the kit entrypoint
-# non-interactively, that the sandbox keeps running once that agent process
-# exits, and that `sbx exec` can reach a stopped sandbox. If one of those is
-# wrong, the fix is in that function rather than spread through the cases.
+# of them encode assumptions about the CLI: that `sbx run --name X -- <flag>`
+# runs the agent non-interactively, that the sandbox keeps running once that
+# agent process exits, and that `sbx exec` can reach a stopped sandbox. If one
+# of those is wrong, the fix is in that function rather than spread through the
+# cases.
 set -euo pipefail
 
 AGENT="${1:-claude}"
@@ -31,6 +32,10 @@ fail() {
 pass() {
 	TESTS=$((TESTS + 1))
 	echo "ok ${TESTS} - $*"
+}
+
+note() {
+	echo "# $*"
 }
 
 case "${KIT}" in
@@ -55,10 +60,15 @@ ln -s "${ROOT}/scripts/sbxagent" "${WRAPPER}"
 cd "${PROJECT}"
 
 SANDBOX="$("${WRAPPER}" name)"
-# Mirrors the wrapper's own layout: the sandbox name is <kit>-<slug>-<hash> and
-# the agent state folder is <state home>/sbxagent/traces/<slug>-<hash>/<kit>.
-STATE_DIR="${XDG_STATE_HOME}/sbxagent/traces/${SANDBOX#"${KIT}"-}/${KIT}"
-TARGET="${STATE_DIR}/${SUBDIR}"
+# Mirrors the wrapper's own layout: the sandbox name is <kit>-<slug>-<hash>, the
+# project state folder is <state home>/sbxagent/traces/<slug>-<hash>, and this
+# agent's traces live in <project state>/<kit>/<subdir>.
+PROJECT_DIR="${XDG_STATE_HOME}/sbxagent/traces/${SANDBOX#"${KIT}"-}"
+MESSAGEBOARD_DIR="${XDG_STATE_HOME}/sbxagent/messageboards/${SANDBOX#"${KIT}"-}"
+TARGET="${PROJECT_DIR}/${KIT}/${SUBDIR}"
+# Another agent's traces for the same project, made up for the visibility
+# checks. No sandbox of that agent is ever created.
+SIBLING="${PROJECT_DIR}/other-agent"
 
 cleanup() {
 	cd "${TEST_ROOT}"
@@ -66,55 +76,40 @@ cleanup() {
 	# v0.45.0 a removal prompt that is declined (or never answered) exits
 	# non-zero, which `|| true` would hide and leave the sandbox behind. The
 	# wrapper's own `rm` deliberately never passes --force (see the unit test
-	# in sbxagent_test.sh); only this trap does.
+	# in sbxagent_test.sh); only this trap and remove_sandbox do.
 	sbx rm --force "${SANDBOX}" >/dev/null 2>&1 || true
 	rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT
 
-echo "# kit ${KIT}, disposable sandbox ${SANDBOX}"
+note "kit ${KIT}, disposable sandbox ${SANDBOX}"
 
 # --- the assumptions, isolated -------------------------------------------
 
-# Run the sandbox's configured entrypoint and let it exit again. Passing the
-# agent's own version flag after `--` starts the agent, which then prints a
-# line and exits, instead of opening a TUI this test would have to drive.
-# Trace relocation is the startup step's job now, not the entrypoint's; this
-# function only confirms the agent still launches.
+# Run the sandbox's configured agent and let it exit again. Passing the agent's
+# own version flag after `--` starts the agent, which then prints a line and
+# exits, instead of opening a TUI this test would have to drive.
 run_entrypoint() {
 	sbx run --name "${SANDBOX}" -- --version </dev/null
 }
 
-# A command in the sandbox that does *not* go through the entrypoint.
+# A command in the sandbox that does *not* go through the agent.
 in_sandbox() {
 	sbx exec -i "${SANDBOX}" -- "$@" </dev/null
 }
 
+remove_sandbox() {
+	sbx rm --force "${SANDBOX}" >/dev/null 2>&1 || fail "could not remove ${SANDBOX}"
+}
+
 # --- the cases ------------------------------------------------------------
 
-# Device and inode of a path inside the sandbox, always Linux, so plain GNU
-# `stat -c`. Empty when the path cannot be stat'd at all.
-#
-# Both sides of a comparison go through this, never a host-side stat: the host
-# state folder is shared into the sandbox at the same path, but the guest kernel
-# gives that share its own device number, so a host device:inode can never
-# match a sandbox one. That the host really sees the writes is case 2's job.
-trace_id() {
-	in_sandbox stat -c '%d:%i' "$1" 2>/dev/null || true
-}
-
-# True only when both sides answered and agree, so two failed stats cannot read
-# as a match.
-same_id() {
-	[[ -n "$1" && "$1" == "$2" ]]
-}
-
-# Field 5 of mountinfo is the mount point, space-delimited, so a stack of mounts
-# at one path shows up as a count above one. Claude legitimately has two: the
-# parent kit's own volume, and this bind on top of it.
-mount_depth() {
-	in_sandbox sh -c 'grep -c " '"${1}"' " /proc/self/mountinfo || true'
-}
+# 0. Traces from before this sandbox existed — an older sandbox, or the v2
+#    kits' bind mount — are already in the host folder. They must show up, so
+#    an upgrade keeps them.
+mkdir -p "${TARGET}" "${SIBLING}"
+printf 'old\n' >"${TARGET}/before-create"
+printf 'sibling\n' >"${SIBLING}/trace"
 
 "${WRAPPER}" create >/dev/null || fail "could not create ${SANDBOX}"
 # `sbx exec` runs the command directly rather than through a shell, so $HOME has
@@ -124,84 +119,90 @@ HOME_IN_SANDBOX="$(in_sandbox sh -c 'printf %s "$HOME"')"
 [[ -n "${HOME_IN_SANDBOX}" ]] || fail "could not resolve HOME inside ${SANDBOX}"
 STOCK_ABS="${HOME_IN_SANDBOX}/${STOCK}"
 
-# Created but never attached, so the entrypoint has not run. The bind must
-# still be there: that is the whole job of the `setup: startup:` call site, and
-# without it every session that does not go through the entrypoint writes to an
-# unbound stock path and loses its traces when the sandbox goes away.
-same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
-	fail "${STOCK_ABS} is not bound after 'create' alone; the startup call site did not run"
-pass "the startup step binds the stock trace path before any attach"
+# Created but never attached, so the agent has not run. The mount comes from
+# `create` itself, so nothing else has to have happened yet.
+[[ "$(in_sandbox cat "${STOCK_ABS}/before-create")" == old ]] ||
+	fail "a trace that was on the host before 'create' is not visible at ${STOCK_ABS}"
+pass "traces already on the host are visible at the native path after 'create' alone"
 
-# 1. The bind made by the startup step is still there once the entrypoint has
-#    run, seen from a *separate* session rather than from the process that
-#    made it.
-run_entrypoint >/dev/null || fail "the entrypoint failed on the first start"
-[[ -d "${TARGET}" ]] || fail "the startup step did not create ${TARGET} on the host"
-same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
-	fail "${STOCK_ABS} is not bind-mounted onto ${TARGET} after the first start"
-pass "the startup step's bind is still there once the entrypoint has run"
-
-# 2. The bind is real: a write at the stock path inside the sandbox lands in the
-#    state folder on the host, not merely somewhere that exists.
+# 1. A write at the native path inside the sandbox lands in the host folder.
 in_sandbox sh -c "printf 'first\\n' > '${STOCK_ABS}/lifecycle-marker'" ||
 	fail "could not write a marker at ${STOCK_ABS}"
-[[ -f "${TARGET}/lifecycle-marker" ]] ||
+[[ "$(cat "${TARGET}/lifecycle-marker" 2>/dev/null)" == first ]] ||
 	fail "the marker written in the sandbox did not appear at ${TARGET} on the host"
-pass "a write at the stock path lands in the host state folder"
+pass "a write at the native trace path lands in the host state folder"
 
-# 3. Each `sbx run` is a fresh start, so re-running the entrypoint re-runs the
-#    startup step too; neither stacks another mount. Not an assertion that the
-#    depth is one: Claude's stock path also carries its parent kit's own
-#    volume underneath.
-BASELINE_DEPTH="$(mount_depth "${STOCK_ABS}")"
-[[ "${BASELINE_DEPTH}" -ge 1 ]] ||
-	fail "${STOCK_ABS} reports no mount at all (depth ${BASELINE_DEPTH})"
-run_entrypoint >/dev/null || fail "the entrypoint failed on a repeat start"
-run_entrypoint >/dev/null || fail "the entrypoint failed on a second repeat start"
-DEPTH_NOW="$(mount_depth "${STOCK_ABS}")"
-[[ "${DEPTH_NOW}" -le "${BASELINE_DEPTH}" ]] ||
-	fail "mounts at ${STOCK_ABS} grew from ${BASELINE_DEPTH} to ${DEPTH_NOW}"
-pass "repeat starts do not stack another mount (depth stayed at ${BASELINE_DEPTH})"
+# 2. And the other way: a host-side write is visible inside.
+printf 'host\n' >"${TARGET}/host-marker"
+[[ "$(in_sandbox cat "${STOCK_ABS}/host-marker")" == host ]] ||
+	fail "a file written on the host at ${TARGET} is not visible at ${STOCK_ABS}"
+pass "a host-side write is visible at the native trace path"
 
-# 4. A stop and a fresh start: the stock path stays a real directory, so the
-#    runtime can recreate its mount destination and the bind is re-made.
-sbx stop "${SANDBOX}" >/dev/null 2>&1 || fail "could not stop ${SANDBOX}"
-
-# Reached with `sbx exec` alone after the stop, so the entrypoint never runs.
-# The more important instance of the check above, because this is the shape of
-# `make test-toolchain` and of any agent launched by hand from `exec bash`.
-same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
-	fail "${STOCK_ABS} is not bound after 'stop' + 'exec' with no attach; the startup call site did not replay"
-pass "the startup step re-binds after a stop, without any attach"
-
-run_entrypoint >/dev/null ||
-	fail "the entrypoint failed after a stop"
-same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
-	fail "${STOCK_ABS} is not bound again after a stop and restart"
+# 3. Running the agent does not move or hide the mount.
+run_entrypoint >/dev/null || fail "the agent failed on the first start"
 [[ "$(in_sandbox cat "${STOCK_ABS}/lifecycle-marker")" == first ]] ||
-	fail "the marker from the first start is not readable after a restart"
-in_sandbox sh -c "printf 'second\\n' > '${STOCK_ABS}/lifecycle-marker-2'" ||
-	fail "could not write at ${STOCK_ABS} after a restart"
-[[ -f "${TARGET}/lifecycle-marker-2" ]] ||
-	fail "a write after the restart did not reach ${TARGET} on the host"
-pass "the sandbox restarts, rebinds, and keeps its traces across a stop"
+	fail "the marker is not visible at ${STOCK_ABS} after the agent ran"
+pass "the mount is unchanged once the agent has run"
 
-# 5. Upstream docker/sbx-releases#388: a mount whose source is a host directory
-#    can be silently unmounted when the host modifies that tree. That is the one
-#    failure mode this design introduces, so provoke it deliberately from the
-#    host side. A failure here does not mean the fix is wrong — a rare silent
-#    detach is still better than a hard crash on every restart — but it must be
-#    reported, because it decides whether docs/traces.md needs to warn users off
-#    touching the state folder mid-session, and whether a re-bind watchdog
-#    becomes its own piece of work.
-printf 'host\n' >"${TARGET}/host-side-scratch"
-rm -f "${TARGET}/host-side-scratch"
-same_id "$(trace_id "${STOCK_ABS}")" "$(trace_id "${TARGET}")" ||
-	fail "the bind at ${STOCK_ABS} detached after a host-side write — upstream issue #388 reproduces here"
-in_sandbox sh -c "printf 'third\\n' > '${STOCK_ABS}/lifecycle-marker-3'" ||
-	fail "could not write at ${STOCK_ABS} after a host-side write"
-[[ -f "${TARGET}/lifecycle-marker-3" ]] ||
-	fail "a write after a host-side change did not reach ${TARGET} — upstream issue #388 reproduces here"
-pass "the bind survives a host-side write to the state folder (upstream #388 did not reproduce)"
+# 4. A stop, then `sbx exec` alone, so the agent never runs: the shape of
+#    `make test-toolchain` and of any agent launched by hand from `exec bash`.
+sbx stop "${SANDBOX}" >/dev/null 2>&1 || fail "could not stop ${SANDBOX}"
+printf 'stopped\n' >"${TARGET}/while-stopped"
+[[ "$(in_sandbox cat "${STOCK_ABS}/while-stopped")" == stopped ]] ||
+	fail "a host-side write made while the sandbox was stopped is not visible after 'exec'"
+in_sandbox sh -c "printf 'second\\n' > '${STOCK_ABS}/lifecycle-marker-2'" ||
+	fail "could not write at ${STOCK_ABS} after a stop"
+[[ -f "${TARGET}/lifecycle-marker-2" ]] ||
+	fail "a write after the stop did not reach ${TARGET} on the host"
+run_entrypoint >/dev/null || fail "the agent failed after a stop"
+pass "the mount survives a stop, with or without the agent running"
+
+# 5. Shared mode, the default: the project state folder is mounted read-only
+#    at its host path, so another agent's traces are readable and not writable,
+#    and the messageboard is there, read-write.
+[[ "$(in_sandbox cat "${SIBLING}/trace")" == sibling ]] ||
+	fail "another agent's traces at ${SIBLING} are not readable in shared mode"
+! in_sandbox sh -c "printf 'x\\n' > '${SIBLING}/written-from-sandbox'" 2>/dev/null ||
+	fail "another agent's traces at ${SIBLING} are writable from this sandbox"
+[[ ! -e "${SIBLING}/written-from-sandbox" ]] ||
+	fail "a write from the sandbox reached another agent's traces on the host"
+in_sandbox sh -c "printf 'post\\n' > '${MESSAGEBOARD_DIR}/lifecycle-post'" ||
+	fail "the messageboard at ${MESSAGEBOARD_DIR} is not writable in shared mode"
+[[ -f "${MESSAGEBOARD_DIR}/lifecycle-post" ]] ||
+	fail "a messageboard post did not reach ${MESSAGEBOARD_DIR} on the host"
+pass "shared mode: sibling traces are read-only, the messageboard is read-write"
+
+# 6. Private mode: only this agent's own traces are mounted.
+remove_sandbox
+CROSS_SANDBOX_VISIBILITY=false "${WRAPPER}" create >/dev/null ||
+	fail "could not create ${SANDBOX} with CROSS_SANDBOX_VISIBILITY=false"
+[[ "$(in_sandbox cat "${STOCK_ABS}/lifecycle-marker")" == first ]] ||
+	fail "this agent's own traces are not visible in private mode"
+! in_sandbox test -e "${SIBLING}/trace" ||
+	fail "another agent's traces at ${SIBLING} are visible in private mode"
+! in_sandbox test -e "${MESSAGEBOARD_DIR}" ||
+	fail "the messageboard at ${MESSAGEBOARD_DIR} is mounted in private mode"
+pass "private mode: own traces only, no sibling traces, no messageboard"
+
+# 7. The host folder disappears after create, while the sandbox is stopped.
+#    The wrapper recreates it on every create, but not on a restart, which sbx
+#    does on its own. sbx v0.54.0 refuses to start such a sandbox, naming the
+#    missing folder, and docs/traces.md tells users so. Starting anyway would
+#    silently keep that session's traces off the host, so a change here fails.
+sbx stop "${SANDBOX}" >/dev/null 2>&1 || fail "could not stop ${SANDBOX}"
+mv "${TARGET}" "${TARGET}.away"
+if MISSING_OUTPUT="$(run_entrypoint 2>&1)"; then
+	fail "sbx started the sandbox with its trace folder ${TARGET} missing; update docs/traces.md"
+fi
+[[ "${MISSING_OUTPUT}" == *"no longer exists on the host"* ]] ||
+	fail "sbx refused to start for an unexpected reason: ${MISSING_OUTPUT}"
+pass "a missing host trace folder stops the sandbox from starting"
+sbx stop "${SANDBOX}" >/dev/null 2>&1 || true
+rm -rf "${TARGET}"
+mv "${TARGET}.away" "${TARGET}"
+run_entrypoint >/dev/null || fail "the agent failed after the trace folder was restored"
+[[ "$(in_sandbox cat "${STOCK_ABS}/lifecycle-marker")" == first ]] ||
+	fail "the traces are not visible again after the trace folder was restored"
+pass "restoring the host folder brings the traces back"
 
 echo "All ${TESTS} lifecycle checks passed for ${KIT}."

@@ -27,8 +27,10 @@ Inside that boundary the agent can still:
   *powers* do: a compromised agent can push, open pull requests and read
   private repositories exactly as that token allows. Scope the token narrowly.
   See [docs/setup.md](docs/setup.md).
-- **Reach every host on the network allowlist.** Each kit's
-  `permissions.network.allow` in `kits/<name>/spec.yaml` is the complete list.
+- **Reach every host on the network allowlist.** That is the union of the
+  `network-policy@1` runtime allow list in `kits/<name>/<name>.yaml` and the
+  one in Docker's workload for that agent (`sbx kit inspect claude`, for
+  example). Docker's Pi workload, for one, also allows Anthropic's API.
   A sandbox created with `NETWORK_ALLOWLIST=false` opts out of that list and
   can reach any host that no deny rule blocks.
 

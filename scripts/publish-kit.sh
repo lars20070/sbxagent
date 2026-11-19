@@ -21,7 +21,11 @@ set -euo pipefail
 #
 # All the logic lives here rather than in workflow YAML so that `make lint`
 # covers it with shellcheck, and so `make publish-dry-run` rehearses the whole
-# path locally with no registry, no credentials and no network.
+# path locally with no registry and no credentials. The kits are schema v3:
+# Docker Buildx builds each one for linux/amd64 and linux/arm64 (QEMU, or a
+# multi-node builder), kit-tck checks it, and only then is it pushed. The
+# builds fetch their base image and pinned binaries, so even a dry run needs
+# the network.
 #
 # The release workflow calls this once per kit in a `fail-fast: false` matrix,
 # so every step has to stay safe to re-run after a sibling kit failed midway.
@@ -72,9 +76,8 @@ require() {
 # fd 3 carries machine-readable key=value output for $GITHUB_OUTPUT. CI opens
 # it (3>>"$GITHUB_OUTPUT"); when it is closed, fall back to the real stdout so a
 # local run still prints the values. Everything else is redirected to stderr, so
-# that `sbx kit validate`'s result line, `sbx kit inspect`'s report and
-# oras's chatter can never land in $GITHUB_OUTPUT and fail the step with
-# "Invalid format".
+# that build output, kit-tck's report and oras's chatter can never land in
+# $GITHUB_OUTPUT and fail the step with "Invalid format".
 if ! { : >&3; } 2>/dev/null; then
 	exec 3>&1
 fi
@@ -89,17 +92,21 @@ version="$2"
 # is installed as a symlink and has to walk the chain to find its kit.
 repo="$(cd "$(dirname "$0")/.." && pwd -P)"
 
-[[ -f "${repo}/kits/${kit}/spec.yaml" ]] ||
-	die "no kit at kits/${kit}/spec.yaml"
+[[ -f "${repo}/kits/${kit}/${kit}.yaml" ]] ||
+	die "no kit at kits/${kit}/${kit}.yaml"
 
 # Compose the reference from the directory name, never from an argument and
-# never from the spec. `sbx kit push` uses the reference it is handed verbatim:
-# it derives nothing from the kit and validates nothing against it, so a wrong
-# value here would push a kit manifest over an unrelated tag in the namespace.
+# never from the descriptor. The push uses the reference it is handed
+# verbatim: it derives nothing from the kit and validates nothing against it,
+# so a wrong value here would push a kit over an unrelated tag in the
+# namespace.
 repo_ref="${REGISTRY}/${NAMESPACE}/${REPO_NAME:-${kit}}"
 version_ref="${repo_ref}:${version}"
 
-require sbx
+PLATFORMS="linux/amd64,linux/arm64"
+
+require docker
+require kit-tck
 
 # Published bytes must be committed bytes: staging below reads HEAD, so an
 # uncommitted edit would be silently left out of the artifact. Enforced only
@@ -113,31 +120,37 @@ if [[ -n "${dirty}" ]]; then
 	note "WARNING: staging reads HEAD, so those edits are NOT what would ship."
 fi
 
-# Stage a tracked-files-only copy. `sbx kit push` packages the directory as it
-# finds it and does not respect .gitignore, so pushing straight from the working
+# Stage a tracked-files-only copy. A build context is the directory as it is
+# found and does not respect .gitignore, so building straight from the working
 # tree would bake in whatever is lying around — .DS_Store files currently sit
-# under kits/ on macOS checkouts. `git archive` emits exactly the tracked files,
-# matching the `git ls-files` philosophy the Makefile already uses throughout.
+# under kits/ on macOS checkouts (each kit's .dockerignore is the backstop).
+# `git archive` emits exactly the tracked files, matching the `git ls-files`
+# philosophy the Makefile already uses throughout.
 stage="$(mktemp -d)"
 trap 'rm -rf "${stage}"' EXIT
 git -C "${repo}" archive HEAD -- "kits/${kit}" | tar -x -C "${stage}"
 
 staged="${stage}/kits/${kit}"
-[[ -f "${staged}/spec.yaml" ]] ||
+[[ -f "${staged}/${kit}.yaml" ]] ||
 	die "kits/${kit} is not committed at HEAD, so nothing was staged"
 
-# Validate and inspect before the dry-run exit, so a dry run still catches a
-# broken kit and still shows exactly what would ship.
-sbx kit validate --offline "${staged}"
-sbx kit inspect --offline "${staged}"
+# Build and check before the dry-run exit, so a dry run still catches a broken
+# kit. The staged directory keeps the kit's name, which is what the
+# descriptor's file stem and the check script both key on.
+"${repo}/scripts/validate-kit.sh" "${staged}" "${PLATFORMS}"
 
 # Same extraction the Makefile's version-agreement check uses. `make lint`
 # checks this repo-wide; repeating it per kit keeps the script safe to run on
 # its own, and catches a stale spec in the staged copy specifically.
-spec_version="$(grep -m1 '^version:' "${staged}/spec.yaml" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
-[[ -n "${spec_version}" ]] || die "could not find version: in kits/${kit}/spec.yaml"
+spec_version="$(grep -m1 '^version:' "${staged}/${kit}.yaml" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+[[ -n "${spec_version}" ]] || die "could not find version: in kits/${kit}/${kit}.yaml"
 [[ "${spec_version}" == "${version}" ]] ||
-	die "kits/${kit}/spec.yaml is version ${spec_version} but ${version} was requested"
+	die "kits/${kit}/${kit}.yaml is version ${spec_version} but ${version} was requested"
+
+# The staged copy has no .git, so the build cannot see which commit it came
+# from. Record it explicitly, alongside the source repository.
+revision="$(git -C "${repo}" rev-parse HEAD)"
+source_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-lars20070/sbxagent}"
 
 if [[ -n "${DRY_RUN}" ]]; then
 	note "DRY RUN — nothing will be published."
@@ -154,6 +167,9 @@ fi
 
 require oras
 require jq
+if [[ -n "${SIGN}" ]]; then
+	require sbx
+fi
 
 # Checked here, before anything is pushed, rather than at the signing step far
 # below: signing is requested but unverifiable is a configuration error, and
@@ -220,7 +236,15 @@ if [[ -n "${existing}" && "${existing}" != "null" ]]; then
 	note "NOTICE: reusing ${existing}. Nothing new was published for ${kit}."
 	note "NOTICE: if you meant to publish changed content, cut a new version."
 else
-	sbx kit push "${staged}" "${version_ref}"
+	docker buildx build \
+		--platform "${PLATFORMS}" \
+		--provenance=mode=max \
+		--annotation "index,manifest:org.opencontainers.image.revision=${revision}" \
+		--annotation "index,manifest:org.opencontainers.image.source=${source_url}" \
+		-f "${staged}/${kit}.yaml" \
+		--tag "${version_ref}" \
+		--push \
+		"${staged}"
 	pushed=yes
 fi
 
@@ -236,13 +260,11 @@ fi
 
 digest_ref="${repo_ref}@${digest}"
 
-# Re-point the rolling tag at the digest rather than pushing a second time.
-# oras.PackManifest stamps org.opencontainers.image.created, so re-pushing the
-# same tree yields a different manifest digest even though the layer is
-# byte-stable — and each digest would carry its own signature and provenance,
-# so the two tags would advertise different attestations for one source. That
-# annotation has one-second resolution, so two pushes within the same second do
-# match: the divergence is intermittent, which is worse than reliable.
+# Re-point the rolling tag at the digest rather than building and pushing a
+# second time. A second build of the same tree yields a different index digest
+# — its provenance attestation records the build's own timestamps — and each
+# digest would carry its own signature and provenance, so the two tags would
+# advertise different attestations for one source.
 #
 # Addressing the digest also stops a racing push from swapping what the rolling
 # tag ends up naming. Note oras tag needs pull as well as push on the
@@ -251,9 +273,8 @@ digest_ref="${repo_ref}@${digest}"
 oras tag "${digest_ref}" "${LATEST_TAG}"
 
 # Sign as its own step, and run it even on the reuse path above — that is the
-# whole point of separating it from the push. Never `sbx kit push --sign`,
-# which would fold signing back into the push and make a signing failure
-# indistinguishable from a push failure.
+# whole point of separating it from the push, so a signing failure stays
+# distinguishable from a push failure.
 #
 # `sbx kit verify` then checks independently that a consumer can verify this
 # artifact against our workflow identity; its answer sets `signed`. Failures

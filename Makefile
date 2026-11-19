@@ -29,13 +29,16 @@ NO_SKILLS := ':(exclude,glob)**/skills/**'
 # shell scripts (shellcheck + bash -n, one file per xargs call), Python (Ruff
 # lint and format check, targeting 3.9, the oldest python3 a macOS host has),
 # and spell-check (skip plan drafts). Markdown and spell-check also skip skill
-# definitions. Assert each kits/<name>/ declares name: <name>, that the files
-# every kit duplicates stay byte-identical across kits, that the Cursor kit's
-# user-scope MCP config matches the repo's project-scope one (the sandbox
-# mounts the project, so the two sit side by side), that the dev-only copies
-# of the network-block jq filter and its Pi extension each stay in sync with
-# every kit heredoc that ships them, and that VERSION, every kits/*/spec.yaml
-# version, and CHANGELOG's latest release all agree.
+# definitions. Assert each kits/<name>/ and mixins/<name>/ holds a <name>.yaml
+# descriptor and no v2 spec.yaml, that no two kits share a descriptor stem
+# (composed kits stage theirs at /usr/share/sandbox/kit/<stem>/, so a shared
+# stem collides), that the files every kit duplicates — the recipe included —
+# stay byte-identical across kits, that the Cursor kit's user-scope MCP config
+# matches the repo's project-scope one (the sandbox mounts the project, so the
+# two sit side by side), that each kit ships its network-block guard files and
+# every shipped copy of the jq filter and Pi extension matches the synced body
+# of its dev copy in kits/, and that VERSION, every kit descriptor's version,
+# and CHANGELOG's latest release all agree.
 lint:
 	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' ':!tmp/*' $(NO_SKILLS) | xargs -0 $(MARKDOWNLINT)
 	git ls-files -z -- '*.json' | xargs -0 -n1 jq empty
@@ -47,13 +50,29 @@ lint:
 	find .claude/skills/read-pi-session-traces -name '*.py' -print0 | xargs -0 $(RUFF) check --target-version py39
 	find .claude/skills/read-pi-session-traces -name '*.py' -print0 | xargs -0 $(RUFF) format --check --target-version py39
 	git ls-files -z -- ':!.claude/plans/*' ':!.cursor/plans/*' ':!tmp/*' $(NO_SKILLS) | xargs -0 $(CSPELL) --no-progress
-	for kit in kits/*/; do \
-		dir="$${kit%/}"; name="$$(basename "$$dir")"; \
-		grep -qx "name: $$name" "$$dir/spec.yaml" || { \
-			echo "lint: $$dir/spec.yaml does not declare 'name: $$name'" >&2; exit 1; \
+	for dir in kits/*/ mixins/*/; do \
+		dir="$${dir%/}"; name="$$(basename "$$dir")"; \
+		[ -f "$$dir/$$name.yaml" ] || { \
+			echo "lint: $$dir has no $$name.yaml descriptor" >&2; exit 1; \
+		}; \
+		[ ! -e "$$dir/spec.yaml" ] || { \
+			echo "lint: $$dir/spec.yaml is a v2 leftover; the descriptor is $$name.yaml" >&2; exit 1; \
+		}; \
+		cmp -s kits/sbxclaude/.dockerignore "$$dir/.dockerignore" || { \
+			echo "lint: $$dir/.dockerignore differs from kits/sbxclaude/.dockerignore" >&2; exit 1; \
 		}; \
 	done
-	for shared in home/.gitconfig workspace/.editorconfig home/.local/lib/sbxagent/mount-state.sh; do \
+	dup="$$(for dir in kits/*/ mixins/*/; do basename "$${dir%/}"; done | sort | uniq -d)"; \
+	[ -z "$$dup" ] || { \
+		echo "lint: descriptor stem(s) used twice: $$dup" >&2; exit 1; \
+	}
+	for kit in kits/*/; do \
+		dir="$${kit%/}"; name="$$(basename "$$dir")"; \
+		cmp -s kits/sbxclaude/sbxclaude.dockerfile "$$dir/$$name.dockerfile" || { \
+			echo "lint: $$dir/$$name.dockerfile differs from kits/sbxclaude/sbxclaude.dockerfile" >&2; exit 1; \
+		}; \
+	done
+	for shared in home/.gitconfig workspace/.editorconfig; do \
 		ref="kits/sbxclaude/files/$$shared"; \
 		for kit in kits/*/; do \
 			copy="$${kit}files/$$shared"; \
@@ -69,34 +88,36 @@ lint:
 		echo "lint: kits/sbxcursor/files/home/.cursor/mcp.json differs from .cursor/mcp.json" >&2; \
 		exit 1; \
 	}
-	jq_heredoc="$$(mktemp)"; jq_dev="$$(mktemp)"; \
-	trap 'rm -f "$$jq_heredoc" "$$jq_dev"' EXIT; \
-	sed -n '/^# BEGIN-SYNCED/,/^# END-SYNCED/p' \
-		kits/network-block.jq | sed '1d;$$d' > "$$jq_dev"; \
-	for spec in kits/*/spec.yaml; do \
-		grep -q "<<'JQFILTER'" "$$spec" || continue; \
-		awk '/<<.JQFILTER./{f=1; next} /^        JQFILTER$$/{f=0} f' \
-			"$$spec" | sed 's/^        //' > "$$jq_heredoc"; \
-		cmp -s "$$jq_heredoc" "$$jq_dev" || { \
-			echo "lint: $$spec is out of sync with kits/network-block.jq" >&2; \
-			exit 1; \
+	for guard in \
+		sbxclaude:usr/local/lib/sbxagent/network-block.jq \
+		sbxclaude:etc/claude-code/managed-settings.json \
+		sbxcodex:usr/local/lib/sbxagent/network-block.jq \
+		sbxcodex:etc/codex/requirements.toml \
+		sbxpi:usr/local/lib/sbxagent/network-block.jq \
+		sbxpi:usr/local/lib/sbxagent/network-block.ts; do \
+		file="kits/$${guard%%:*}/files/system/$${guard#*:}"; \
+		[ -s "$$file" ] || { \
+			echo "lint: $$file is missing, so that kit ships without its network-block guard" >&2; exit 1; \
 		}; \
 	done
-	ts_heredoc="$$(mktemp)"; ts_dev="$$(mktemp)"; \
-	trap 'rm -f "$$ts_heredoc" "$$ts_dev"' EXIT; \
+	jq_dev="$$(mktemp)"; ts_dev="$$(mktemp)"; \
+	trap 'rm -f "$$jq_dev" "$$ts_dev"' EXIT; \
+	sed -n '/^# BEGIN-SYNCED/,/^# END-SYNCED/p' \
+		kits/network-block.jq | sed '1d;$$d' > "$$jq_dev"; \
 	awk '/^\/\/ BEGIN-SYNCED/{f=1; next} /^\/\/ END-SYNCED/{f=0} f' \
 		kits/network-block.ts > "$$ts_dev"; \
-	[ -s "$$ts_dev" ] || { \
-		echo "lint: no BEGIN-SYNCED body found in kits/network-block.ts" >&2; \
+	[ -s "$$jq_dev" ] && [ -s "$$ts_dev" ] || { \
+		echo "lint: no BEGIN-SYNCED body found in kits/network-block.jq or .ts" >&2; \
 		exit 1; \
 	}; \
-	for spec in kits/*/spec.yaml; do \
-		grep -q "<<'EXTENSION'" "$$spec" || continue; \
-		awk '/<<.EXTENSION./{f=1; next} /^        EXTENSION$$/{f=0} f' \
-			"$$spec" | sed 's/^        //' > "$$ts_heredoc"; \
-		cmp -s "$$ts_heredoc" "$$ts_dev" || { \
-			echo "lint: $$spec is out of sync with kits/network-block.ts" >&2; \
-			exit 1; \
+	for copy in kits/*/files/system/usr/local/lib/sbxagent/network-block.jq; do \
+		cmp -s "$$copy" "$$jq_dev" || { \
+			echo "lint: $$copy is out of sync with kits/network-block.jq" >&2; exit 1; \
+		}; \
+	done; \
+	for copy in kits/*/files/system/usr/local/lib/sbxagent/network-block.ts; do \
+		cmp -s "$$copy" "$$ts_dev" || { \
+			echo "lint: $$copy is out of sync with kits/network-block.ts" >&2; exit 1; \
 		}; \
 	done
 	if [ ! -f VERSION ]; then \
@@ -113,7 +134,8 @@ lint:
 		echo "lint: VERSION is $$repo_version but CHANGELOG.md's latest release is $$changelog_version" >&2; \
 		exit 1; \
 	fi; \
-	for spec in kits/*/spec.yaml; do \
+	for kit in kits/*/; do \
+		spec="$${kit}$$(basename "$${kit%/}").yaml"; \
 		spec_version="$$(grep -m1 '^version:' "$$spec" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; \
 		if [ -z "$$spec_version" ]; then \
 			echo "lint: could not find version: in $$spec" >&2; exit 1; \
@@ -124,14 +146,15 @@ lint:
 	done
 	@echo "All lint checks passed."
 
-# Validate every sandbox kit spec, and the open-network mixin that the wrapper
-# stacks with --kit, against the current Sandbox Kit schema.
+# Build every kit, and the open-network mixin the wrapper stacks with a second
+# --kit, and check each result with kit-tck. Needs Docker with Buildx, network
+# access, and kit-tck on PATH. PLATFORMS (e.g. linux/amd64,linux/arm64) builds
+# for more than the builder's own platform.
+PLATFORMS ?=
 validate:
-	./scripts/sbxclaude kit validate
-	./scripts/sbxcodex kit validate
-	./scripts/sbxcursor kit validate
-	./scripts/sbxpi kit validate
-	sbx kit validate --offline mixins/open-network
+	for dir in kits/*/ mixins/*/; do \
+		./scripts/validate-kit.sh "$${dir%/}" $(PLATFORMS) || exit 1; \
+	done
 
 # Rehearse the release publish path for every kit: stage a tracked-files-only
 # copy, validate and inspect it, and print what would be pushed. No network, no
@@ -150,15 +173,21 @@ test: test-unit test-toolchain
 # Test the wrapper with a fake sbx CLI.
 test-unit:
 	$(BASH) ./tests/sbxagent_test.sh
-	$(BASH) ./tests/mount_state_test.sh
 
 # Smoke-test the installed helper tools inside the live sandbox.
-# AGENT selects which wrapper (and therefore which sandbox) to run in.
+# AGENT selects which wrapper (and therefore which sandbox) to run in. The
+# SBXAGENT_LITE and NETWORK_ALLOWLIST this was run with are what the sandbox
+# must report, so set them to the values the sandbox was created with;
+# EXPECTED_GITHUB=unbound checks a sandbox created with no GitHub secret.
 test-toolchain:
-	./scripts/sbx$(AGENT) exec ./tests/toolchain_test.sh
+	./scripts/sbx$(AGENT) exec env \
+		EXPECTED_SBXAGENT_LITE="$${SBXAGENT_LITE:-}" \
+		EXPECTED_NETWORK_ALLOWLIST="$${NETWORK_ALLOWLIST:-}" \
+		EXPECTED_GITHUB="$${EXPECTED_GITHUB:-bound}" \
+		./tests/toolchain_test.sh
 
-# Prove the trace bind-mount survives the sandbox lifecycle: create, write,
-# stop, reattach, and cross-sandbox visibility. Needs a live sbx daemon and
+# Prove the trace mount survives the sandbox lifecycle, checked from the host:
+# create, write, stop, reattach, and cross-sandbox visibility. Needs a live sbx daemon and
 # creates disposable sandboxes of its own, so it is deliberately outside
 # `make test` alongside test-toolchain. AGENT selects the kit under test.
 test-lifecycle:

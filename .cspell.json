@@ -169,6 +169,9 @@
     "Popen",
     "isinstance",
     "Mudhra",
-    "unpushed"
+    "unpushed",
+    "checksummed",
+    "trixie",
+    "slurpfile"
   ]
 }

@@ -22,15 +22,10 @@ host folder is `~/.local/state/sbxagent/traces/<slug>-<hash>/<agent>/`, for exam
 So when the agent saves a session, the file is on your machine at once. Nothing
 copies or syncs it later.
 
-It works in two steps:
-
-1. The wrapper mounts the host folder into the sandbox.
-2. Inside, a small script mounts that folder over the agent's own session
-   folder. Whatever the agent writes there lands on the host.
-
-Step 2 is a bind mount. Think of it as one folder with two doors. It does not
-survive a restart, so the sandbox redoes it every time it starts. It is safe to
-redo: if the two folders are already the same, the script does nothing.
+The wrapper mounts the host folder straight onto the agent's own session
+folder when it creates the sandbox. Think of it as one folder with two doors.
+`sbx` keeps that mount for the life of the sandbox, across stops and
+restarts, and nothing inside the sandbox has to run for it.
 
 <!-- cspell:disable -->
 
@@ -48,25 +43,20 @@ flowchart LR
 
   subgraph VM["sbx sandbox"]
     direction TB
-    MOUNT["mount-state.sh<br/>runs at every start"]
     STOCK["usual session folder<br/>e.g. ~/.claude/projects"]
     AGENT["coding agent"]
   end
 
   WRAP -->|"creates / attaches"| VM
-  STATE -.->|"1. wrapper mounts it in"| MOUNT
-  MOUNT -->|"2. bind-mounts it over"| STOCK
-  STATE <-.->|"same files"| STOCK
+  STATE <-.->|"mounted onto it:<br/>same files"| STOCK
   AGENT -->|"writes sessions"| STOCK
 
   classDef data    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
   classDef host    fill:#FDF3E0,stroke:#B8860B,stroke-width:2px,color:#4A3405
   classDef agent   fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
-  classDef step    fill:#E8F3EC,stroke:#2E7D4F,stroke-width:2px,color:#0F3D22
   class STATE data
   class WRAP host
   class AGENT agent
-  class MOUNT step
   style VM fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px
   style HOST fill:#FFFDF7,stroke:#B8860B,stroke-width:1.5px,stroke-dasharray:4 3
 ```
@@ -74,9 +64,9 @@ flowchart LR
 <!-- cspell:enable -->
 
 <br>*The wrapper (amber) creates the sandbox and mounts the host state folder
-(blue) into it. At every start, a script (green) mounts that folder over the
-agent's usual session path. The agent (red) keeps writing there, and the files
-show up on the host. See [Under the hood](#under-the-hood) for the details.*
+(blue) onto the agent's usual session path. The agent (red) keeps writing
+there, and the files show up on the host. See
+[Under the hood](#under-the-hood) for the details.*
 
 ## Where the traces live
 
@@ -167,17 +157,17 @@ With the default `CROSS_SANDBOX_VISIBILITY=true`, sibling agents for the same
 project can read these complete traces, including prompts, tool output, file
 excerpts, and any secrets recorded in them. Set
 `CROSS_SANDBOX_VISIBILITY=false` before creating a sandbox to hide sibling
-state. This setting, and whether traces are relocated at all, are fixed at
-sandbox creation time; remove and rebuild existing sandboxes after changing the
-setting or upgrading to a kit that supports traces.
+state. This setting, and the trace mount itself, are fixed at sandbox creation
+time; remove and rebuild existing sandboxes after changing the setting.
 
 ## Retention and exceptions
 
 Claude Code applies its normal `cleanupPeriodDays` retention setting (30 days
 by default) to these host-backed transcripts. Cursor's SQLite resume store
-remains inside its sandbox to avoid database locking on the shared mount. A kit
-started directly with `sbx run`, without the wrapper-provided
-`SBXAGENT_STATE_DIR`, keeps its stock trace location.
+remains inside its sandbox to avoid database locking on the shared mount.
+Cursor also keeps per-project files in the same tree — the workspace trust
+marker and `mcp-approvals.json` — so those land on the host too. A kit started
+directly with `sbx run`, without the wrapper, keeps its stock trace location.
 
 ## Under the hood
 
@@ -187,107 +177,35 @@ them.
 ### The wrapper's side
 
 `scripts/sbxagent` works out the per-agent state folder (`AGENT_DIR`), creates
-it with mode `0700`, and hands it to `sbx` twice:
+it with mode `0700`, creates the trace subfolder inside it, and hands it to
+`sbx` as an extra workspace in `PATH:TARGET` form:
 
 ```bash
-sbx run --name "${SANDBOX}" -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" "${KIT}" . "${AGENT_DIR}"
+sbx create --name "${SANDBOX}" --kit "${KIT}" claude . \
+  "${AGENT_DIR}/projects:/home/agent/.claude/projects"
 ```
 
-The last operand mounts the folder read-write at the same absolute path inside
-the sandbox. The `-e` flag tells the kit where it is. Without
-`SBXAGENT_STATE_DIR`, as with a kit started by plain `sbx run`, nothing below
-runs and the agent keeps its stock trace location.
+The other agents follow the table in [Where the traces live](#where-the-traces-live).
+The project-wide state folder is mounted read-only beside it, so sibling
+traces are readable but not writable.
 
-### The kit's side
+### What `sbx` does with it
 
-Inside the sandbox, `~/.local/lib/sbxagent/mount-state.sh LINK SUBDIR` mounts
-`${SBXAGENT_STATE_DIR}/SUBDIR` (call it `TARGET`) over the agent's stock trace
-folder (`LINK`, for example `~/.claude/projects`). It runs as the `agent`
-user, and:
+- **At create.** The mount is in place before any kit hook runs, so traces
+  already on the host — from an older sandbox, say — are visible at once.
+- **Across stops.** The mount is part of the sandbox's recorded setup, so it is
+  back on every start, including `sbx<agent> exec` sessions that never launch
+  the agent.
+- **If the host folder is gone.** `sbx` refuses to start the sandbox, with
+  `workspace directory "…" no longer exists on the host`. Restore the folder,
+  or remove the sandbox. A fresh `sbx<agent> create` makes it again.
 
-1. Exits `0` at once if `SBXAGENT_STATE_DIR` is unset.
-2. Runs `mkdir -p` on both `TARGET` and `LINK`. `mount --bind` needs an
-   existing destination and will not create one, and the pi kit never creates
-   `~/.pi/agent/sessions` itself.
-3. Compares the `stat` device and inode of `LINK` and `TARGET`. If they match,
-   the mount is already in place and the script exits `0`. This is the only
-   "already done" check. A marker file under `SBXAGENT_STATE_DIR` would live on
-   the host, outlive `sbx rm`, and make a rebuilt sandbox skip the next step.
-4. Seeds `TARGET` from `LINK`: every entry in `LINK` whose name is missing from
-   `TARGET` is copied over with `cp -R`. Host files win; the script never
-   overwrites one. It skips `lost+found`. This single loop handles both the
-   first migration and the files a rebuilt sandbox's parent kit has just
-   seeded.
-5. Runs `sudo -n mount --bind TARGET LINK`. From now on, writing to `LINK`
-   writes to `TARGET`, which is the host folder.
+`tests/lifecycle_test.sh` (`make test-lifecycle AGENT=<agent>`) checks each of
+these from the host.
 
-Any failure after step 1 exits `1`. sbx then does not run the entrypoint, so
-the agent never starts: traces written to an unbound `LINK` live only inside
-the sandbox and die with it.
+### Directory ownership
 
-<!-- cspell:disable -->
-
-```mermaid
----
-config:
-  layout: dagre
----
-flowchart LR
-  START(["mount-state.sh<br/>LINK SUBDIR"])
-  ENV{"SBXAGENT_STATE_DIR<br/>set?"}
-  MK["mkdir -p<br/>TARGET and LINK"]
-  SAME{"LINK already<br/>bound to TARGET?"}
-  COPY["copy entries of LINK<br/>missing from TARGET<br/>(host files win)"]
-  BIND["sudo mount --bind<br/>TARGET LINK"]
-  OK0(["exit 0<br/>stock location kept"])
-  OK1(["exit 0<br/>nothing to do"])
-  OK2(["exit 0<br/>LINK now writes<br/>to the host"])
-  ERR1(["exit 1<br/>sbx skips<br/>the entrypoint"])
-
-  START --> ENV
-  ENV -->|"no"| OK0
-  ENV -->|"yes"| MK
-  MK --> SAME
-  SAME -->|"yes"| OK1
-  SAME -->|"no"| COPY
-  COPY --> BIND
-  BIND --> OK2
-  MK -.->|"failed"| ERR1
-  COPY -.->|"failed"| ERR1
-  BIND -.->|"failed"| ERR1
-
-  classDef step  fill:#E8F3EC,stroke:#2E7D4F,stroke-width:2px,color:#0F3D22
-  classDef ask   fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px,color:#2B2F2E
-  classDef ok    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
-  classDef fail  fill:#FCE7E7,stroke:#B23A48,stroke-width:2px,color:#5A1015
-  class START,MK,COPY,BIND step
-  class ENV,SAME ask
-  class OK0,OK1,OK2 ok
-  class ERR1 fail
-```
-
-<!-- cspell:enable -->
-
-<br>*The same five steps as a flow. Grey diamonds are the two checks; green
-boxes are the work. Blue ends are the good exits: `0` because there is no state
-folder, because the mount is already in place, or because it has just been
-made. Red is the one bad exit: `1` for anything that failed, after which sbx
-will not run the entrypoint and the agent never starts.*
-
-### One call site
-
-A bind mount lives in the kernel's mount table, not on disk, so every stop
-drops it. Each kit calls `mount-state.sh` from a single place: a
-`setup.startup` step, which the runtime runs at every start, including after
-a daemon restart. It covers every session, including one that never launches
-the agent, such as `sbxclaude exec bash`.
-
-The script stays idempotent even with one caller: a restart, or a session
-that runs after the bind is already up, can land on a path `LINK` is already
-bound to, and step 3's `stat` check turns that into a no-op.
-
-### Why a bind mount, not a symlink
-
-The parent kit mounts its own volume at `LINK`, and the runtime recreates that
-mount destination at every start. It cannot do so through a symlink, so `LINK`
-stays a real directory and the bind is re-made each boot.
+When the agent's config folder does not exist yet, creating the mount makes
+it, owned by root. Docker's `claude`, `cursor` and `pi` workloads hand their
+folder back to the agent in an install hook. The `codex` workload has no such
+hook, so `sbxcodex` ships `~/.codex` in its own layer, owned by the agent.

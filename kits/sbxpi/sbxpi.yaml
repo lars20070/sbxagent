@@ -1,0 +1,347 @@
+# syntax=docker/sandbox-kit:3@sha256:8561468d43a0466e24dd048e3c6c2115d878ee36d71c4571195f1de2a63c2b5b
+# Schema v3 mixin for Docker's published Pi workload:
+#   sbx run docker.io/sbx/pi --kit ./kits/sbxpi
+# Pi is not one of sbx's built-in agent names, so the workload is named by
+# its registry reference. It floats like the other agents' workloads. The
+# frontend above (kit-spec v3.0.0-m.12, the version sbx v0.54.0 bundles)
+# builds sbxpi.dockerfile beside this file into the mixin's one layer.
+schemaVersion: "3"
+kind: mixin
+version: "0.4.14"
+displayName: Pi with custom toolchain
+description: Pi with custom toolchain
+sourceUrl: https://github.com/lars20070/sbxagent
+licenses: [MIT]
+
+# Refuses any other workload, and orders this kit's install hooks after the
+# workload's own, which write ~/.pi/agent/settings.json and register the MCP
+# gateway in ~/.pi/agent/mcp.json.
+requires: ["pi"]
+
+# Host-side SBXAGENT_LITE, passed by scripts/sbxagent as --kit-arg. The value
+# is exported to the container and substituted into the install hooks and
+# instructions below at create. The other two args only fix environment
+# variables: a mixin's environment comes from its args, and this kit's recipe
+# is shared with its siblings.
+args:
+  lite:
+    default: "true"
+    enum: ["true", "false"]
+    description: Skip Playwright, Chromium, mermaid-cli and XeTeX
+    env: SBXAGENT_LITE
+  telemetry:
+    default: "0"
+    enum: ["0"]
+    description: Pi install telemetry, always off
+    env: PI_TELEMETRY
+  skipVersionCheck:
+    default: "1"
+    enum: ["1"]
+    description: Pi's own version check, always skipped
+    env: PI_SKIP_VERSION_CHECK
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # Only while the install hooks below run. The workload's own runtime
+      # grants (deb.debian.org, dhi.io, registry.npmjs.org) do not cover this
+      # phase.
+      install:
+        allow:
+          # apt: Debian trixie and the Docker Hardened Images repository.
+          - "deb.debian.org:80"
+          - "dhi.io:80"
+          # npm -g installs and the Context7 Pi package.
+          - "registry.npmjs.org:443"
+          # uv tool installs (index + wheels).
+          - "pypi.org:443"
+          - "files.pythonhosted.org:443"
+          # Playwright downloads Chromium from these CDN mirrors.
+          - "cdn.playwright.dev:443"
+          - "playwright.download.prss.microsoft.com:443"
+      runtime:
+        allow:
+          # Model API. Every upstream provider (DeepInfra included) sits behind
+          # OpenRouter and is never contacted directly — routing per model is
+          # pinned via models.json's openRouterRouting.
+          - "openrouter.ai:443"
+          # No entry for Ollama here, deliberately — it cannot be expressed in
+          # a kit. models.json reaches the host's Ollama at
+          # host.docker.internal, but the proxy resolves that back to the
+          # host's own loopback and reports the resource as "localhost:11434",
+          # which a kit allow list rejects. Enabling Ollama is a host-side
+          # step, like the OpenRouter secret:
+          #   sbx policy allow network --sandbox <sbxpi-sandbox> localhost:11434
+          # See the Ollama section in README.md.
+          - "pi.dev"
+          - "registry.npmjs.org:443"
+          - "pypi.org:443"
+          - "files.pythonhosted.org:443"
+          # Go modules and, since 1.21, the toolchain go.mod asks for.
+          - "proxy.golang.org:443"
+          - "sum.golang.org:443"
+          - "cdn.playwright.dev:443"
+          - "playwright.download.prss.microsoft.com:443"
+          # The Context7 native Pi package calls its documentation API here.
+          - "context7.com:443"
+          # `gh`, git over HTTPS, the GitHub MCP server's API calls, and page
+          # assets Playwright browses. The `github` credential below injects
+          # into api.github.com and github.com; the gist hosts serve Pi's
+          # `/share`.
+          - "api.github.com:443"
+          - "github.com:443"
+          - "github.githubassets.com:443"
+          - "gist.github.com:443"
+          - "gist.githubusercontent.com:443"
+          - "release-assets.githubusercontent.com:443"
+
+  # OPENROUTER_API_KEY holds a proxy-managed sentinel, swapped for the real
+  # key on openrouter.ai. Optional: Pi also runs against a local Ollama with
+  # no key bound.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: OpenRouter model API
+    config:
+      service: openrouter
+      phase: runtime
+      apiKey:
+        name: OPENROUTER_API_KEY
+        proxyManaged: true
+        inject:
+          - domain: openrouter.ai
+            header: Authorization
+            format: "Bearer %s"
+
+  # GITHUB_TOKEN holds a proxy-managed sentinel; the proxy swaps in the real
+  # token on api.github.com (bearer: gh, the GitHub MCP server) and
+  # github.com (basic: git over HTTPS). mcp.json hands it to the GitHub MCP
+  # server as GITHUB_PERSONAL_ACCESS_TOKEN. Optional, so a host with no
+  # `sbx secret set github` still gets a sandbox.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub access for gh, git over HTTPS and the GitHub MCP server
+    config:
+      service: github
+      phase: runtime
+      apiKey:
+        name: GITHUB_TOKEN
+        proxyManaged: true
+        inject:
+          - domain: api.github.com
+            header: Authorization
+            format: "Bearer %s"
+          - domain: github.com
+            scheme: basic
+            username: x-access-token
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -eu
+            # Bounded so a flaky mirror is retried a few times and a hung one
+            # fails the create instead of stalling it forever.
+            apt_get() {
+              timeout 600 apt-get \
+                -o Acquire::Retries=3 \
+                -o Acquire::http::Timeout=30 \
+                -o Acquire::https::Timeout=30 \
+                "$@"
+            }
+            apt_get update
+            # The workload ships Node, fd and ripgrep, but no Python. uv comes
+            # from the Docker Hardened Images repository. python3-yaml gives
+            # scripts `import yaml`. build-essential + python3-dev let uv/pip
+            # build C extensions from source when no matching wheel exists.
+            # golang-go is only a bootstrap: its GOTOOLCHAIN=auto default lets
+            # a project's go.mod fetch the Go it names from proxy.golang.org.
+            apt_get install -y --no-install-recommends \
+              build-essential \
+              golang-go \
+              pandoc \
+              python3-dev \
+              python3-yaml \
+              shellcheck \
+              uv
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy]
+          description: CLI tools and Python
+        - command: |
+            set -eu
+            # Fail the create rather than ship a guard that silently does nothing.
+            jq -n '{tool_name:"Bash",tool_input:{command:"curl https://probe.test"},error:"Blocked by local rule for probe.test"}' \
+              | jq -e -f /usr/local/lib/sbxagent/network-block.jq >/dev/null
+            grep -q "network-block\.jq" /usr/local/lib/sbxagent/network-block.ts
+            grep -q "export default function" /usr/local/lib/sbxagent/network-block.ts
+          user: "0"
+          description: Check the network-block escalation guard
+        - command: "uv tool install ruff@0.16.8 && uv tool install yamllint@1.38.0"
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy]
+          description: Ruff and yamllint
+        - command: "npm install --global markdownlint-cli2@0.23.3 cspell@10.3.3"
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, NPM_CONFIG_PREFIX]
+          description: Markdown and spelling linters
+        - command: |
+            set -eu
+            [ "${{ kit.args.lite }}" = "false" ] || exit 0
+            # --no-install-recommends skips the documentation packages, which
+            # would roughly double TeX Live's few hundred MB.
+            timeout 1200 apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 \
+              install -y --no-install-recommends \
+              texlive-xetex \
+              texlive-fonts-recommended \
+              texlive-latex-extra \
+              lmodern
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy]
+          description: XeTeX for pandoc PDF output (SBXAGENT_LITE=false only)
+        - command: |
+            set -eu
+            [ "${{ kit.args.lite }}" = "false" ] || exit 0
+            npm install --global playwright@1.63.0
+            playwright install --with-deps chromium
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, NPM_CONFIG_PREFIX]
+          description: Playwright with headless Chromium (SBXAGENT_LITE=false only)
+        - command: |
+            set -eu
+            [ "${{ kit.args.lite }}" = "false" ] || exit 0
+            # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
+            # reuses the one Playwright just installed.
+            PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.17.0
+            chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
+              'console.log(require("playwright").chromium.executablePath())')"
+            mmdc_bin="$(command -v mmdc)"
+            config="$(dirname "$mmdc_bin")/mermaid-puppeteer-config.json"
+            printf '{"executablePath": "%s"}\n' "$chromium_path" > "$config"
+            # mmdc only takes its Puppeteer config via an explicit flag, so
+            # wrap the real binary to always pass it.
+            mv "$mmdc_bin" "${mmdc_bin}.real"
+            cat > "$mmdc_bin" <<WRAPPER
+            #!/bin/sh
+            exec "${mmdc_bin}.real" --puppeteerConfigFile "${config}" "\$@"
+            WRAPPER
+            chmod +x "$mmdc_bin"
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, NPM_CONFIG_PREFIX]
+          description: mermaid-cli, reusing the Playwright Chromium (SBXAGENT_LITE=false only)
+        # The workload's install hooks, which run before these (see
+        # `requires`), write settings.json and register its MCP gateway in
+        # mcp.json. Merge this kit's staged copies over them instead of
+        # replacing them:
+        # - settings.json: ours is the base. The workload's keys win, so a
+        #   model or thinking level picked with its own --kit-arg survives,
+        #   except defaultProjectTrust, which it always sets to "always" and
+        #   this kit keeps at "ask".
+        # - mcp.json: a deep merge keeps the workload's mcp-gateway beside
+        #   our github server.
+        - command: |
+            set -eu
+            dir="$HOME/.pi/agent"
+            staged=/usr/local/share/sbxagent/pi
+            mkdir -p "$dir"
+            merge() {
+              target="$dir/$1"
+              [ -f "$target" ] || printf '%s\n' '{}' > "$target"
+              tmp="$(mktemp)"
+              jq --slurpfile ours "$staged/$1" "$2" "$target" > "$tmp"
+              # cat, not mv, so the file keeps its original ownership and mode.
+              cat "$tmp" > "$target"
+              rm -f "$tmp"
+            }
+            merge settings.json '$ours[0] * del(.defaultProjectTrust)'
+            merge mcp.json '$ours[0] * .'
+            jq -e '.defaultProjectTrust == "ask"' "$dir/settings.json" >/dev/null
+            jq -e '.extensions | index("/usr/local/lib/sbxagent/network-block.ts")' \
+              "$dir/settings.json" >/dev/null
+            jq -e '.mcpServers.github' "$dir/mcp.json" >/dev/null
+          user: "1000"
+          description: Merge this kit's Pi settings and MCP servers
+        # After the merge, because `pi install` adds the package to
+        # settings.json. It also materialises the package now, so nothing is
+        # fetched from the network at first launch.
+        - command: |
+            set -eu
+            CONTEXT7_PI_VERSION=0.1.3
+            pi install "npm:@upstash/context7-pi@${CONTEXT7_PI_VERSION}"
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, NPM_CONFIG_PREFIX]
+          description: Context7 Pi extension
+        - command: |
+            set -eu
+            [ -n "${WORKSPACE_DIR:-}" ] || exit 0
+            [ -e "$WORKSPACE_DIR/.editorconfig" ] ||
+              cp /usr/local/share/sbxagent/workspace/.editorconfig "$WORKSPACE_DIR/.editorconfig"
+          user: "1000"
+          env: [WORKSPACE_DIR]
+          description: Add an .editorconfig when the project has none
+
+  # @2 bodies are always placed inline in the agent's profile — here the
+  # workload's ~/.pi/agent/AGENTS.md. The workload offers both @1 and @2
+  # guidance as optional entries, and the two versions cannot compose, so
+  # declaring @2 here selects its @2 profile.
+  - type: com.docker.sandbox/agent-context@2
+    config:
+      content: |
+        ## Sandbox environment
+        You are in a Docker Sandbox microVM. The user's project is mounted as your
+        workspace, so file edits modify the host working tree. `sudo` is
+        passwordless, and a sandbox-local Docker daemon is available.
+
+        Network egress is allowlisted by default; this sandbox may instead have
+        been created with `NETWORK_ALLOWLIST=false`, which turns that allow list
+        off. Either way, if a network request fails because its host is blocked,
+        stop and report it — do not run `sbx policy` inside the
+        sandbox, and do not work around a block by mirroring, vendoring, retrying
+        against a different host, or dropping the step. An extension enforces this
+        in two steps: the blocked command's output is replaced with the remedy that
+        fits — `sbx policy allow` for a default-deny, `sbx policy rm` for a local
+        deny (deny beats allow), or contact IT for organisation policy — and your
+        next tool call is then refused and the run ends. Reporting the block is the
+        only way forward, so do it first rather than spending the one call you have
+        left on a workaround.
+
+        The in-sandbox `sbx` runs only daemon-free commands. A schema v3 kit is
+        built with `docker buildx build -f <kit>/<kit>.yaml <kit>` and checked
+        with `kit-tck validate`. All sandbox management commands, including
+        `run`, `create`, `rm`, `exec`, `inspect`, and `policy`, require the host
+        CLI and `sandboxd`; ask the user to run them on the host.
+
+        ## Preinstalled tools
+        Follow the project's own instructions and use its declared dependencies
+        first. For general development tasks, these tools are already on `PATH`:
+
+        - Search and data: `rg` (ripgrep), `fd` (also on `PATH` as `fdfind`,
+          Debian's name for it), `jq`
+        - Shell: `shellcheck`; use `bash -n` for syntax checks
+        - Python: `python3`, `ruff` for lint and format, `uv` for packages,
+          PyYAML for YAML parsing (`import yaml`)
+        - YAML: `yamllint`
+        - Markdown and prose: `markdownlint-cli2`, `cspell`
+        - Browser, diagrams and PDF, only when the sandbox was created with
+          `SBXAGENT_LITE=false` (here it is `${{ kit.args.lite }}`): `playwright`
+          with headless Chromium — load pages, screenshot them, read console
+          output to verify UI changes — `mmdc` (mermaid-cli):
+          `mmdc -i diagram.mmd -o diagram.png` — and `xelatex`, so
+          `pandoc doc.md -o doc.pdf --pdf-engine=xelatex` works
+        - Documents: `pandoc` — convert between document formats (e.g. Markdown,
+          HTML, docx)
+        - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`, `tree`
+        - Sandbox kits: `sbx` and `kit-tck`, with the restrictions above
+        - Docs: Context7 is installed as a native Pi package, not an MCP server —
+          it registers its own tools directly.
+        - GitHub: the `github` MCP server is configured, but its tools are
+          deferred, so they are not declared until you load them. Call
+          `tool_search` with what you need (for example "pull request review
+          comments"), then call the `mcp__github__*` tools it loads. `gh`, and
+          `git` over HTTPS, carry the same proxy-managed credential, so use them
+          via bash where they fit better.
+
+        Prefer `rg` over recursive `grep`, `ruff` over installing another Python
+        linter or formatter, and `uv` over `pip`. Install project dependencies when
+        needed, but do not install global replacements for tools already provided.

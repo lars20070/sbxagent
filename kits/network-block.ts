@@ -1,26 +1,23 @@
-// Dev-only mirror of the network-block guard extension, used by the sbxpi
-// kit. This file is NOT shipped into any sandbox — Docker Sandbox Kits can
-// only write declared files as the agent user (UID 1000; see
-// docs.docker.com's kit-reference.md, "Setup > files"), and this extension
-// has to be root-owned and outside $HOME so the agent it's watching can't
-// unregister it with an ordinary file edit. The copy that actually ships is
-// the heredoc in kits/sbxpi/spec.yaml's "Network-block escalation guard"
-// setup step, which installs it to /usr/local/lib/sbxagent/.
+// Dev copy of the network-block guard extension, used by the sbxpi kit.
+// The copy that actually ships is
+// kits/sbxpi/files/system/usr/local/lib/sbxagent/network-block.ts, which the
+// kit's recipe installs root-owned and outside $HOME, so the agent it's
+// watching can't unregister it with an ordinary file edit.
 //
 // The policy itself is not here — it lives in network-block.jq, which this
 // file shells out to. All this adapts is Pi's extension events into the
 // payload that filter already expects, and the filter's verdict back onto
 // Pi's return types.
 //
-// Edit here, then copy the body below into the heredoc — `make lint` fails
-// if the two disagree, and type-strips this file with esbuild so a syntax
+// Edit here, then copy the body below into every shipped copy — `make lint`
+// fails if they disagree, and type-strips this file with esbuild so a syntax
 // error cannot reach a sandbox. Note that esbuild checks syntax only: it
 // does not resolve the `import type` above or check types.
 //
 // Only sbxpi ships this today; the `make lint` loop covers any kit that
-// grows an EXTENSION heredoc later.
+// ships a copy later.
 
-// BEGIN-SYNCED (must match every kit's spec.yaml heredoc exactly)
+// BEGIN-SYNCED (must match every kit's shipped copy exactly)
 /**
  * Network-block escalation guard.
  *

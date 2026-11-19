@@ -72,9 +72,8 @@ large GitHub toolset out of every request. The kit also sets
 `"autoEnableCodemode": false`. That stops MCP from switching codemode on by
 itself; it does not keep codemode away from the server. Once you enable
 codemode, for example with `pi -t +codemode`, its scripts can call the deferred
-GitHub tools too. `sbxpi` has no parent kit to inherit the `github` credential
-from, so it declares it itself; `gh` and `git` over HTTPS use the same proxy
-credential as the server.
+GitHub tools too. `gh` and `git` over HTTPS use the same proxy credential as
+the server.
 
 Pi's `/share` command also works once the `github` secret is bound. It uploads
 the session as a secret GitHub gist. A secret gist is unlisted, not private:
@@ -92,15 +91,17 @@ Each agent reads the token differently, and the syntax is not interchangeable:
 
 | Config | Form | Read by |
 | --- | --- | --- |
-| [`.mcp.json`](../.mcp.json), [`kits/sbxclaude/files/home/.claude.json`](../kits/sbxclaude/files/home/.claude.json) | `"${GITHUB_TOKEN}"` | Claude Code |
+| [`.mcp.json`](../.mcp.json), `~/.claude.json`, merged in by [`kits/sbxclaude/sbxclaude.yaml`](../kits/sbxclaude/sbxclaude.yaml) | `"${GITHUB_TOKEN}"` | Claude Code |
 | [`.cursor/mcp.json`](../.cursor/mcp.json), [`kits/sbxcursor/files/home/.cursor/mcp.json`](../kits/sbxcursor/files/home/.cursor/mcp.json) | `"${env:GITHUB_TOKEN}"` | Cursor |
 | [`.vscode/mcp.json`](../.vscode/mcp.json) | `"${env:GITHUB_TOKEN}"` | VS Code |
-| `~/.codex/config.toml`, written by `kits/sbxcodex/spec.yaml` | `env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]` | Codex |
-| [`kits/sbxpi/files/home/.pi/agent/mcp.json`](../kits/sbxpi/files/home/.pi/agent/mcp.json) | `"${GITHUB_TOKEN}"` | Pi |
+| `~/.codex/config.toml`, appended to by [`kits/sbxcodex/sbxcodex.yaml`](../kits/sbxcodex/sbxcodex.yaml) | `env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]` | Codex |
+| `~/.pi/agent/mcp.json`, merged from [`kits/sbxpi/files/system/usr/local/share/sbxagent/pi/mcp.json`](../kits/sbxpi/files/system/usr/local/share/sbxagent/pi/mcp.json) | `"${GITHUB_TOKEN}"` | Pi |
 
 Codex is the odd one out: its `env` table is a static map with no `${VAR}`
-expansion, so the token is named rather than interpolated, and the entrypoint
-exports it.
+expansion, so the token is named rather than interpolated. `sbxcodex`'s
+`github` credential therefore sets `GITHUB_PERSONAL_ACCESS_TOKEN`, the name the
+server reads, instead of `GITHUB_TOKEN`. `gh` does not read that name, but
+still works: the proxy adds the token on `api.github.com` whatever `gh` sends.
 
 `GITHUB_TOKEN` means something different on each side, and that is what lets one
 definition serve both:
@@ -108,13 +109,15 @@ definition serve both:
 | | `GITHUB_TOKEN` is | reaches GitHub as |
 | --- | --- | --- |
 | Host | your own PAT | itself |
-| Sandbox | a proxy-managed sentinel, exported by the entrypoint | the real token, swapped in by the proxy |
+| Sandbox | a proxy-managed sentinel, set by the kit's `github` credential | the real token, swapped in by the proxy |
 
 So the `sbx secret set github` step in [Host setup](setup.md) stays the only
 credential the sandbox needs, and the real token never enters it.
 
-The export covers only the session the entrypoint starts. A `claude` you launch
-by hand from `sbxclaude exec bash` does not inherit it.
+The variable is set for the whole sandbox, so a `claude` you launch by hand
+from `sbxclaude exec bash` gets it too. The credential is optional: with no
+`github` secret bound the sandbox is still created, and GitHub calls go out
+unauthenticated.
 
 The GitHub-hosted server at `https://api.githubcopilot.com/mcp/` is
 deliberately **not** used. That endpoint is a Copilot endpoint and needs a
@@ -143,15 +146,14 @@ sbx secret ls                      # find its placeholder
 sbx secret rm --placeholder <the sbx-cs-… value>
 ```
 
-Check it with `claude mcp list`, `codex mcp list`, `agent mcp list` or
+Check it with `claude mcp list`, `codex mcp list`, `cursor-agent mcp list` or
 `pi mcp list`; the `github` line should report connected, both on the host and
-inside the sandbox. In a shell from `sbxpi exec bash`, which skips the
-entrypoint's export, run `GITHUB_TOKEN="$GH_TOKEN" pi mcp list`.
+inside the sandbox.
 
 ## Codex login
 
 `sbxcodex` signs in with either an OpenAI API key or a ChatGPT subscription.
-The parent `codex` kit owns the flow: it runs on the host, and the sandbox only
+Docker's `codex` workload owns the flow: it runs on the host, and the sandbox only
 ever sees a placeholder. The first run asks you to approve the `openai`
 credential; say yes, or Codex starts logged out.
 

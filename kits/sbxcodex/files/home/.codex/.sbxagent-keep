@@ -1,0 +1,4 @@
+Ships ~/.codex in the kit's layer, owned by the agent. The Codex workload has
+no hook that makes ~/.codex agent-owned, so without this the directory is
+created root-owned at create (for the trace mount on ~/.codex/sessions), and
+the workload's own config.toml seed fails with "Permission denied".

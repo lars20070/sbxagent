@@ -60,12 +60,13 @@ HASH_LENGTH="${HASH_LENGTH:-8}"
 CROSS_SANDBOX_VISIBILITY="${CROSS_SANDBOX_VISIBILITY:-true}"
 
 # false also installs Playwright, Chromium, mermaid-cli and XeTeX. Takes effect
-# at create time; passed to the kit as --kit-arg lite=... (see args: in spec.yaml).
+# at create time; passed to this agent's kit as --kit-arg <kit>.lite=... (see
+# args: in its descriptor).
 SBXAGENT_LITE="${SBXAGENT_LITE:-true}"
 
 # false turns the network allow list off: the mixin kit in mixins/open-network
-# is stacked with --kit, so the sandbox can reach any host (org-policy and
-# local deny rules still apply). Takes effect at create time.
+# is stacked with a second --kit, so the sandbox can reach any host (org-policy
+# and local deny rules still apply). Takes effect at create time.
 NETWORK_ALLOWLIST="${NETWORK_ALLOWLIST:-true}"
 
 no_args() {
@@ -84,7 +85,7 @@ Usage:
   ${SELF} inspect            Show the sandbox state
   ${SELF} create             Create without attaching
   ${SELF} rm                 Remove (destructive; confirms first)
-  ${SELF} kit validate       Validate the sandbox kit
+  ${SELF} kit validate       Build the kit and check it (Docker, kit-tck)
   ${SELF} policy log         Show the sandbox policy log
   ${SELF} policy check HOST  Check sandbox network access to HOST
   ${SELF} help               Show this help (-h and --help also work)
@@ -112,12 +113,13 @@ require_sbx() {
 	exit 1
 }
 
-# Sets STATE_HOME, PROJECT_DIR, AGENT_DIR, PROJECT_MOUNT, MESSAGEBOARD_HOME and
-# MESSAGEBOARD_DIR. PROJECT_DIR is shared by every agent's sandbox for this same
-# project (same SLUG+HASH); AGENT_DIR is this agent's own subfolder within it and
-# is mounted read-write. The same path is exported as SBXAGENT_STATE_DIR when the
-# sandbox is created, so the kit can relocate that agent's native session-trace
-# directory into it. PROJECT_MOUNT is the read-only mount operand for
+# Sets STATE_HOME, PROJECT_DIR, AGENT_DIR, TRACE_MOUNT, PROJECT_MOUNT,
+# MESSAGEBOARD_HOME and MESSAGEBOARD_DIR. PROJECT_DIR is shared by every agent's
+# sandbox for this same project (same SLUG+HASH); AGENT_DIR is this agent's own
+# subfolder within it. TRACE_MOUNT mounts AGENT_DIR/TRACE_SUBDIR read-write
+# straight onto the agent's native session-trace directory, TRACE_TARGET, so
+# the traces land on the host with nothing inside the sandbox to set up or to
+# fail. PROJECT_MOUNT is the read-only mount operand for
 # PROJECT_DIR, or empty when CROSS_SANDBOX_VISIBILITY is false. MESSAGEBOARD_DIR
 # is one project-wide folder under a sibling messageboards/ tree, mounted
 # read-write so every agent's sandbox for this project can post to it, and is its
@@ -164,6 +166,8 @@ compute_state_mounts() {
 	chmod 700 "${PROJECT_DIR}"
 	mkdir -p "${AGENT_DIR}"
 	chmod 700 "${AGENT_DIR}"
+	mkdir -p "${AGENT_DIR}/${TRACE_SUBDIR}"
+	TRACE_MOUNT="${AGENT_DIR}/${TRACE_SUBDIR}:${TRACE_TARGET}"
 	# Last, so a rejected SBXAGENT_LITE or NETWORK_ALLOWLIST value above still
 	# leaves nothing behind, and skipped entirely when the mount is off.
 	if [[ -n "${MESSAGEBOARD_DIR}" ]]; then
@@ -175,11 +179,35 @@ compute_state_mounts() {
 # Dispatch on the name we were invoked as. SELF is the basename of $0, taken
 # before resolve_dir walks the symlink chain — resolving first would erase the
 # name the user typed and leave only "sbxagent".
+# WORKLOAD is the Docker-published agent kit this command's mixin stacks on;
+# TRACE_TARGET is that agent's native session-trace directory, and
+# TRACE_SUBDIR the folder under AGENT_DIR it is kept in on the host.
 case "${SELF}" in
-sbxclaude) CLI="claude" ;;
-sbxcodex) CLI="codex" ;;
-sbxcursor) CLI="agent" ;;
-sbxpi) CLI="pi" ;;
+sbxclaude)
+	CLI="claude"
+	WORKLOAD="claude"
+	TRACE_TARGET="/home/agent/.claude/projects"
+	TRACE_SUBDIR="projects"
+	;;
+sbxcodex)
+	CLI="codex"
+	WORKLOAD="codex"
+	TRACE_TARGET="/home/agent/.codex/sessions"
+	TRACE_SUBDIR="sessions"
+	;;
+sbxcursor)
+	CLI="cursor-agent"
+	WORKLOAD="cursor"
+	TRACE_TARGET="/home/agent/.cursor/projects"
+	TRACE_SUBDIR="projects"
+	;;
+sbxpi)
+	CLI="pi"
+	# Not one of sbx's built-in agent names, so named by its registry reference.
+	WORKLOAD="docker.io/sbx/pi"
+	TRACE_TARGET="/home/agent/.pi/agent/sessions"
+	TRACE_SUBDIR="sessions"
+	;;
 *)
 	# Covers a direct `./scripts/sbxagent` run and any copy under another name.
 	# Deliberately no default agent: silently picking one is worse than failing.
@@ -195,8 +223,8 @@ sbxpi) CLI="pi" ;;
 esac
 
 KIT="${REPO}/kits/${SELF}"
-[[ -d "${KIT}" ]] || die "no kit directory at ${KIT}"
-KIT_NAME="${SELF}" # == spec.yaml name:
+[[ -f "${KIT}/${SELF}.yaml" ]] || die "no kit descriptor at ${KIT}/${SELF}.yaml"
+KIT_NAME="${SELF}" # == the kit directory and its descriptor's file stem
 DIR="$(pwd -P)"
 # Sanitize in pure bash. BSD tr is multibyte-aware while GNU tr is byte oriented, so `tr -c` derived a different
 # slug per platform for non-ASCII directory names, and could fail outright with an illegal byte sequence.
@@ -248,12 +276,11 @@ case "${1:-}" in
 	if sbx inspect "${SANDBOX}" >/dev/null 2>&1; then
 		exec sbx run --name "${SANDBOX}"
 	fi
-	sbx kit validate --offline "${KIT}" >/dev/null
 	compute_state_mounts
 	# sbx defaults to --pull missing for kits, which reuses a cached, possibly
-	# stale copy of the kit's images (e.g. one without CA fixes). Creating
-	# always refreshes them.
-	exec sbx run --name "${SANDBOX}" --pull always -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"} "${AGENT_DIR}"
+	# stale copy of the workload image (e.g. one without CA fixes). Creating
+	# always refreshes it. The kit is a source kit, which sbx builds itself.
+	exec sbx run --name "${SANDBOX}" --pull always --kit "${KIT}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} --kit-arg "${KIT_NAME}.lite=${SBXAGENT_LITE}" "${WORKLOAD}" . "${TRACE_MOUNT}" ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"}
 	;;
 name)
 	shift
@@ -289,7 +316,7 @@ create)
 	no_args create "$@"
 	require_sbx
 	compute_state_mounts
-	exec sbx create --name "${SANDBOX}" --pull always -e "SBXAGENT_STATE_DIR=${AGENT_DIR}" --kit-arg "lite=${SBXAGENT_LITE}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} "${KIT}" . ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"} "${AGENT_DIR}"
+	exec sbx create --name "${SANDBOX}" --pull always --kit "${KIT}" ${NETWORK_KIT:+--kit "${NETWORK_KIT}"} --kit-arg "${KIT_NAME}.lite=${SBXAGENT_LITE}" "${WORKLOAD}" . "${TRACE_MOUNT}" ${PROJECT_MOUNT:+"${PROJECT_MOUNT}"} ${MESSAGEBOARD_DIR:+"${MESSAGEBOARD_DIR}"}
 	;;
 rm)
 	shift
@@ -303,8 +330,7 @@ kit)
 	validate)
 		shift
 		no_args "kit validate" "$@"
-		require_sbx
-		exec sbx kit validate --offline "${KIT}"
+		exec "${REPO}/scripts/validate-kit.sh" "${KIT}"
 		;;
 	"") die "'kit' requires a subcommand: validate" ;;
 	*) die "unknown kit command: $1" ;;

@@ -1,26 +1,23 @@
-# Dev-only mirror of the network-block escalation filter, shared by the
-# sbxclaude and sbxcodex kits. This file is NOT shipped into any sandbox —
-# Docker Sandbox Kits can only write declared files as the agent user
-# (UID 1000; see docs.docker.com's kit-reference.md, "Setup > files"), and
-# this filter has to be root-owned and outside $HOME so the agent it's
-# watching can't disable it with an ordinary file edit. The copies that
-# actually ship are the heredocs in each kit's "Network-block escalation
-# hook" setup step, which install it to /usr/local/lib/sbxagent/.
+# Dev copy of the network-block escalation filter, shared by the sbxclaude,
+# sbxcodex and sbxpi kits. The copies that actually ship are each kit's
+# files/system/usr/local/lib/sbxagent/network-block.jq, which the kit's recipe
+# installs root-owned and outside $HOME, so the agent it's watching can't
+# disable it with an ordinary file edit.
 #
-# Detection is identical on both hosts: the filter reads the whole payload
+# Detection is identical on every host: the filter reads the whole payload
 # rather than named fields. Enforcement is not. Claude Code treats
 # `continue: false` as a hard turn-end; Codex instead replaces the tool
 # result with `stopReason` and lets the model continue, so on sbxcodex this
 # is a firm notice rather than a hard stop.
 #
 # Edit here for readability and local testing, then copy the body below
-# into both heredocs — `make lint` fails if any of them disagree.
+# into every shipped copy — `make lint` fails if any of them disagree.
 #
 # Try it locally:
 #   jq -n '{tool_name:"Bash",tool_input:{command:"curl https://x"},error:"Blocked by local rule for x"}' \
 #     | jq -f kits/network-block.jq
 
-# BEGIN-SYNCED (must match every kit's spec.yaml heredoc exactly)
+# BEGIN-SYNCED (must match every kit's shipped copy exactly)
 # Every string in the payload except the tool's own input. Field names
 # differ per event (.tool_response on PostToolUse, .error on
 # PostToolUseFailure), so match the whole payload rather than a field.
@@ -38,8 +35,8 @@ def reaches_network:
        + "|\\bdocker\\s+(pull|push|run|build)\\b"
        + "|\\bgit\\s+(fetch|pull|push|clone|remote|ls-remote|submodule)\\b");
 
-# These block strings appear verbatim in this project's own docs, spec,
-# and tests, so a Bash read of one of those files must not trip the
+# These block strings appear verbatim in this project's own docs, kit
+# descriptors, and tests, so a Bash read of one of those files must not trip the
 # guard. Scoped to Bash's own command field so a blocked WebFetch URL
 # that merely contains one of these filenames is never exempted.
 #
@@ -52,7 +49,8 @@ def self_reference:
   .tool_name == "Bash"
   and (reaches_network | not)
   and ((.tool_input.command // "")
-       | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"));
+       | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"
+                    + "|sbx(claude|codex|cursor|pi)\\.(yaml|dockerfile)|open-network\\.yaml"));
 
 # A WebFetch that came back HTTP 403 is a block on its face, whatever its
 # body happens to look like, so it drops the line anchor below. Wrapped in an

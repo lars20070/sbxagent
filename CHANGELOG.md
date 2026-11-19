@@ -8,6 +8,44 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `sbx` v0.54.0 is now required, up from v0.50.0
+  ([v0.51.0](https://github.com/docker/sbx-releases/releases/tag/v0.51.0),
+  [v0.53.0](https://github.com/docker/sbx-releases/releases/tag/v0.53.0),
+  [v0.54.0](https://github.com/docker/sbx-releases/releases/tag/v0.54.0)).
+  Since v0.51.0, `sbx` runs its agents from Docker's published kits and no
+  longer lets a kit build on one with `extends:`, so the old kits no longer
+  load.
+- All four kits are now mixins on Docker's own agent kits (`claude`, `codex`,
+  `cursor` and `docker.io/sbx/pi`) instead of standalone kits. Those agent
+  kits run on Docker Hardened Images (Debian 13), and they track Docker's
+  latest releases, so Pi is no longer pinned to one version. A published kit
+  now runs as `sbx run claude --kit ghcr.io/lars20070/sbxclaude:<version>`
+  (likewise `codex`, `cursor`, and `docker.io/sbx/pi` for `sbxpi`).
+- Agent traces reach the host through a direct mount onto the agent's own
+  trace folder, set up by the wrapper. Nothing inside the sandbox has to run
+  for it, so a failed step can no longer leave traces unsaved. Traces already
+  on the host carry over.
+- Existing sandboxes keep their old setup when you reattach. To upgrade one,
+  first check its traces are in the host state folder and copy out anything
+  that lives only inside it, then run `sbx<agent> rm` and `sbx<agent>`. `sbx`
+  may also ask you to approve the kits' permissions again.
+- The `github` and `openrouter` credentials are optional: a sandbox is
+  created even when no secret is bound. Docker's Pi kit also asks for an
+  optional Anthropic credential and allows Anthropic's API.
+
+### Fixed
+
+- The GitHub token is set in `sbx<agent> exec` sessions too, not only in the
+  agent session the old entrypoint started.
+
+### Removed
+
+- `sbx<agent> kit validate` no longer runs offline. It builds the kit with
+  Docker and checks it with `kit-tck`, because `sbx` v0.54.0 cannot check a
+  kit in the new format without its daemon.
+
 ## [0.4.14] - 2026-10-27
 
 ### Security

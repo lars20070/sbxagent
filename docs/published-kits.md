@@ -12,14 +12,20 @@ You need the `sbx` CLI installed and signed in. See
 [Install sbx](../README.md#install-sbx).
 
 Every release publishes the four kits to GitHub Container Registry as OCI
-artifacts, one package per kit, named after the command it corresponds to:
+artifacts, one package per kit, named after the command it corresponds to.
+Each is a *mixin*: it does not run on its own, but stacks on Docker's
+published kit for its agent (the *workload*), which `sbx` fetches from
+`docker.io`:
 
-| Package | Equivalent to |
-| --- | --- |
-| `ghcr.io/lars20070/sbxclaude` | `sbxclaude` |
-| `ghcr.io/lars20070/sbxcodex` | `sbxcodex` |
-| `ghcr.io/lars20070/sbxcursor` | `sbxcursor` |
-| `ghcr.io/lars20070/sbxpi` | `sbxpi` |
+| Package | Equivalent to | Stacks on |
+| --- | --- | --- |
+| `ghcr.io/lars20070/sbxclaude` | `sbxclaude` | `claude` |
+| `ghcr.io/lars20070/sbxcodex` | `sbxcodex` | `codex` |
+| `ghcr.io/lars20070/sbxcursor` | `sbxcursor` | `cursor` |
+| `ghcr.io/lars20070/sbxpi` | `sbxpi` | `docker.io/sbx/pi` |
+
+These need `sbx` v0.54.0. On v0.50.0, use the last release built for it,
+`0.4.14`, which runs on its own as `sbx run ghcr.io/lars20070/sbxclaude:0.4.14`.
 
 Every command below writes `<version>` for the release you want. The newest is
 on the repository's releases page, and the `latest` tag always points at it.
@@ -47,9 +53,9 @@ Then check the kit is readable:
 sbx kit inspect ghcr.io/lars20070/sbxclaude:<version>
 ```
 
-It should report `Name: sbxclaude`, `Schema: v2`, and the policy counts. The
-packages are public, so no registry credentials are needed. A **kit-source
-error** here means the allow-list step above did not take.
+It should print the kit's descriptor. The packages are public, so no registry
+credentials are needed. A **kit-source error** here means the allow-list step
+above did not take.
 
 ## 2. Check the signature
 
@@ -70,19 +76,23 @@ repository's release workflow, not merely that somebody signed it.
 
 ## 3. Run it
 
-`sbx run` takes the kit reference as its first positional operand, and reads
-the agent to launch from the kit's own spec.
+`sbx run` takes the agent as its positional operand and this kit as `--kit`:
 
 ```bash
-sbx run ghcr.io/lars20070/sbxclaude:<version>
+sbx run claude --kit ghcr.io/lars20070/sbxclaude:<version>
+sbx run docker.io/sbx/pi --kit ghcr.io/lars20070/sbxpi:<version>
 ```
+
+The kit refuses any other agent. Docker's workloads are not pinned: a new
+sandbox gets the latest one, and `--pull always` fetches it even when a copy
+is cached.
 
 To try one out, use a scratch directory and name the sandbox, so it is obvious
 which is which and easy to remove afterwards:
 
 ```bash
 mkdir -p /tmp/kit-test && cd /tmp/kit-test
-sbx run --name kit-test ghcr.io/lars20070/sbxclaude:<version>
+sbx run --name kit-test claude --kit ghcr.io/lars20070/sbxclaude:<version>
 sbx rm kit-test
 ```
 
@@ -92,34 +102,28 @@ re-pointed at the same digest. `latest` means "newest release" here rather than
 anything repeatable, or pin the digest to be certain:
 
 ```bash
-sbx run ghcr.io/lars20070/sbxclaude@sha256:<digest>
+sbx run claude --kit ghcr.io/lars20070/sbxclaude@sha256:<digest>
 ```
 
 Playwright, Chromium, mermaid-cli and XeTeX are opt-in. The wrapper turns
 `SBXAGENT_LITE=false` into a kit argument; without the wrapper, pass it
-yourself:
+yourself, scoped to the kit by name:
 
 ```bash
-sbx run --kit-arg lite=false ghcr.io/lars20070/sbxclaude:<version>
+sbx run claude --kit ghcr.io/lars20070/sbxclaude:<version> \
+  --kit-arg sbxclaude.lite=false
 ```
 
 ## Building on a published kit
 
-You can **stack** kits — `--kit` is now the mixin flag, and may be given more
-than once, so your own kit layers onto one of these at run time:
+Your own mixin stacks on top with another `--kit`, which may be given more than
+once:
 
 ```bash
-sbx run ghcr.io/lars20070/sbxclaude:<version> --kit ./my-extras
+sbx run claude --kit ghcr.io/lars20070/sbxclaude:<version> --kit ./my-extras
 ```
 
-You cannot yet **derive** a kit from one. The spec has a `mixins:` field for
-exactly that, but as of `sbx` v0.50.0 it is still accepted and then ignored —
-`sbx kit validate --offline <local kit>` says so out loud:
-
-```text
-warning: field "mixins" is accepted but not yet implemented: mixin composition
-is accepted in the schema but not yet applied by the runtime
-```
-
-So a spec that lists a mixin looks right and does nothing. Until that lands,
-copy the `spec.yaml` you want to change.
+Name your mixin's descriptor after its directory (`my-extras/my-extras.yaml`),
+not `spec.yaml`. Every stacked kit's descriptor is staged under
+`/usr/share/sandbox/kit/<file stem>/`, so two kits with the same file name
+collide.

@@ -67,12 +67,8 @@ mounted for different reasons:
 | Layout | A subfolder per agent (`sbxclaude/`, `sbxcodex/`, …) | One folder, no subfolders |
 | Who can write | Only the agent that owns the subfolder | Every agent's sandbox for the project |
 | Who can read siblings | Yes, read-only | Yes, the same folder |
-| How it is mounted | Bind-mounted over the agent's own session directory by `mount-state.sh` inside the kit | Mounted directly by the wrapper; no kit-side script |
+| How it is mounted | Mounted by the wrapper onto the agent's own session directory | Mounted by the wrapper at the same path as on the host |
 | Written by | The agent, automatically | Nobody yet — see below |
-
-The message board needs no `mount-state.sh` equivalent because there is no
-pre-existing agent-native directory to relocate: the folder is new, so the
-wrapper simply passes it to `sbx` as another mount operand.
 
 ## Turning it off
 

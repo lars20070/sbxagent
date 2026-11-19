@@ -1,0 +1,4 @@
+# Untracked local clutter must never reach the kit layer. Publishing stages
+# from `git archive`, but `sbx run` and `make validate` build the working tree.
+**/.DS_Store
+**/__pycache__
