@@ -8,14 +8,40 @@ and this project adheres to
 
 ## [Unreleased]
 
+**Why this release exists.** From `sbx` v0.51.0, Docker runs its agents from
+its own published kits and no longer lets a kit build on one with `extends:`.
+Every kit in this repository was built on `extends:`, so none of them load on
+a current `sbx`. This release moves all four kits to the new kit format (a
+"mixin" that stacks on Docker's kit) and requires `sbx` v0.54.0. The work
+below follows from that move. The one new feature, host Chrome access, is
+built on the same mixin mechanism.
+
 ### Added
 
 - `HOST_CHROME_ACCESS=true` lets the agent drive a Chrome on the host over the
   Chrome DevTools Protocol, through the new `mixins/host-chrome` kit (all four
-  agents). The wrapper prints the two host-side commands: one
-  `sbx policy allow` rule and the Chrome launch line. Opt-in and create-time
-  only; see [docs/host-chrome.md](docs/host-chrome.md). Verified on macOS;
-  Linux hosts are untested.
+  agents). *Motivation:* the sandbox's own headless Chromium has no logins, so
+  the agent could not work in sites where you are already signed in. The
+  wrapper prints the two host-side commands: one `sbx policy allow` rule for
+  `localhost:9222` and the Chrome launch line. Opt-in and create-time only;
+  see [docs/host-chrome.md](docs/host-chrome.md). Verified on macOS; Linux
+  hosts are untested.
+  - Chrome runs with its own profile in
+    `$XDG_STATE_HOME/sbxagent/browserprofile`, never your everyday one. The
+    wrapper refuses to start if that folder overlaps anything it mounts into
+    the sandbox.
+  - Inside the sandbox, `socat` forwards `localhost:9222` through the sandbox
+    proxy and the Playwright MCP server (`playwright`) talks to it.
+  - What you grant: the agent controls the whole Chrome profile (tabs,
+    cookies, logins), and the browser's own requests are not limited by the
+    sandbox network allow list. Use a dedicated profile.
+- `scripts/validate-kit.sh`, the check behind `sbx<agent> kit validate` and
+  `make validate`: it builds the kit with Docker Buildx and checks the result
+  with `kit-tck`.
+- The release workflow builds each kit for `linux/amd64` and `linux/arm64`
+  with QEMU and Buildx, checks it with a checksum-verified `kit-tck`, and
+  uploads that same build with `oras`. CI does the same build and check on
+  every pull request.
 
 ### Changed
 
@@ -26,16 +52,34 @@ and this project adheres to
   Since v0.51.0, `sbx` runs its agents from Docker's published kits and no
   longer lets a kit build on one with `extends:`, so the old kits no longer
   load.
-- All four kits are now mixins on Docker's own agent kits (`claude`, `codex`,
-  `cursor` and `docker.io/sbx/pi`) instead of standalone kits. Those agent
+- All four kits are now schema v3 mixins on Docker's own agent kits (`claude`,
+  `codex`, `cursor` and `docker.io/sbx/pi`) instead of standalone kits. Those agent
   kits run on Docker Hardened Images (Debian 13), and they track Docker's
   latest releases, so Pi is no longer pinned to one version. A published kit
   now runs as `sbx run claude --kit ghcr.io/lars20070/sbxclaude:<version>`
   (likewise `codex`, `cursor`, and `docker.io/sbx/pi` for `sbxpi`).
+- Kit files were renamed and reorganized. Each kit's descriptor is now
+  `kits/<kit>/<kit>.yaml` (was `spec.yaml`), next to a `<kit>.dockerfile`
+  recipe that fetches the pinned tools and assembles `files/`. A kit's name is
+  its directory name; v3 has no `name:` field. The mixin `open-network` was
+  renamed the same way. `make lint` now fails on a leftover `spec.yaml`, a
+  descriptor name used twice (composed kits would collide), or a recipe that
+  differs between kits.
+- The wrapper passes the kit as `--kit <kit>` plus Docker's agent kit as the
+  positional operand, and the `lite` toggle as `--kit-arg <kit>.lite=...`.
+  `SBXAGENT_LITE`, `NETWORK_ALLOWLIST` and `HOST_CHROME_ACCESS` behave as
+  before.
+- The wrapper no longer runs `sbx kit validate` before creating a sandbox.
+  `sbx` v0.54.0 cannot check a v3 kit without its daemon, so that step could
+  not stay.
 - Agent traces reach the host through a direct mount onto the agent's own
-  trace folder, set up by the wrapper. Nothing inside the sandbox has to run
-  for it, so a failed step can no longer leave traces unsaved. Traces already
-  on the host carry over.
+  trace folder, set up by the wrapper. *Motivation:* before, each kit ran a
+  script at start that bind-mounted the host folder over the trace path, and
+  when that script failed the agent refused to start (or traces were lost).
+  Now nothing inside the sandbox has to run, so `mount-state.sh` and its
+  tests are gone. Traces already on the host carry over. The folders are
+  `projects` (Claude Code and Cursor) and `sessions` (Codex and Pi) under the
+  agent's state folder.
 - Existing sandboxes keep their old setup when you reattach. To upgrade one,
   first check its traces are in the host state folder and copy out anything
   that lives only inside it, then run `sbx<agent> rm` and `sbx<agent>`. `sbx`
@@ -43,6 +87,11 @@ and this project adheres to
 - The `github` and `openrouter` credentials are optional: a sandbox is
   created even when no secret is bound. Docker's Pi kit also asks for an
   optional Anthropic credential and allows Anthropic's API.
+- `sbxpi`'s Pi settings and MCP config templates moved to
+  `/usr/local/share/sbxagent/pi/` and are merged into Pi's config at start,
+  because Docker's Pi kit now owns `~/.pi`.
+- The CI `validate` job runs on Linux only and needs Docker, because the
+  macOS runners have none. The wrapper's unit tests still run on both.
 - A published kit's SLSA provenance now comes from Docker Buildx and sits
   inside the kit's image index, one attestation per platform. Read its source
   commit with `docker buildx imagetools inspect` (see
@@ -52,13 +101,19 @@ and this project adheres to
 
 - The GitHub token is set in `sbx<agent> exec` sessions too, not only in the
   agent session the old entrypoint started.
-- `sbxcodex exec gh` uses the proxy-managed GitHub credential directly.
+- `sbxcodex exec gh` uses the proxy-managed GitHub credential directly. A
+  small `gh` wrapper in the kit passes `GITHUB_PERSONAL_ACCESS_TOKEN` on as
+  `GH_TOKEN` when you have set neither.
+- The release workflow's probe check looked for `kits/<kit>/spec.yaml`, which
+  no longer exists; it now looks for `kits/<kit>/<kit>.yaml`.
 
 ### Removed
 
 - `sbx<agent> kit validate` no longer runs offline. It builds the kit with
   Docker and checks it with `kit-tck`, because `sbx` v0.54.0 cannot check a
   kit in the new format without its daemon.
+- `mount-state.sh` and `tests/mount_state_test.sh` in every kit, replaced by
+  the wrapper's direct trace mount (see "Changed").
 - The dev-only mirrors `kits/network-block.jq` and `kits/network-block.ts`.
   Each kit's recipe now ships the guard as a real file under
   `files/system/`, so `make lint` checks the shipped copy directly
