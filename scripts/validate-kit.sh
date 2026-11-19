@@ -54,7 +54,7 @@ fi
 # and adding one it deliberately omits, such as revision, fails §9.3.
 docker buildx build --quiet \
 	${platforms:+--platform "${platforms}"} \
-	--provenance=mode=max \
+	--provenance=mode=max,version=v1 \
 	-f "${descriptor}" \
 	--output "type=oci,dest=${layout},tar=false,name=${name}" \
 	"${kit_dir}" >/dev/null

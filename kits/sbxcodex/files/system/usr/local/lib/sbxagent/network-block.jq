@@ -63,6 +63,16 @@ def stop($why; $tell):
       + "around this. Report it to the user and wait."),
     systemMessage: $tell };
 
+# A host name that is safe to paste into a host-shell command: a plain host
+# name or IPv4 address with an optional port, starting with a letter or digit.
+# The token comes from tool output, which a fetched page can influence, so it
+# must never carry shell syntax (`$(...)`, backticks, quotes, backslashes) or
+# anything `sbx policy` reads as a pattern: `**` (every host), `?`, `[...]`
+# or `,` (a list of rules). A leading `-` could read as an option. Anything
+# else, bracketed IPv6 included, gets the inspection-only fallback below.
+def literal_host:
+  test("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$");
+
 # `capture` yields nothing on miss; without `// null` the pipeline would
 # emit no output at all (fail open). Bind hosts up front so each branch
 # below can use them — jq does not keep `as` bindings from an `if` condition.
@@ -84,17 +94,33 @@ haystack as $out
          + "Your company policy is blocking this request — contact IT if you need access.")
   # Local deny: deny beats allow, so the rule must be removed.
   elif $denied != null then
-    stop("A local deny rule blocks \($denied); `sbx policy allow` cannot override it.";
-         "Blocked host: \($denied) — by a local deny rule.\n"
-         + "Deny beats allow, so allowing it will not help. Find and remove the rule:\n"
-         + "  sbx policy ls --wide\n"
-         + "  sbx policy rm network --resource \"\($denied)\"                      # global\n"
-         + "  sbx policy rm network --sandbox <sandbox> --resource \"\($denied)\"  # one sandbox")
+    if ($denied | literal_host) then
+      stop("A local deny rule blocks \($denied); `sbx policy allow` cannot override it.";
+           "Blocked host: \($denied) — by a local deny rule.\n"
+           + "Deny beats allow, so allowing it will not help. Find and remove the rule:\n"
+           + "  sbx policy ls --wide\n"
+           + "  sbx policy rm network --resource \"\($denied)\"                      # global\n"
+           + "  sbx policy rm network --sandbox <sandbox> --resource \"\($denied)\"  # one sandbox")
+    else
+      stop("A local deny rule blocked a request.";
+           "A local deny rule blocked a request. The host in the output is not a plain\n"
+           + "host name, so no command is shown. Inspect the rules on your host:\n"
+           + "  sbx policy ls --wide\n"
+           + "  sbx policy log")
+    end
   # Default-deny: allow the host on the host machine.
   elif $host != null then
-    stop("The sandbox network policy blocked \($host).";
-         "Blocked host: \($host)\n"
-         + "Run on your host:  sbx policy allow network \"\($host)\"")
+    if ($host | literal_host) then
+      stop("The sandbox network policy blocked \($host).";
+           "Blocked host: \($host)\n"
+           + "Run on your host:  sbx policy allow network \"\($host)\"")
+    else
+      stop("The sandbox network policy blocked a request.";
+           "The sandbox network policy blocked a request. The host in the output is not\n"
+           + "a plain host name, so no command is shown. Inspect the policy on your host:\n"
+           + "  sbx policy ls --wide\n"
+           + "  sbx policy log")
+    end
   # Block string present but host not parseable.
   elif $out | test($anchor + "Blocked by (network policy|local rule for)") then
     stop("A network request was blocked by the sandbox network policy.";

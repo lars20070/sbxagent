@@ -383,6 +383,24 @@ check_guard_blocks() {
 	pass "guard stops the turn on ${name}"
 }
 
+# A host token that is not a plain host name must stop the turn but yield no
+# policy command and never echo the token back (it came from tool output).
+check_guard_no_command() {
+	local name="$1" payload="$2" token="$3"
+	local out
+
+	out="$(guard "${payload}")" || fail "guard failed on ${name}"
+	[[ "$(jq -r '.continue' <<<"${out}")" == "false" ]] ||
+		fail "guard did not stop the turn for ${name}: ${out}"
+	if jq -r '.stopReason, .systemMessage' <<<"${out}" | grep -Fq -- "${token}"; then
+		fail "guard echoed the untrusted host for ${name}: ${out}"
+	fi
+	if jq -r '.stopReason, .systemMessage' <<<"${out}" | grep -Eq 'sbx policy (allow|rm)'; then
+		fail "guard offered a policy-changing command for ${name}: ${out}"
+	fi
+	pass "guard shows no command for ${name}"
+}
+
 check_guard_ignores() {
 	local name="$1" payload="$2"
 	local out
@@ -408,6 +426,22 @@ if jq -r '.systemMessage' <<<"${LOCAL_VERDICT}" | grep -Fq 'sbx policy allow'; t
 	fail "local-rule message must not suggest 'sbx policy allow': ${LOCAL_VERDICT}"
 fi
 pass "local-rule message removes the deny instead of allowing round it"
+
+check_guard_blocks "a blocked host with a port" \
+	'{"tool_name":"Bash","tool_input":{"command":"curl https://example.org:8443"},"tool_response":{"stderr":"Blocked by network policy: domain example.org:8443"}}' \
+	'sbx policy allow network "example.org:8443"'
+
+# The host comes from tool output, so anything that is not a plain host name
+# gets a notice with no command, in both the default-deny and local-deny paths.
+# shellcheck disable=SC2016 # the tokens are meant to stay literal
+for bad in '$(touch/tmp/x)' '`id`' 'a";rm${IFS}x;"' '**' 'api[12].example.org' '-x.example.org' 'a.test,**'; do
+	check_guard_no_command "default deny of '${bad}'" \
+		"$(jq -cn --arg e "Blocked by network policy: domain ${bad}" '{tool_name:"Bash",tool_input:{command:"curl https://x.test"},error:$e}')" \
+		"${bad}"
+	check_guard_no_command "local deny of '${bad}'" \
+		"$(jq -cn --arg e "Blocked by local rule for ${bad}" '{tool_name:"Bash",tool_input:{command:"curl https://x.test"},error:$e}')" \
+		"${bad}"
+done
 
 # Org policy is not liftable with `sbx policy allow`, so it must not be offered.
 check_guard_blocks "an org-policy block" \

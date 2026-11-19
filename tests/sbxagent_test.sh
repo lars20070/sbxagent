@@ -119,7 +119,7 @@ assert_kit_validated() {
 	local name tab
 	name="$(basename "${kit}")"
 	tab=$'\t'
-	assert_match "^docker${tab}buildx${tab}build${tab}--quiet${tab}--provenance=mode=max${tab}-f${tab}${kit}/${name}\.yaml${tab}--output${tab}type=oci,dest=[^${tab}]+,tar=false,name=${name}${tab}${kit}"$'\n'"kit-tck${tab}validate${tab}--layout${tab}[^${tab}]+${tab}latest$" \
+	assert_match "^docker${tab}buildx${tab}build${tab}--quiet${tab}--provenance=mode=max,version=v1${tab}-f${tab}${kit}/${name}\.yaml${tab}--output${tab}type=oci,dest=[^${tab}]+,tar=false,name=${name}${tab}${kit}"$'\n'"kit-tck${tab}validate${tab}--layout${tab}[^${tab}]+${tab}latest$" \
 		"$(<"${SBX_LOG}")" "${context}"
 }
 

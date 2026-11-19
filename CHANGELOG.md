@@ -66,6 +66,14 @@ and this project adheres to
   The jq filter still exists once per kit, because a kit can only build from
   its own folder; `make lint` fails if the copies differ.
 
+### Security
+
+- The network-block guard now prints a `sbx policy` command only for a plain
+  host name, with an optional port. A host in a block message that holds shell
+  syntax, a policy wildcard such as `**`, or a leading `-` gets a stop notice
+  that points to `sbx policy ls --wide` and `sbx policy log` instead. The host
+  comes from tool output, which a fetched page can influence.
+
 ## [0.4.14] - 2026-10-27
 
 ### Security
