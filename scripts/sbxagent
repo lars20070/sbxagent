@@ -219,15 +219,20 @@ compute_state_mounts() {
 # answers on the Chrome port. Fail closed: a failing sbx call also dies.
 # SBXAGENT_CHROME_PROBE_PORT is internal; the unit tests use it to stay off 9222.
 require_no_other_host_chrome() {
-	local names name info
+	local names name info kits
 	names="$(sbx ls -q 2>/dev/null)" || die "could not list sandboxes (sbx ls failed); cannot check for another host-Chrome sandbox"
 	while IFS= read -r name; do
 		[[ -n "${name}" && "${name}" != "${SANDBOX}" ]] || continue
 		info="$(sbx inspect "${name}" --format json 2>/dev/null)" ||
 			die "could not inspect sandbox ${name}; cannot check for another host-Chrome sandbox"
+		# Look only inside the "kits" field, so a workspace path or mount that
+		# happens to contain the marker is not mistaken for the mixin. awk prints
+		# from the "kits" key until its brackets balance.
+		kits="$(awk '/"kits"[[:space:]]*:/ { on = 1 }
+			on { print; d += gsub(/\[/, "["); d -= gsub(/\]/, "]"); if (d <= 0) exit }' <<<"${info}")"
 		# Here-string, not a pipe: grep -q exits early and a pipe writer would
 		# die early, which pipefail turns into a false "no match".
-		if grep -qF 'mixins/host-chrome' <<<"${info}"; then
+		if grep -qF 'mixins/host-chrome' <<<"${kits}"; then
 			die "host Chrome is already used by ${name}; remove it first (sbx rm ${name})"
 		fi
 	done <<<"${names}"

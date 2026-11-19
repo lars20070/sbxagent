@@ -5,6 +5,7 @@
     "tmp/**"
   ],
   "words": [
+    "gsub",
     "socat",
     "browserprofile",
     "browserprofiles",

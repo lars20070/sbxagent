@@ -214,7 +214,7 @@ if [[ "${1:-}" == "inspect" && "${3:-}" == "--format" ]]; then
 	case " ${SBX_CHROME_NAMES:-} " in
 	*" $2 "*) printf ',\n    "/x/mixins/host-chrome"' ;;
 	esac
-	printf '\n  ]\n}\n'
+	printf '\n  ],\n  "workspace": "%s"\n}\n' "${SBX_WORKSPACE:-/x/app}"
 	exit 0
 fi
 
@@ -859,6 +859,11 @@ time.sleep(30)' >"${TEST_ROOT}/listener.out" &
 	excl_rejects "Chrome port already in use" "quit that Chrome" SBX_LS_NAMES=""
 	kill "${LISTENER}" 2>/dev/null || true
 	wait "${LISTENER}" 2>/dev/null || true
+	# The marker outside the kits field (here: the workspace path) is not the mixin.
+	clear_log
+	SBX_LS_NAMES="sbxpi-plain-bbbb" SBX_WORKSPACE="/x/mixins/host-chrome/app" HOST_CHROME_ACCESS=true \
+		"${CLAUDE_SCRIPT}" create >/dev/null 2>&1 ||
+		fail "create was refused because the marker appeared outside the kits field"
 	# Other sandboxes without the mixin do not block a create.
 	clear_log
 	SBX_LS_NAMES="sbxpi-plain-bbbb" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create >/dev/null 2>&1 ||
