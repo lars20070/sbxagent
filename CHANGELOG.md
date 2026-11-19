@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-19
+
 ### Changed
 
 - Host Chrome profiles are now one per project and agent, in
