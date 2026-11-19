@@ -250,8 +250,8 @@ if [[ "${KIT_NAME}" == "sbxclaude" || "${KIT_NAME}" == "sbxcodex" ||
 
 # Network-block escalation hook. A blocked request must produce a stop verdict
 # with the remedy that fits the block type, rather than leaving the agent free
-# to work around it. Keep these in sync with kits/network-block.jq, which each
-# kit ships a copy of under files/system/.
+# to work around it. Keep these in sync with the filter each kit ships under
+# files/system/usr/local/lib/sbxagent/network-block.jq.
 GUARD_FILTER="/usr/local/lib/sbxagent/network-block.jq"
 
 [[ -s "${GUARD_FILTER}" ]] ||

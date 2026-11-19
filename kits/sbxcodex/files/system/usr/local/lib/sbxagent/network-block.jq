@@ -1,3 +1,21 @@
+# Network-block escalation filter, shared by the sbxclaude, sbxcodex and
+# sbxpi kits. The kit's recipe installs it root-owned and outside $HOME, so
+# the agent it watches cannot disable it with an ordinary file edit.
+#
+# Each of those kits ships its own copy, because a kit's build context is its
+# own directory (SPEC-v3 §4). Edit kits/sbxclaude's copy, then copy it over
+# the others — `make lint` fails if any of them differ.
+#
+# Detection is identical on every host: the filter reads the whole payload
+# rather than named fields. Enforcement is not. Claude Code treats
+# `continue: false` as a hard turn-end; Codex instead replaces the tool
+# result with `stopReason` and lets the model continue, so on sbxcodex this
+# is a firm notice rather than a hard stop.
+#
+# Try it locally:
+#   jq -n '{tool_name:"Bash",tool_input:{command:"curl https://x"},error:"Blocked by local rule for x"}' \
+#     | jq -f kits/sbxclaude/files/system/usr/local/lib/sbxagent/network-block.jq
+
 # Every string in the payload except the tool's own input. Field names
 # differ per event (.tool_response on PostToolUse, .error on
 # PostToolUseFailure), so match the whole payload rather than a field.

@@ -36,8 +36,8 @@ NO_SKILLS := ':(exclude,glob)**/skills/**'
 # stay byte-identical across kits, that the Cursor kit's user-scope MCP config
 # matches the repo's project-scope one (the sandbox mounts the project, so the
 # two sit side by side), that each kit ships its network-block guard files and
-# every shipped copy of the jq filter and Pi extension matches the synced body
-# of its dev copy in kits/, and that VERSION, every kit descriptor's version,
+# every kit's copy of the jq filter matches kits/sbxclaude's, and that VERSION,
+# every kit descriptor's version,
 # and CHANGELOG's latest release all agree.
 lint:
 	git ls-files -z -- '*.md' ':!.claude/plans/*' ':!.cursor/plans/*' ':!tmp/*' $(NO_SKILLS) | xargs -0 $(MARKDOWNLINT)
@@ -100,24 +100,10 @@ lint:
 			echo "lint: $$file is missing, so that kit ships without its network-block guard" >&2; exit 1; \
 		}; \
 	done
-	jq_dev="$$(mktemp)"; ts_dev="$$(mktemp)"; \
-	trap 'rm -f "$$jq_dev" "$$ts_dev"' EXIT; \
-	sed -n '/^# BEGIN-SYNCED/,/^# END-SYNCED/p' \
-		kits/network-block.jq | sed '1d;$$d' > "$$jq_dev"; \
-	awk '/^\/\/ BEGIN-SYNCED/{f=1; next} /^\/\/ END-SYNCED/{f=0} f' \
-		kits/network-block.ts > "$$ts_dev"; \
-	[ -s "$$jq_dev" ] && [ -s "$$ts_dev" ] || { \
-		echo "lint: no BEGIN-SYNCED body found in kits/network-block.jq or .ts" >&2; \
-		exit 1; \
-	}; \
+	ref=kits/sbxclaude/files/system/usr/local/lib/sbxagent/network-block.jq; \
 	for copy in kits/*/files/system/usr/local/lib/sbxagent/network-block.jq; do \
-		cmp -s "$$copy" "$$jq_dev" || { \
-			echo "lint: $$copy is out of sync with kits/network-block.jq" >&2; exit 1; \
-		}; \
-	done; \
-	for copy in kits/*/files/system/usr/local/lib/sbxagent/network-block.ts; do \
-		cmp -s "$$copy" "$$ts_dev" || { \
-			echo "lint: $$copy is out of sync with kits/network-block.ts" >&2; exit 1; \
+		cmp -s "$$ref" "$$copy" || { \
+			echo "lint: $$copy differs from $$ref" >&2; exit 1; \
 		}; \
 	done
 	if [ ! -f VERSION ]; then \
