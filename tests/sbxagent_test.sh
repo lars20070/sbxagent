@@ -818,10 +818,11 @@ excl_rejects() {
 	local context="$1" expected="$2"
 	shift 2
 	local out status before
+	local sub="${EXCL_SUB-create}"
 	before="$(state_tree)"
 	clear_log
 	set +e
-	out="$(env "$@" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create 2>&1 >/dev/null)"
+	out="$(env "$@" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" ${sub:+"${sub}"} 2>&1 >/dev/null)"
 	status=$?
 	set -e
 	[[ "${status}" -ne 0 ]] || fail "${context}: create unexpectedly succeeded"
@@ -837,6 +838,10 @@ excl_rejects() {
 	excl_rejects "another host-Chrome sandbox, stacked among others" "already used by ${OTHER}" \
 		SBX_LS_NAMES="sbxpi-plain-bbbb
 ${OTHER}" SBX_CHROME_NAMES="${OTHER}"
+	# Implicit create (no subcommand): the requested sandbox is absent, so
+	# the wrapper falls into create and must still refuse.
+	EXCL_SUB="" excl_rejects "implicit create, another host-Chrome sandbox" "already used by ${OTHER}" \
+		SBX_LS_NAMES="${OTHER}" SBX_CHROME_NAMES="${OTHER}" SBX_SKIP_INSPECT_LOG=1 SBX_INSPECT_STATUS=1
 	excl_rejects "sbx ls fails" "sbx ls failed" SBX_LS_NAMES="${OTHER}" SBX_LS_FAIL=1
 	excl_rejects "sbx inspect fails" "could not inspect" SBX_LS_NAMES="${OTHER}" SBX_INSPECT_FAIL=1
 	# Something already listens on the Chrome port.

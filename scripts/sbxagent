@@ -225,7 +225,9 @@ require_no_other_host_chrome() {
 		[[ -n "${name}" && "${name}" != "${SANDBOX}" ]] || continue
 		info="$(sbx inspect "${name}" --format json 2>/dev/null)" ||
 			die "could not inspect sandbox ${name}; cannot check for another host-Chrome sandbox"
-		if printf '%s\n' "${info}" | grep -qF 'mixins/host-chrome'; then
+		# Here-string, not a pipe: grep -q exits early and a pipe writer would
+		# die early, which pipefail turns into a false "no match".
+		if grep -qF 'mixins/host-chrome' <<<"${info}"; then
 			die "host Chrome is already used by ${name}; remove it first (sbx rm ${name})"
 		fi
 	done <<<"${names}"
