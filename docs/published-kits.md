@@ -30,12 +30,12 @@ These need `sbx` v0.54.0. On v0.50.0, use the last release built for it,
 Every command below writes `<version>` for the release you want. The newest is
 on the repository's releases page, and the `latest` tag always points at it.
 
-> **Ignore the `docker pull` command on the GitHub package page.** A kit is an
-> OCI artifact, not a container image, and `sbx` fetches it itself. The page
-> also offers a `sha256-<digest>` tag, which is not the kit at all: GHCR does
-> not implement the OCI referrers API, so the signature and provenance are
-> parked under that tag instead. Pulling it gets you the attestations and no
-> kit. The real tags are the version and `latest`.
+> **Ignore the `docker pull` command on the GitHub package page.** A kit is
+> an OCI image, but not one you run with `docker`: `sbx` fetches it itself.
+> The page also offers a `sha256-<digest>` tag, which is not the kit at all:
+> GHCR does not implement the OCI referrers API, so the signature is parked
+> under that tag instead. Pulling it gets you the signature and no kit. The
+> real tags are the version and `latest`.
 
 ## 1. Allow the source, then read the kit
 
@@ -57,22 +57,36 @@ It should print the kit's descriptor. The packages are public, so no registry
 credentials are needed. A **kit-source error** here means the allow-list step
 above did not take.
 
-## 2. Check the signature
+## 2. Check the signature and the source commit
 
 Allow-listing a source says you trust the publisher. Checking the signature
 says the artifact really came from them. Every artifact is signed keyless
-through GitHub Actions and carries a SLSA provenance attestation, and both are
-worth checking before you run anyone's kit.
+through GitHub Actions:
 
 ```bash
-sbx kit provenance  ghcr.io/lars20070/sbxclaude:<version>
-sbx kit verify      ghcr.io/lars20070/sbxclaude:<version> \
+sbx kit verify ghcr.io/lars20070/sbxclaude:<version> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/lars20070/sbxagent/'
 ```
 
 The identity is what matters: it proves the artifact was built by this
 repository's release workflow, not merely that somebody signed it.
+
+Each kit also carries a SLSA provenance attestation from Docker Buildx, one
+per platform, which records the commit it was built from. It sits inside the
+kit's image index, so the signature above covers it. Read the commit with:
+
+```bash
+docker buildx imagetools inspect ghcr.io/lars20070/sbxclaude:<version> \
+  --format '{{ json .Provenance }}' |
+  jq -r '[.. | objects | .["vcs:revision"]? | strings] | unique[]'
+```
+
+It should print one commit, which you can look up in this repository. The
+release refuses to publish a kit whose provenance names any other commit than
+the one it checked out. `sbx kit provenance` does not apply here: it reads
+only the attachment `sbx kit push` makes, and `sbx kit push` cannot publish a
+schema v3 kit.
 
 ## 3. Run it
 

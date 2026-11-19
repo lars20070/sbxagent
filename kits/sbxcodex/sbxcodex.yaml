@@ -79,8 +79,9 @@ capabilities:
   # because Codex's config.toml `env` table is static — it does not expand
   # ${VAR} — so the MCP server inherits the variable by name through
   # `env_vars`, and github-mcp-server reads exactly this one. The repo's own
-  # .codex/config.toml forwards the same name. Optional, so a host with no
-  # `sbx secret set github` still gets a sandbox.
+  # .codex/config.toml forwards the same name. The kit's gh launcher supplies
+  # that sentinel as GH_TOKEN. A host with no `sbx secret set github` still
+  # gets a sandbox because the credential is optional.
   - type: com.docker.sandbox/credential@1
     optional: true
     description: GitHub access for gh, git over HTTPS and the GitHub MCP server

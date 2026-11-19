@@ -22,10 +22,12 @@ set -euo pipefail
 # All the logic lives here rather than in workflow YAML so that `make lint`
 # covers it with shellcheck, and so `make publish-dry-run` rehearses the whole
 # path locally with no registry and no credentials. The kits are schema v3:
-# Docker Buildx builds each one for linux/amd64 and linux/arm64 (QEMU, or a
-# multi-node builder), kit-tck checks it, and only then is it pushed. The
-# builds fetch their base image and pinned binaries, so even a dry run needs
-# the network.
+# Docker Buildx builds each one once, for linux/amd64 and linux/arm64 (QEMU,
+# or a multi-node builder), into a local OCI layout; kit-tck checks that
+# layout; and oras uploads that same layout by digest. Nothing is rebuilt
+# between the check and the upload, so what kit-tck accepted is what ships.
+# The build fetches its base image and pinned binaries, so even a dry run
+# needs the network.
 #
 # The release workflow calls this once per kit in a `fail-fast: false` matrix,
 # so every step has to stay safe to re-run after a sibling kit failed midway.
@@ -103,10 +105,13 @@ repo="$(cd "$(dirname "$0")/.." && pwd -P)"
 repo_ref="${REGISTRY}/${NAMESPACE}/${REPO_NAME:-${kit}}"
 version_ref="${repo_ref}:${version}"
 
-PLATFORMS="linux/amd64,linux/arm64"
+# Both architectures sbx runs on. Overridable only to rehearse on a builder
+# that cannot emulate the other one; a release always builds both.
+PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 
 require docker
 require kit-tck
+require jq
 
 # Published bytes must be committed bytes: staging below reads HEAD, so an
 # uncommitted edit would be silently left out of the artifact. Enforced only
@@ -124,20 +129,60 @@ fi
 # found and does not respect .gitignore, so building straight from the working
 # tree would bake in whatever is lying around — .DS_Store files currently sit
 # under kits/ on macOS checkouts (each kit's .dockerignore is the backstop).
-# `git archive` emits exactly the tracked files, matching the `git ls-files`
-# philosophy the Makefile already uses throughout.
+# A fresh detached worktree of HEAD holds exactly the committed files, like
+# `git archive`, and unlike it keeps the git metadata: Buildx reads the commit
+# from there into the kit's SLSA provenance (`vcs:revision`). From an archive
+# it records no commit at all.
+head="$(git -C "${repo}" rev-parse HEAD)"
 stage="$(mktemp -d)"
-trap 'rm -rf "${stage}"' EXIT
-git -C "${repo}" archive HEAD -- "kits/${kit}" | tar -x -C "${stage}"
+worktree="${stage}/src"
+cleanup() {
+	git -C "${repo}" worktree remove --force "${worktree}" >/dev/null 2>&1 || true
+	rm -rf "${stage}"
+	git -C "${repo}" worktree prune >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+git -C "${repo}" worktree add --quiet --detach "${worktree}" "${head}"
 
-staged="${stage}/kits/${kit}"
+staged="${worktree}/kits/${kit}"
 [[ -f "${staged}/${kit}.yaml" ]] ||
 	die "kits/${kit} is not committed at HEAD, so nothing was staged"
 
-# Build and check before the dry-run exit, so a dry run still catches a broken
-# kit. The staged directory keeps the kit's name, which is what the
-# descriptor's file stem and the check script both key on.
-"${repo}/scripts/validate-kit.sh" "${staged}" "${PLATFORMS}"
+# Build and check before the dry-run exit, so a dry run builds and checks the
+# very artifact a real run would upload. The staged directory keeps the kit's
+# name, which is what the descriptor's file stem and the check script both
+# key on.
+layout="${stage}/layout"
+"${repo}/scripts/validate-kit.sh" "${staged}" "${PLATFORMS}" "${layout}"
+# The layout's one entry is the image index; its digest is the kit's digest.
+built="$(jq -r '.manifests[0].digest' "${layout}/index.json")"
+[[ "${built}" == sha256:* ]] || die "could not read the built digest from ${layout}/index.json"
+
+# The source commit every platform's provenance records, as one sorted,
+# comma-joined line, from the `{{ json .Provenance }}` view that
+# `docker buildx imagetools inspect` prints for a registry reference
+# (docs/published-kits.md shows consumers the same command).
+provenance_revisions() {
+	jq -r '[.. | objects | .["vcs:revision"]? | strings] | unique | join(",")'
+}
+
+# Checked in the layout too, before the dry-run exit, so a rehearsal catches
+# a build that recorded no commit, or the wrong one. Every platform manifest
+# has its own attestation manifest; each must name HEAD.
+layout_blob() { printf '%s/blobs/sha256/%s' "${layout}" "${1#sha256:}"; }
+platforms_built="$(jq '[.manifests[] | select(.annotations["vnd.docker.reference.type"] != "attestation-manifest")] | length' "$(layout_blob "${built}")")"
+attestations="$(jq -r '.manifests[] | select(.annotations["vnd.docker.reference.type"] == "attestation-manifest") | .digest' "$(layout_blob "${built}")")"
+attested=0
+for attestation in ${attestations}; do
+	slsa="$(jq -r '.layers[] | select(.annotations["in-toto.io/predicate-type"] == "https://slsa.dev/provenance/v1") | .digest' "$(layout_blob "${attestation}")")"
+	[[ -n "${slsa}" ]] || die "attestation ${attestation} carries no SLSA provenance"
+	recorded="$(provenance_revisions <"$(layout_blob "${slsa}")")"
+	[[ "${recorded}" == "${head}" ]] ||
+		die "the provenance of ${attestation} records commit '${recorded}', not HEAD ${head}"
+	attested=$((attested + 1))
+done
+[[ "${attested}" -gt 0 && "${attested}" -eq "${platforms_built}" ]] ||
+	die "${attested} provenance attestation(s) for ${platforms_built} platform(s) in ${built}"
 
 # Same extraction the Makefile's version-agreement check uses. `make lint`
 # checks this repo-wide; repeating it per kit keeps the script safe to run on
@@ -147,14 +192,10 @@ spec_version="$(grep -m1 '^version:' "${staged}/${kit}.yaml" | grep -oE '[0-9]+\
 [[ "${spec_version}" == "${version}" ]] ||
 	die "kits/${kit}/${kit}.yaml is version ${spec_version} but ${version} was requested"
 
-# The staged copy has no .git, so the build cannot see which commit it came
-# from. Record it explicitly, alongside the source repository.
-revision="$(git -C "${repo}" rev-parse HEAD)"
-source_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-lars20070/sbxagent}"
-
 if [[ -n "${DRY_RUN}" ]]; then
 	note "DRY RUN — nothing will be published."
-	note "  would push  ${version_ref}"
+	note "  would push  ${version_ref} (${built}, checked above)"
+	note "  provenance  records commit ${head} on every platform"
 	note "  would tag   ${repo_ref}:${LATEST_TAG} at the same digest"
 	if [[ -n "${SIGN}" ]]; then
 		note "  would sign  the pushed digest, then require sbx kit verify"
@@ -166,7 +207,6 @@ if [[ -n "${DRY_RUN}" ]]; then
 fi
 
 require oras
-require jq
 if [[ -n "${SIGN}" ]]; then
 	require sbx
 fi
@@ -236,15 +276,9 @@ if [[ -n "${existing}" && "${existing}" != "null" ]]; then
 	note "NOTICE: reusing ${existing}. Nothing new was published for ${kit}."
 	note "NOTICE: if you meant to publish changed content, cut a new version."
 else
-	docker buildx build \
-		--platform "${PLATFORMS}" \
-		--provenance=mode=max \
-		--annotation "index,manifest:org.opencontainers.image.revision=${revision}" \
-		--annotation "index,manifest:org.opencontainers.image.source=${source_url}" \
-		-f "${staged}/${kit}.yaml" \
-		--tag "${version_ref}" \
-		--push \
-		"${staged}"
+	# By digest, so exactly the index kit-tck checked is uploaded, with every
+	# platform manifest and attestation it references.
+	oras cp --from-oci-layout "${layout}@${built}" "${version_ref}"
 	pushed=yes
 fi
 
@@ -257,8 +291,30 @@ digest="${PROBE_DIGEST}"
 if [[ -z "${digest}" || "${digest}" == "null" ]]; then
 	die "published ${version_ref} but could not read its digest back"
 fi
+if [[ "${pushed}" == yes && "${digest}" != "${built}" ]]; then
+	die "${version_ref} is ${digest}, not the ${built} that was checked"
+fi
 
 digest_ref="${repo_ref}@${digest}"
+
+# A rerun validated a new local build. Check the existing registry artifact
+# before promoting it. ORAS uses the same registry login as the upload.
+if [[ "${reused}" == yes ]]; then
+	reused_layout="${stage}/existing"
+	oras cp --to-oci-layout "${digest_ref}" "${reused_layout}:latest"
+	kit-tck validate --layout "${reused_layout}" latest ||
+		die "existing kit ${digest_ref} failed validation"
+fi
+
+# Read the commit back from the registry with the command consumers are told
+# to use, before `latest` moves or anything is signed. On the reuse path this
+# also refuses an existing version built from another commit.
+if ! remote_provenance="$(docker buildx imagetools inspect "${digest_ref}" --format '{{ json .Provenance }}' 2>&1)"; then
+	die "could not read the provenance of ${digest_ref}: ${remote_provenance}"
+fi
+recorded="$(printf '%s\n' "${remote_provenance}" | provenance_revisions)"
+[[ "${recorded}" == "${head}" ]] ||
+	die "${digest_ref}'s provenance records commit '${recorded}', not this checkout's ${head}"
 
 # Re-point the rolling tag at the digest rather than building and pushing a
 # second time. A second build of the same tree yields a different index digest

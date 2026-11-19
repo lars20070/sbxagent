@@ -682,15 +682,15 @@ grep -Fqx 'env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]' "${CODEX_TOML}" ||
 	fail "github MCP server does not inherit GITHUB_PERSONAL_ACCESS_TOKEN in ${CODEX_TOML}"
 pass "github MCP server is configured for local stdio"
 
-# Codex's credential is GITHUB_PERSONAL_ACCESS_TOKEN, the name its MCP server
-# inherits. gh does not read that name; it works only because the proxy
-# injects the token on api.github.com whatever gh sends. Kept separate from
-# the MCP check, so each failure names its own client.
+# Like direct sbxcodex exec, env launches gh without starting a shell to set
+# GH_TOKEN. Check gh and the MCP server separately.
+[[ "$(command -v gh)" == /usr/local/bin/gh ]] ||
+	fail "the Codex gh launcher is missing from PATH (${REBUILD_HINT})"
 if github_credential_bound GITHUB_PERSONAL_ACCESS_TOKEN; then
-	if ! GH_LOGIN="$(gh api user --jq .login 2>&1)"; then
-		fail "gh could not make an authenticated GitHub request: ${GH_LOGIN}"
+	if ! GH_LOGIN="$(env -u GH_TOKEN -u GITHUB_TOKEN gh api user --jq .login 2>&1)"; then
+		fail "direct gh could not make an authenticated GitHub request: ${GH_LOGIN}"
 	fi
-	pass "gh reaches GitHub authenticated, as ${GH_LOGIN}"
+	pass "direct gh reaches GitHub authenticated, as ${GH_LOGIN}"
 	check_github_mcp_authenticated
 fi
 
@@ -976,42 +976,25 @@ pass "guard extension is registered in settings.json"
 	fail "APPEND_SYSTEM.md is missing (${REBUILD_HINT})"
 pass "APPEND_SYSTEM.md restates the no-workaround rule"
 
-# Binding a secret later does not reach an existing sandbox, so the credential
-# state is fixed at create time.
-PI_GITHUB_BOUND=no
+# Pi expands GITHUB_TOKEN from mcp.json before it can start the GitHub server.
 if github_credential_bound GITHUB_TOKEN; then
-	PI_GITHUB_BOUND=yes
 	if ! GH_STATUS="$(gh auth status 2>&1)"; then
 		fail "gh auth status failed, so gh and Pi's /share have no working GitHub credential: ${GH_STATUS}"
 	fi
 	pass "gh is authenticated through the proxy"
+
+	if ! PI_MCP_LIST="$(pi mcp list --json)"; then
+		fail "pi mcp list failed: ${PI_MCP_LIST}"
+	fi
+	printf '%s\n' "${PI_MCP_LIST}" |
+		jq -e 'any(.servers[]; .name == "github" and .state == "connected" and (.tools | length) > 0)' \
+			>/dev/null ||
+		fail "pi mcp list does not show github connected with tools: ${PI_MCP_LIST}"
+	pass "pi mcp list shows the github server connected, with tools"
+
+	# Give the direct server call the same credential Pi supplies via mcp.json.
+	GITHUB_PERSONAL_ACCESS_TOKEN="${GITHUB_TOKEN}" check_github_mcp_authenticated
 fi
-
-# GITHUB_TOKEN comes from the kit's credential, in `sbx exec` sessions too, and
-# mcp.json expands it for the server. The direct server call below reads the
-# server's own variable name, so hand it over the same way mcp.json does.
-export GITHUB_PERSONAL_ACCESS_TOKEN="${GITHUB_TOKEN:-}"
-
-# Exits 1 when a config entry is invalid or an enabled server is not
-# connected; the JSON on stdout carries each server's state and error.
-if ! PI_MCP_LIST="$(pi mcp list --json)"; then
-	fail "pi mcp list failed: ${PI_MCP_LIST}"
-fi
-printf '%s\n' "${PI_MCP_LIST}" |
-	jq -e 'any(.servers[]; .name == "github" and .state == "connected" and (.tools | length) > 0)' \
-		>/dev/null ||
-	fail "pi mcp list does not show github connected with tools: ${PI_MCP_LIST}"
-pass "pi mcp list shows the github server connected, with tools"
-
-if [[ "${PI_GITHUB_BOUND}" == yes ]]; then
-
-# `pi mcp list` proves the server starts and lists tools, which needs no
-# credential. One read-only call proves the proxy authenticates the server's
-# requests: it swaps in the bound token on api.github.com whatever the server
-# sends, so this fails only when no real token is behind the sentinel.
-check_github_mcp_authenticated
-
-fi # end authenticated GitHub checks
 
 fi # end sbxpi-only
 

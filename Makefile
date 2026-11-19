@@ -45,8 +45,8 @@ lint:
 	git ls-files -z -- '*.jq' | xargs -0 -n1 sh -c 'jq -n -f "$$1" >/dev/null' --
 	git ls-files -z -- '*.ts' | xargs -0 -n1 sh -c '$(ESBUILD) --loader=ts --log-level=warning <"$$1" >/dev/null' --
 	git ls-files -z -- '*.yaml' '*.yml' | xargs -0 $(YAMLLINT)
-	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 shellcheck --enable=all
-	git ls-files -z -- '*.sh' 'scripts/sbxagent' | xargs -0 -n1 bash -n
+	git ls-files -z -- '*.sh' 'scripts/sbxagent' 'kits/*/files/system/usr/local/bin/gh' | xargs -0 shellcheck --enable=all
+	git ls-files -z -- '*.sh' 'scripts/sbxagent' 'kits/*/files/system/usr/local/bin/gh' | xargs -0 -n1 bash -n
 	find .claude/skills/read-pi-session-traces -name '*.py' -print0 | xargs -0 $(RUFF) check --target-version py39
 	find .claude/skills/read-pi-session-traces -name '*.py' -print0 | xargs -0 $(RUFF) format --check --target-version py39
 	git ls-files -z -- ':!.claude/plans/*' ':!.cursor/plans/*' ':!tmp/*' $(NO_SKILLS) | xargs -0 $(CSPELL) --no-progress

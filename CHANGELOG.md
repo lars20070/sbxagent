@@ -34,11 +34,16 @@ and this project adheres to
 - The `github` and `openrouter` credentials are optional: a sandbox is
   created even when no secret is bound. Docker's Pi kit also asks for an
   optional Anthropic credential and allows Anthropic's API.
+- A published kit's SLSA provenance now comes from Docker Buildx and sits
+  inside the kit's image index, one attestation per platform. Read its source
+  commit with `docker buildx imagetools inspect` (see
+  `docs/published-kits.md`); `sbx kit provenance` does not find it.
 
 ### Fixed
 
 - The GitHub token is set in `sbx<agent> exec` sessions too, not only in the
   agent session the old entrypoint started.
+- `sbxcodex exec gh` uses the proxy-managed GitHub credential directly.
 
 ### Removed
 

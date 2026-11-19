@@ -84,7 +84,7 @@ branch of `tests/toolchain_test.sh`, verify it for real, once, on the host:
 ```bash
 ./scripts/sbxclaude rm      # confirms (y/N)
 NETWORK_ALLOWLIST=false ./scripts/sbxclaude create
-make test-toolchain AGENT=claude
+NETWORK_ALLOWLIST=false make test-toolchain AGENT=claude
 ```
 
 The user has to run this — it needs the host `sbx` CLI. Ask them to, and do

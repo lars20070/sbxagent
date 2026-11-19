@@ -1,0 +1,6 @@
+#!/bin/sh
+# Supply the proxy-managed credential to gh when the user has not set a token.
+if [ -z "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ] && [ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]; then
+	export GH_TOKEN="${GITHUB_PERSONAL_ACCESS_TOKEN}"
+fi
+exec /usr/bin/gh "$@"

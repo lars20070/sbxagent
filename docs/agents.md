@@ -100,8 +100,9 @@ Each agent reads the token differently, and the syntax is not interchangeable:
 Codex is the odd one out: its `env` table is a static map with no `${VAR}`
 expansion, so the token is named rather than interpolated. `sbxcodex`'s
 `github` credential therefore sets `GITHUB_PERSONAL_ACCESS_TOKEN`, the name the
-server reads, instead of `GITHUB_TOKEN`. `gh` does not read that name, but
-still works: the proxy adds the token on `api.github.com` whatever `gh` sends.
+server reads, instead of `GITHUB_TOKEN`. The kit's `gh` launcher supplies
+the same sentinel as `GH_TOKEN` when neither `GH_TOKEN` nor `GITHUB_TOKEN`
+is set. This works for the agent's commands and for `sbxcodex exec gh …`.
 
 `GITHUB_TOKEN` means something different on each side, and that is what lets one
 definition serve both:

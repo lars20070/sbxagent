@@ -111,7 +111,8 @@ mkdir -p "${TARGET}" "${SIBLING}"
 printf 'old\n' >"${TARGET}/before-create"
 printf 'sibling\n' >"${SIBLING}/trace"
 
-"${WRAPPER}" create >/dev/null || fail "could not create ${SANDBOX}"
+CROSS_SANDBOX_VISIBILITY=true "${WRAPPER}" create >/dev/null ||
+	fail "could not create ${SANDBOX} with CROSS_SANDBOX_VISIBILITY=true"
 # `sbx exec` runs the command directly rather than through a shell, so $HOME has
 # to be resolved once, inside, instead of being passed unexpanded.
 # shellcheck disable=SC2016 # $HOME must expand in the sandbox, not here.
