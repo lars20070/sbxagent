@@ -50,6 +50,12 @@ and this project adheres to
 - `sbx<agent> kit validate` no longer runs offline. It builds the kit with
   Docker and checks it with `kit-tck`, because `sbx` v0.54.0 cannot check a
   kit in the new format without its daemon.
+- The dev-only mirrors `kits/network-block.jq` and `kits/network-block.ts`.
+  Each kit's recipe now ships the guard as a real file under
+  `files/system/`, so `make lint` checks the shipped copy directly
+  ([docker/sbx-releases#581](https://github.com/docker/sbx-releases/issues/581)).
+  The jq filter still exists once per kit, because a kit can only build from
+  its own folder; `make lint` fails if the copies differ.
 
 ## [0.4.14] - 2026-10-27
 
