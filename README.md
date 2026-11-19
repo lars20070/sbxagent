@@ -35,6 +35,7 @@ flowchart LR
     direction TB
     LLM("Anthropic, OpenAI, <br/>OpenRouter, Ollama, ...")
     GH("GitHub, Context7, PyPI, ...")
+    CHROME("Chrome on host system<br/>(one sandbox at a time, profile per<br/>project and agent in<br/>~/.local/state/sbxagent/browserprofiles)")
   end
 
   PROJ -.->|"mounts"| VM
@@ -44,6 +45,7 @@ flowchart LR
   AGENT -.->|"runs"| TOOLS
   AGENT -->|"via proxy"| PROXY
   PROXY -->|"allowlisted"| LLM & GH
+  PROXY -->|"localhost:9222"| CHROME
   AGENT ==>|"edits"| PROJ
 
   classDef data    fill:aliceblue,stroke:steelblue,stroke-width:2px,color:#10314F
@@ -55,7 +57,7 @@ flowchart LR
   class KIT,DRV host
   class TOOLS,PROXY helper
   class AGENT agent
-  class GH,LLM ext
+  class GH,LLM,CHROME ext
   style VM fill:#F6F6F5,stroke:#7A8482,stroke-width:1.5px
   style IN fill:none,stroke:none
   style NET fill:none,stroke:none
@@ -63,7 +65,7 @@ flowchart LR
 
 <!-- cspell:enable -->
 
-<br>*The wrapper (amber) builds the sandbox from Docker's own agent kit plus the matching kit from this repo, and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board.*
+<br>*The wrapper (amber) builds the sandbox from Docker's own agent kit plus the matching kit from this repo, and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board. Optionally, one sandbox at a time can also drive a Chrome browser on your computer (grey) through the same proxy, using its own browser profile per project and agent that is never mounted into the sandbox.*
 
 ## Contents
 

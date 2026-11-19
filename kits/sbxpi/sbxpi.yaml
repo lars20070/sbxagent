@@ -7,7 +7,7 @@
 # builds sbxpi.dockerfile beside this file into the mixin's one layer.
 schemaVersion: "3"
 kind: mixin
-version: "0.5.0"
+version: "0.5.1"
 displayName: Pi with custom toolchain
 description: Pi with custom toolchain
 sourceUrl: https://github.com/lars20070/sbxagent

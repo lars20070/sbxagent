@@ -8,6 +8,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-19
+
+### Changed
+
+- Host Chrome profiles are now one per project and agent, in
+  `~/.local/state/sbxagent/browserprofiles/<slug>-<hash>/<agent>/`, laid out
+  like the session traces. *Motivation:* one shared profile mixed logins and
+  tabs from every project. The wrapper creates both folders with mode `0700`
+  and refuses to run if either is a symlink.
+- Only one sandbox can use host Chrome at a time. A create with
+  `HOST_CHROME_ACCESS=true` now fails, before it makes anything, while
+  another sandbox created with host Chrome still exists or something already
+  listens on host port 9222. *Motivation:* every sandbox with the rule could
+  drive whatever Chrome listens on 9222.
+- Upgrading from 0.5.0: revoke the old `localhost:9222` rule, quit Chrome,
+  remove your host-Chrome sandboxes and create one again. The new profile
+  starts empty; the old `browserprofile/` folder stays until you delete it.
+  See [docs/host-chrome.md](docs/host-chrome.md#upgrading-from-050).
+
 ## [0.5.0] - 2026-11-19
 
 **Why this release exists.** From `sbx` v0.51.0, Docker runs its agents from

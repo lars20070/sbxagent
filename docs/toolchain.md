@@ -34,6 +34,10 @@ folder, no per-agent subfolders (see
 [messageboard.md](messageboard.md)). Set `CROSS_SANDBOX_VISIBILITY=false` when
 creating a sandbox to mount only its own trace subfolder, hiding the other
 agents' and the message board; an existing board on the host is not deleted.
+With `HOST_CHROME_ACCESS=true`, a third sibling,
+`${XDG_STATE_HOME:-~/.local/state}/sbxagent/browserprofiles/<slug>-<hash>/<agent>/`,
+holds that agent's Chrome profile on the host. It is never mounted (see
+[host-chrome.md](host-chrome.md)).
 Other projects' folders are never mounted, and `rm` leaves all of this in
 place. Inside you get passwordless `sudo` and
 Docker, every host CPU (at most 16 on a Linux arm64 host, where `sbx` caps

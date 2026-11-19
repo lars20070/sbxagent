@@ -5,8 +5,10 @@
     "tmp/**"
   ],
   "words": [
+    "gsub",
     "socat",
     "browserprofile",
+    "browserprofiles",
     "reuseaddr",
     "proxyport",
     "cmdline",
