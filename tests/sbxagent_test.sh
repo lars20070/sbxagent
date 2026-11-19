@@ -199,6 +199,25 @@ cat >"${FAKE_BIN}/sbx" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The host-Chrome exclusivity check lists and inspects other sandboxes. These
+# calls are not logged, so assert_log keeps seeing only create and run.
+# SBX_LS_NAMES is newline-separated; SBX_CHROME_NAMES lists the names whose kits
+# include the host-chrome mixin; SBX_LS_FAIL / SBX_INSPECT_FAIL force a failure.
+if [[ "${1:-}" == "ls" ]]; then
+	[[ -z "${SBX_LS_FAIL:-}" ]] || exit 1
+	[[ -z "${SBX_LS_NAMES:-}" ]] || printf '%s\n' "${SBX_LS_NAMES}"
+	exit 0
+fi
+if [[ "${1:-}" == "inspect" && "${3:-}" == "--format" ]]; then
+	[[ -z "${SBX_INSPECT_FAIL:-}" ]] || exit 1
+	printf '{\n  "name": "%s",\n  "kits": [\n    "docker.io/sbx/claude@sha256:abc",\n    "/x/kits/sbxclaude"' "$2"
+	case " ${SBX_CHROME_NAMES:-} " in
+	*" $2 "*) printf ',\n    "/x/mixins/host-chrome"' ;;
+	esac
+	printf '\n  ]\n}\n'
+	exit 0
+fi
+
 if [[ "${1:-}" == "inspect" && "${SBX_SKIP_INSPECT_LOG:-0}" == "1" ]]; then
 	exit "${SBX_INSPECT_STATUS:-1}"
 fi
@@ -231,7 +250,19 @@ export SBX_LOG
 # sandbox-creating call; point it into TEST_ROOT so the real machine's
 # ~/.local/state is never touched.
 export XDG_STATE_HOME="${TEST_ROOT}/xdg-state"
+# A run inside a sandbox created with host Chrome inherits
+# HOST_CHROME_ACCESS=true; each case below sets the value it means.
+unset HOST_CHROME_ACCESS
+# The exclusivity check probes this port, never the real 9222, which a run
+# inside a host-Chrome sandbox may have bound.
+SBXAGENT_CHROME_PROBE_PORT="$(python3 -c 'import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])  # cspell:disable-line')"
+export SBXAGENT_CHROME_PROBE_PORT
 STATE_ROOT="${XDG_STATE_HOME}/sbxagent/traces"
+# Chrome profiles: a sibling tree keyed like traces, one profile per agent.
+PROFILE_ROOT="${XDG_STATE_HOME}/sbxagent/browserprofiles"
 # The messageboard tree is a sibling of traces under the same XDG root: one
 # folder per project, shared read-write by every agent's sandbox for it, with
 # no per-agent subfolder.
@@ -655,14 +686,20 @@ pass "NETWORK_ALLOWLIST=false stacks the open-network mixin and rejects other va
 
 # HOST_CHROME_ACCESS=true stacks the host-chrome mixin after the others, with
 # the agent name as a kit arg, and prints the two host-side commands. The
-# profile is XDG_STATE_HOME/sbxagent/browserprofile and must stay out of every
-# mount. The flag is create-time only.
+# profile is XDG_STATE_HOME/sbxagent/browserprofiles/<project-key>/<agent> and
+# must stay out of every mount. The flag is create-time only.
 run_agent() {
 	local agent="$1" directory="$2"
 	shift 2
 	(cd "${directory}" && "${ROOT}/scripts/sbx${agent}" "$@")
 }
-CHROME_PROFILE="${XDG_STATE_HOME}/sbxagent/browserprofile"
+# The --user-data-dir a printed Chrome line passes, re-parsed the way a shell
+# would read it.
+printed_profile() {
+	local line
+	line="$(printf '%s\n' "$1" | grep -- '--remote-debugging-port=9222')" || return 1
+	eval "printf '%s\\n' ${line}" | sed -n 's/^--user-data-dir=//p'
+}
 HOST_CHROME_WORK="${TEST_ROOT}/chrome/app"
 mkdir -p "${HOST_CHROME_WORK}"
 for agent in claude codex cursor pi; do
@@ -681,13 +718,30 @@ for agent in claude codex cursor pi; do
 	*) fail "unknown agent ${agent}" ;;
 	esac
 	clear_log
-	HOST_CHROME_ACCESS=true run_agent "${agent}" "${HOST_CHROME_WORK}" create >/dev/null 2>&1
+	chrome_out="$(HOST_CHROME_ACCESS=true run_agent "${agent}" "${HOST_CHROME_WORK}" create 2>&1 >/dev/null)"
 	assert_log "$(HOST_CHROME_AGENT="${agent}" create_argv create "${chrome_name}" \
 		"${ROOT}/kits/sbx${agent}" "${chrome_workload}" true "" \
 		"${chrome_project}/sbx${agent}/${chrome_sub}" "${chrome_target}" "${chrome_project}:ro" "${chrome_board}")" \
 		"${agent} create with HOST_CHROME_ACCESS=true"
+	# Each agent gets its own profile under the project's folder, both 0700.
+	chrome_profile_project="${PROFILE_ROOT}/${chrome_name#*-}"
+	assert_eq "${chrome_profile_project}/sbx${agent}" "$(printed_profile "${chrome_out}")" \
+		"${agent} printed profile"
+	assert_eq 700 "$(file_mode "${chrome_profile_project}")" "${agent} profile project folder mode"
+	assert_eq 700 "$(file_mode "${chrome_profile_project}/sbx${agent}")" "${agent} profile folder mode"
 done
-pass "HOST_CHROME_ACCESS=true stacks the host-chrome mixin for each agent"
+pass "HOST_CHROME_ACCESS=true stacks the host-chrome mixin and a private profile for each agent"
+
+# Same basename, different parent: the hash keeps the two profiles apart.
+HOST_CHROME_TWIN="${TEST_ROOT}/chrome-twin/app"
+mkdir -p "${HOST_CHROME_TWIN}"
+twin_out="$(HOST_CHROME_ACCESS=true run_claude "${HOST_CHROME_TWIN}" create 2>&1 >/dev/null)"
+twin_profile="$(printed_profile "${twin_out}")"
+first_profile="${PROFILE_ROOT}/$(run_claude "${HOST_CHROME_WORK}" name | sed 's/^sbxclaude-//')/sbxclaude"
+assert_eq "${PROFILE_ROOT}/$(run_claude "${HOST_CHROME_TWIN}" name | sed 's/^sbxclaude-//')/sbxclaude" \
+	"${twin_profile}" "twin project profile"
+[[ "${twin_profile}" != "${first_profile}" ]] || fail "two projects named 'app' share a Chrome profile"
+pass "two projects with the same basename get separate Chrome profiles"
 
 CHROME_NAME="$(run_claude "${HOST_CHROME_WORK}" name)"
 CHROME_PROJECT="${STATE_ROOT}/${CHROME_NAME#*-}"
@@ -720,7 +774,7 @@ CHROME_OUT="$(HOST_CHROME_ACCESS=true run_claude "${HOST_CHROME_WORK}" create 2>
 chrome_line="$(printf '%s\n' "${CHROME_OUT}" | grep -- '--remote-debugging-port=9222')"
 reparsed="$(eval "printf '%s\\n' ${chrome_line}")"
 [[ "$(printf '%s\n' "${reparsed}" | grep -c .)" -ge 5 ]] || fail "Chrome line did not re-parse: ${chrome_line}"
-printf '%s\n' "${reparsed}" | grep -Fxq -- "--user-data-dir=${CHROME_PROFILE}" ||
+printf '%s\n' "${reparsed}" | grep -Fxq -- "--user-data-dir=${PROFILE_ROOT}/${CHROME_NAME#*-}/sbxclaude" ||
 	fail "Chrome line lacks the XDG profile path: ${chrome_line}"
 # Awkward characters in the path survive quoting.
 ODD_STATE="${TEST_ROOT}/odd \$x \`y\` 'q' \\b"
@@ -728,13 +782,13 @@ mkdir -p "${ODD_STATE}"
 ODD_OUT="$(XDG_STATE_HOME="${ODD_STATE}" HOST_CHROME_ACCESS=true run_claude "${HOST_CHROME_WORK}" create 2>&1 >/dev/null)"
 odd_line="$(printf '%s\n' "${ODD_OUT}" | grep -- '--remote-debugging-port=9222')"
 odd_parsed="$(eval "printf '%s\\n' ${odd_line}")"
-printf '%s\n' "${odd_parsed}" | grep -Fxq -- "--user-data-dir=${ODD_STATE}/sbxagent/browserprofile" ||
+printf '%s\n' "${odd_parsed}" | grep -Fxq -- "--user-data-dir=${ODD_STATE}/sbxagent/browserprofiles/${CHROME_NAME#*-}/sbxclaude" ||
 	fail "awkward path did not survive quoting: ${odd_line}"
 # Unset or relative XDG_STATE_HOME falls back to $HOME/.local/state.
 for xdg in "" "relative/state"; do
 	FALLBACK_OUT="$(XDG_STATE_HOME="${xdg}" HOME="${TEST_ROOT}/fakehome" HOST_CHROME_ACCESS=true \
 		run_claude "${HOST_CHROME_WORK}" create 2>&1 >/dev/null)"
-	[[ "${FALLBACK_OUT}" == *"${TEST_ROOT}/fakehome/.local/state/sbxagent/browserprofile"* ]] ||
+	[[ "${FALLBACK_OUT}" == *"${TEST_ROOT}/fakehome/.local/state/sbxagent/browserprofiles/${CHROME_NAME#*-}/sbxclaude"* ]] ||
 		fail "XDG_STATE_HOME='${xdg}' did not fall back to \$HOME/.local/state: ${FALLBACK_OUT}"
 done
 # Browser probe: a google-chrome on PATH is used.
@@ -753,24 +807,95 @@ if ! command -v google-chrome google-chrome-stable chromium chromium-browser >/d
 fi
 pass "HOST_CHROME_ACCESS prints exact, correctly quoted host commands"
 
+# Host Chrome serves one sandbox at a time. A refused create must leave no
+# folder behind and never reach create/run.
+EXCL_WORK="${TEST_ROOT}/excl/app"
+mkdir -p "${EXCL_WORK}"
+state_tree() {
+	find "${XDG_STATE_HOME}/sbxagent" -ls 2>/dev/null | sort
+}
+excl_rejects() {
+	local context="$1" expected="$2"
+	shift 2
+	local out status before
+	before="$(state_tree)"
+	clear_log
+	set +e
+	out="$(env "$@" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create 2>&1 >/dev/null)"
+	status=$?
+	set -e
+	[[ "${status}" -ne 0 ]] || fail "${context}: create unexpectedly succeeded"
+	[[ "${out}" == *"${expected}"* ]] || fail "${context}: unexpected error: ${out}"
+	assert_no_log "${context}"
+	assert_eq "${before}" "$(state_tree)" "${context}: state tree changed"
+}
+(
+	cd "${EXCL_WORK}"
+	OTHER="sbxcodex-other-aaaa"
+	excl_rejects "another host-Chrome sandbox" "already used by ${OTHER}" \
+		SBX_LS_NAMES="${OTHER}" SBX_CHROME_NAMES="${OTHER}"
+	excl_rejects "another host-Chrome sandbox, stacked among others" "already used by ${OTHER}" \
+		SBX_LS_NAMES="sbxpi-plain-bbbb
+${OTHER}" SBX_CHROME_NAMES="${OTHER}"
+	excl_rejects "sbx ls fails" "sbx ls failed" SBX_LS_NAMES="${OTHER}" SBX_LS_FAIL=1
+	excl_rejects "sbx inspect fails" "could not inspect" SBX_LS_NAMES="${OTHER}" SBX_INSPECT_FAIL=1
+	# Something already listens on the Chrome port.
+	python3 -c 'import os, socket, sys, time
+s = socket.socket()
+s.bind(("127.0.0.1", int(os.environ["SBXAGENT_CHROME_PROBE_PORT"])))
+s.listen(1)
+print("ready", flush=True)
+time.sleep(30)' >"${TEST_ROOT}/listener.out" &
+	LISTENER=$!
+	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+		grep -q ready "${TEST_ROOT}/listener.out" && break
+		sleep 0.25
+	done
+	excl_rejects "Chrome port already in use" "quit that Chrome" SBX_LS_NAMES=""
+	kill "${LISTENER}" 2>/dev/null || true
+	wait "${LISTENER}" 2>/dev/null || true
+	# Other sandboxes without the mixin do not block a create.
+	clear_log
+	SBX_LS_NAMES="sbxpi-plain-bbbb" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create >/dev/null 2>&1 ||
+		fail "create was refused although no other sandbox uses host Chrome"
+	# The sandbox's own name is skipped, so re-creating it is not refused.
+	SELF_NAME="$("${CLAUDE_SCRIPT}" name)"
+	SBX_LS_NAMES="${SELF_NAME}" SBX_CHROME_NAMES="${SELF_NAME}" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create >/dev/null 2>&1 ||
+		fail "create was refused because of its own sandbox"
+	# With the toggle off, the check never runs.
+	SBX_LS_FAIL=1 HOST_CHROME_ACCESS=false "${CLAUDE_SCRIPT}" create >/dev/null 2>&1 ||
+		fail "HOST_CHROME_ACCESS=false create ran the exclusivity check"
+)
+pass "a second host-Chrome sandbox, a busy Chrome port or a failing sbx refuses the create and leaves nothing behind"
+
 # Path guard: the profile must not overlap any mount source.
+# Every path, real or symlinked, under any browserprofiles/ tree in TEST_ROOT.
+# A rejected create must leave this exactly as it found it.
+profile_tree() {
+	find "${TEST_ROOT}" -path '*browserprofiles*' -ls 2>/dev/null | sort
+}
 guard_rejects() {
 	local context="$1"
 	shift
-	local out status
+	local out status before
+	before="$(profile_tree)"
 	clear_log
 	set +e
 	out="$(env "$@" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create 2>&1 >/dev/null)"
 	status=$?
 	set -e
 	[[ "${status}" -ne 0 ]] || fail "${context}: profile guard did not reject"
-	[[ "${out}" == *"overlaps"* || "${out}" == *".."* || "${out}" == *"does not resolve"* ]] || fail "${context}: unexpected error: ${out}"
+	[[ "${out}" == *"overlaps"* || "${out}" == *".."* || "${out}" == *"does not resolve"* || "${out}" == *"is a symlink"* ]] ||
+		fail "${context}: unexpected error: ${out}"
 	assert_no_log "${context}"
+	assert_eq "${before}" "$(profile_tree)" "${context}: profile tree changed"
 }
 GUARD_WORK="${TEST_ROOT}/guard/app"
 mkdir -p "${GUARD_WORK}/inside" "${TEST_ROOT}/guard/sibling"
 (
 	cd "${GUARD_WORK}"
+	GUARD_KEY="$("${CLAUDE_SCRIPT}" name)"
+	GUARD_KEY="${GUARD_KEY#sbxclaude-}"
 	guard_rejects "profile in workspace" XDG_STATE_HOME="${GUARD_WORK}/inside"
 	guard_rejects "profile with .." XDG_STATE_HOME="${TEST_ROOT}/guard/sibling/../app/inside"
 	ln -sfn "${GUARD_WORK}/inside" "${TEST_ROOT}/guard/link"
@@ -778,15 +903,28 @@ mkdir -p "${GUARD_WORK}/inside" "${TEST_ROOT}/guard/sibling"
 	# A dangling profile link that would resolve into the trace mount once the
 	# wrapper creates it must be rejected, and must not reach sbx.
 	GUARD_STATE="${TEST_ROOT}/guard/dangling"
-	mkdir -p "${GUARD_STATE}/sbxagent"
-	GUARD_TRACE_SRC="$(XDG_STATE_HOME="${GUARD_STATE}" "${CLAUDE_SCRIPT}" name)"
-	ln -sfn "${GUARD_STATE}/sbxagent/traces/${GUARD_TRACE_SRC#sbxclaude-}/sbxclaude/projects" "${GUARD_STATE}/sbxagent/browserprofile"
+	mkdir -p "${GUARD_STATE}/sbxagent/browserprofiles/${GUARD_KEY}"
+	ln -sfn "${GUARD_STATE}/sbxagent/traces/${GUARD_KEY}/sbxclaude/projects" \
+		"${GUARD_STATE}/sbxagent/browserprofiles/${GUARD_KEY}/sbxclaude"
 	guard_rejects "dangling symlink to a future mount source" XDG_STATE_HOME="${GUARD_STATE}"
+	# A symlinked project folder would let the wrapper's chmod reach its
+	# target, even when the agent folder inside resolves somewhere harmless.
+	GUARD_STATE="${TEST_ROOT}/guard/linked-project"
+	mkdir -p "${GUARD_STATE}/sbxagent/browserprofiles" "${TEST_ROOT}/guard/elsewhere"
+	ln -sfn "${TEST_ROOT}/guard/elsewhere" "${GUARD_STATE}/sbxagent/browserprofiles/${GUARD_KEY}"
+	guard_rejects "symlinked profile project folder" XDG_STATE_HOME="${GUARD_STATE}"
+	# An agent folder aliased to a sibling's profile passes the overlap check
+	# but would share one browser profile between two sandboxes.
+	GUARD_STATE="${TEST_ROOT}/guard/alias"
+	mkdir -p "${GUARD_STATE}/sbxagent/browserprofiles/${GUARD_KEY}/sbxcodex"
+	ln -sfn "${GUARD_STATE}/sbxagent/browserprofiles/${GUARD_KEY}/sbxcodex" \
+		"${GUARD_STATE}/sbxagent/browserprofiles/${GUARD_KEY}/sbxclaude"
+	guard_rejects "agent profile aliased to a sibling" XDG_STATE_HOME="${GUARD_STATE}"
 	clear_log
 	XDG_STATE_HOME="${TEST_ROOT}/guard/sibling" HOST_CHROME_ACCESS=true "${CLAUDE_SCRIPT}" create >/dev/null 2>&1 ||
 		fail "a sibling profile directory was rejected"
 )
-pass "the Chrome profile is kept out of every mount"
+pass "the Chrome profile is kept out of every mount and never reached through a symlink"
 
 # .env file: a config layer weaker than a real exported env var, stronger
 # than scripts/sbxagent's own defaults. ${ROOT}/.env is backed up for the

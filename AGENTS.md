@@ -31,12 +31,18 @@ the commit and push themselves.
 - `mixins/<name>/<name>.yaml` — mixin kits that the wrapper stacks with a
   second `--kit`. They are not published, not commands, and deliberately
   outside `kits/` so the `kits/*/` loops in `.github/workflows/release.yml`
-  never see them. There is one: `mixins/open-network`, stacked when
-  `NETWORK_ALLOWLIST=false`.
+  never see them. There are two: `mixins/open-network`, stacked when
+  `NETWORK_ALLOWLIST=false`, and `mixins/host-chrome`, stacked when
+  `HOST_CHROME_ACCESS=true`. Host Chrome is one sandbox at a time:
+  `require_no_other_host_chrome` in `scripts/sbxagent` refuses a second
+  create. Its Chrome profiles live on the host in
+  `browserprofiles/<slug>-<hash>/<agent>/`, a sibling of `traces/`, and must
+  never be mounted into a sandbox (`check_profile_outside_mounts`).
 - `args:` in each descriptor is how a host-side toggle reaches the kit: the
   wrapper passes `--kit-arg <kit>.name=value`, `sbx` substitutes
   `${{ kit.args.name }}` in the descriptor at create, and `env:` exports the
-  value into the sandbox. `SBXAGENT_LITE` → `lite` is the only toggle today.
+  value into the sandbox. Two today: `SBXAGENT_LITE` → `<kit>.lite`, and
+  the agent name → `host-chrome.agent` when `HOST_CHROME_ACCESS=true`.
 - `.env.example` — template for a gitignored `.env` at the repo root: weaker
   than a real exported env var, stronger than `scripts/sbxagent`'s hardcoded
   defaults. Copy it to `.env` and edit; never commit `.env` itself.

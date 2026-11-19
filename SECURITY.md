@@ -37,7 +37,11 @@ Inside that boundary the agent can still:
   and the network rule you add yourself, any process in the sandbox gets raw
   Chrome DevTools Protocol access: every tab, cookie and login in that
   browser profile, and pages are fetched from the host, so the sandbox
-  allowlist does not limit them. Use a dedicated profile. See
+  allowlist does not limit them. The wrapper gives each project and agent
+  its own profile, never mounted, and refuses a second host-Chrome sandbox
+  while one exists or a Chrome already listens on port 9222. A sandbox
+  created with `NETWORK_ALLOWLIST=false` may still reach that port without
+  the rule, and the one-at-a-time check does not count it. See
   [docs/host-chrome.md](docs/host-chrome.md).
 
 The network-block guard is a courtesy, not a wall, and it lands with

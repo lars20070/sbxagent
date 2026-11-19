@@ -20,7 +20,7 @@ flowchart LR
   subgraph IN[" "]
     direction TB
     PROJ["your project<br/>(host working tree)"]
-    STATE["session traces<br/>+ message board<br/>+ browser profile<br/>~/.local/state/sbxagent"]
+    STATE["session traces<br/>+ message board<br/>~/.local/state/sbxagent"]
     DRV["scripts/sbxclaude<br/>scripts/sbxcodex<br/>scripts/sbxcursor<br/>scripts/sbxpi"]
     KIT["kits/*/*.yaml<br/>kits/*/files/"]
   end
@@ -35,7 +35,7 @@ flowchart LR
     direction TB
     LLM("Anthropic, OpenAI, <br/>OpenRouter, Ollama, ...")
     GH("GitHub, Context7, PyPI, ...")
-    CHROME("Chrome on host system<br/>(browser profile in ~/.local/state/sbxagent)")
+    CHROME("Chrome on host system<br/>(one sandbox at a time, profile per<br/>project and agent in<br/>~/.local/state/sbxagent/browserprofiles)")
   end
 
   PROJ -.->|"mounts"| VM
@@ -65,7 +65,7 @@ flowchart LR
 
 <!-- cspell:enable -->
 
-<br>*The wrapper (amber) builds the sandbox from Docker's own agent kit plus the matching kit from this repo, and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board. Optionally, the agent can also drive a Chrome browser on your computer (grey) through the same proxy, using a separate browser profile.*
+<br>*The wrapper (amber) builds the sandbox from Docker's own agent kit plus the matching kit from this repo, and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board. Optionally, one sandbox at a time can also drive a Chrome browser on your computer (grey) through the same proxy, using its own browser profile per project and agent that is never mounted into the sandbox.*
 
 ## Contents
 
