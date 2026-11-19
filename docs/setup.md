@@ -10,6 +10,7 @@ rest is `sbxpi`.
 - [Environment variables](#environment-variables)
 - [OpenRouter (`sbxpi`, cloud models)](#openrouter-sbxpi-cloud-models)
 - [Ollama (`sbxpi`, local models)](#ollama-sbxpi-local-models)
+- [When a sandbox will not build](#when-a-sandbox-will-not-build)
 
 ## Git over HTTPS
 
@@ -19,16 +20,19 @@ rewrites `git@github.com:` and `ssh://git@github.com/` remotes to
 changing the host checkout's remote URL.
 
 Public Git operations need no token. Store a GitHub token on the host so the
-credential proxy can inject it for private repositories — and, on `sbxpi`, for
-the GitHub MCP server, an authenticated `gh` and Pi's `/share`:
+credential proxy can inject it for private repositories, the GitHub MCP
+server and an authenticated `gh` — and, on `sbxpi`, Pi's `/share`:
 
 ```bash
 echo "$(gh auth token)" | sbx secret set github
 ```
 
-`make test-toolchain AGENT=pi` needs it too. A sandbox picks the secret up only
-when it is created, so set it before creating the sandbox, or recreate the
-sandbox afterwards with `./scripts/sbxpi rm` and `./scripts/sbxpi create`.
+The secret is optional: without it a sandbox is still created, just with no
+GitHub token. `make test-toolchain` expects one unless you pass
+`EXPECTED_GITHUB=unbound`. A sandbox picks the secret up only when it is
+created, so set it before creating the sandbox, or recreate the sandbox
+afterwards with `sbx<agent> rm` and `sbx<agent> create`. The token is then set
+in every session, `sbx<agent> exec` shells included.
 
 ## Environment variables
 
@@ -49,15 +53,19 @@ commented out keeps its default.
 | Var | Default | Does what |
 | --- | --- | --- |
 | `CROSS_SANDBOX_VISIBILITY` | `true` | `false` hides sibling agents' state folders from a new sandbox and drops its shared message board; an existing board on the host is left in place |
-| `XDG_STATE_HOME` | `~/.local/state` | where sbxagent stores its per-project state tree; must be absolute, a relative value falls back to the default |
+| `XDG_STATE_HOME` | `~/.local/state` | where sbxagent stores its per-project state tree and the `HOST_CHROME_ACCESS` Chrome profile; must be absolute, a relative value falls back to the default |
 | `HASH_LENGTH` | `8` | how many hash chars go in sandbox/state folder names |
 | `SBXAGENT_LITE` | `true` | `false` also installs Playwright, Chromium, `mmdc` and `xelatex`; takes effect at create time |
 | `NETWORK_ALLOWLIST` | `true` | `false` turns the network allow list off so the sandbox can reach any host (organisation-policy and local deny rules still apply); takes effect at create time |
+| `HOST_CHROME_ACCESS` | `false` | `true` lets the agent drive a Chrome on the host; you start Chrome and add one network rule, the wrapper prints both. See [host-chrome.md](host-chrome.md). Takes effect at create time |
 
 ## OpenRouter (`sbxpi`, cloud models)
 
-`sbxpi` is the one kit that needs a model credential of its own: it talks to
-OpenRouter rather than to an agent vendor's API. Store the key once on the host
+`sbxpi` is the one kit with a model credential of its own: it talks to
+OpenRouter rather than to an agent vendor's API. The credential is optional,
+so `sbxpi` also runs with no key against a local Ollama. Docker's Pi workload,
+which `sbxpi` stacks on, adds an optional `anthropic` credential of its own
+and allows Anthropic's API. Store the key once on the host
 as the `openrouter` secret; the credential proxy injects it:
 
 ```bash
@@ -138,3 +146,17 @@ The sandbox has its own `localhost`, so the provider's `baseUrl` points at
 Adding a model means adding its id to that file and rebuilding: unlike
 OpenRouter, a custom provider has no catalogue for Pi to read, so every id must
 be listed.
+
+## When a sandbox will not build
+
+Each install step of a kit logs to a file inside the sandbox, one folder per
+kit:
+
+```bash
+sbx<agent> exec ls /var/log/sbx-kits
+sbx<agent> exec cat /var/log/sbx-kits/<kit>/install-<n>.log
+```
+
+`sbx` prints the failing step's output at create, too. A failed step on every
+start is only a warning since `sbx` v0.51.0, and the sandbox starts anyway;
+its log is `/var/log/sbx-kit-startup.log`.

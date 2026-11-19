@@ -1,0 +1,132 @@
+# Network-block escalation filter, shared by the sbxclaude, sbxcodex and
+# sbxpi kits. The kit's recipe installs it root-owned and outside $HOME, so
+# the agent it watches cannot disable it with an ordinary file edit.
+#
+# Each of those kits ships its own copy, because a kit's build context is its
+# own directory (SPEC-v3 §4). Edit kits/sbxclaude's copy, then copy it over
+# the others — `make lint` fails if any of them differ.
+#
+# Detection is identical on every host: the filter reads the whole payload
+# rather than named fields. Enforcement is not. Claude Code treats
+# `continue: false` as a hard turn-end; Codex instead replaces the tool
+# result with `stopReason` and lets the model continue, so on sbxcodex this
+# is a firm notice rather than a hard stop.
+#
+# Try it locally:
+#   jq -n '{tool_name:"Bash",tool_input:{command:"curl https://x"},error:"Blocked by local rule for x"}' \
+#     | jq -f kits/sbxclaude/files/system/usr/local/lib/sbxagent/network-block.jq
+
+# Every string in the payload except the tool's own input. Field names
+# differ per event (.tool_response on PostToolUse, .error on
+# PostToolUseFailure), so match the whole payload rather than a field.
+def haystack: [ del(.tool_input) | .. | strings ] | join("\n");
+
+# Commands that can reach the network. Used to disqualify the
+# self-reference exemption below, so a real block is never masked.
+# Local git readers stay eligible; only git's network subcommands count.
+def reaches_network:
+  (.tool_input.command // "")
+  | test("https?://"
+       + "|\\b(curl|wget|nc|telnet|ssh|scp|rsync)\\b"
+       + "|\\b(npm|npx|pnpm|yarn|pip|pip3|uv|uvx)\\b"
+       + "|\\b(apt|apt-get|brew|gh)\\b"
+       + "|\\bdocker\\s+(pull|push|run|build)\\b"
+       + "|\\bgit\\s+(fetch|pull|push|clone|remote|ls-remote|submodule)\\b");
+
+# These block strings appear verbatim in this project's own docs, kit
+# descriptors, and tests, so a Bash read of one of those files must not trip the
+# guard. Scoped to Bash's own command field so a blocked WebFetch URL
+# that merely contains one of these filenames is never exempted.
+#
+# The command must also show no sign of network egress. Without that,
+# `curl https://blocked # spec.yaml` would suppress a genuine block
+# behind a filename mention — the exact outcome this guard exists to
+# prevent. When a command both reads such a file and reaches out, fail
+# safe and let the guard fire.
+def self_reference:
+  .tool_name == "Bash"
+  and (reaches_network | not)
+  and ((.tool_input.command // "")
+       | test("AGENTS\\.md|CLAUDE\\.md|spec\\.yaml|network-block|toolchain_test"
+                    + "|sbx(claude|codex|cursor|pi)\\.(yaml|dockerfile)|open-network\\.yaml"));
+
+# A WebFetch that came back HTTP 403 is a block on its face, whatever its
+# body happens to look like, so it drops the line anchor below. Wrapped in an
+# array so a non-object tool_response yields false rather than nothing — an
+# empty result would make the whole pipeline emit nothing and fail open.
+def http_403: [ .tool_response? | objects | .code? ] | any(. == 403);
+
+def stop($why; $tell):
+  { continue: false,
+    stopReason:
+      ($why + " Stopping — do not retry, mirror, vendor, or otherwise work "
+      + "around this. Report it to the user and wait."),
+    systemMessage: $tell };
+
+# A host name that is safe to paste into a host-shell command: a plain host
+# name or IPv4 address with an optional port, starting with a letter or digit.
+# The token comes from tool output, which a fetched page can influence, so it
+# must never carry shell syntax (`$(...)`, backticks, quotes, backslashes) or
+# anything `sbx policy` reads as a pattern: `**` (every host), `?`, `[...]`
+# or `,` (a list of rules). A leading `-` could read as an option. Anything
+# else, bracketed IPv6 included, gets the inspection-only fallback below.
+def literal_host:
+  test("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$");
+
+# `capture` yields nothing on miss; without `// null` the pipeline would
+# emit no output at all (fail open). Bind hosts up front so each branch
+# below can use them — jq does not keep `as` bindings from an `if` condition.
+haystack as $out
+# A real block message starts its own line. The same words quoted inside prose
+# or markdown — release notes, our own docs, a grep hit — sit mid-line and must
+# not fire; that false positive stopped two real turns. jq's `^` means start of
+# string, not start of line, and the "m" flag does not change that (it only
+# makes `.` match newlines), so match an explicit line break instead.
+| (if .tool_name == "WebFetch" and http_403 then "" else "(^|\\n)[ \\t]*" end) as $anchor
+| (($out | capture($anchor + "Blocked by local rule for (?<h>[^\\s]+)").h) // null) as $denied
+| (($out | capture($anchor + "Blocked by network policy: domain (?<h>[^\\s]+)").h) // null) as $host
+| if self_reference then
+    {}
+  # Org policy: user cannot lift this; do not suggest `sbx policy allow`.
+  elif $out | test($anchor + "Blocked by org policy") then
+    stop("A network request was blocked by your organisation's policy.";
+         "Blocked by org policy.\n"
+         + "Your company policy is blocking this request — contact IT if you need access.")
+  # Local deny: deny beats allow, so the rule must be removed.
+  elif $denied != null then
+    if ($denied | literal_host) then
+      stop("A local deny rule blocks \($denied); `sbx policy allow` cannot override it.";
+           "Blocked host: \($denied) — by a local deny rule.\n"
+           + "Deny beats allow, so allowing it will not help. Find and remove the rule:\n"
+           + "  sbx policy ls --wide\n"
+           + "  sbx policy rm network --resource \"\($denied)\"                      # global\n"
+           + "  sbx policy rm network --sandbox <sandbox> --resource \"\($denied)\"  # one sandbox")
+    else
+      stop("A local deny rule blocked a request.";
+           "A local deny rule blocked a request. The host in the output is not a plain\n"
+           + "host name, so no command is shown. Inspect the rules on your host:\n"
+           + "  sbx policy ls --wide\n"
+           + "  sbx policy log")
+    end
+  # Default-deny: allow the host on the host machine.
+  elif $host != null then
+    if ($host | literal_host) then
+      stop("The sandbox network policy blocked \($host).";
+           "Blocked host: \($host)\n"
+           + "Run on your host:  sbx policy allow network \"\($host)\"")
+    else
+      stop("The sandbox network policy blocked a request.";
+           "The sandbox network policy blocked a request. The host in the output is not\n"
+           + "a plain host name, so no command is shown. Inspect the policy on your host:\n"
+           + "  sbx policy ls --wide\n"
+           + "  sbx policy log")
+    end
+  # Block string present but host not parseable.
+  elif $out | test($anchor + "Blocked by (network policy|local rule for)") then
+    stop("A network request was blocked by the sandbox network policy.";
+         "A network request was blocked by the sandbox network policy.\n"
+         + "See the tool output above for the host, then allow it with:\n"
+         + "  sbx policy allow network \"<host>\"")
+  else
+    {}
+  end

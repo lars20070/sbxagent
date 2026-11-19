@@ -5,6 +5,18 @@
     "tmp/**"
   ],
   "words": [
+    "socat",
+    "browserprofile",
+    "reuseaddr",
+    "proxyport",
+    "cmdline",
+    "nohup",
+    "setsid",
+    "argjson",
+    "pgrep",
+    "redirections",
+    "reparsed",
+    "fakehome",
     "okf",
     "frontmatter",
     "deepseek",
@@ -169,6 +181,9 @@
     "Popen",
     "isinstance",
     "Mudhra",
-    "unpushed"
+    "unpushed",
+    "checksummed",
+    "trixie",
+    "slurpfile"
   ]
 }

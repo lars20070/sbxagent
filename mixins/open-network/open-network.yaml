@@ -1,0 +1,37 @@
+# syntax=docker/sandbox-kit:3@sha256:8561468d43a0466e24dd048e3c6c2115d878ee36d71c4571195f1de2a63c2b5b
+# Turn the network allow list off — outbound egress is open.
+#
+# Stacked by scripts/sbxagent with a second --kit when NETWORK_ALLOWLIST=false.
+# Declaration-only: no recipe, so the kit is this descriptor alone. Its file
+# name is unique on purpose. The frontend stages every kit's descriptor at
+# /usr/share/sandbox/kit/<file stem>/kit.yaml, so two composed kits that are
+# both named spec.yaml would collide. Deny rules (org policy, local
+# `sbx policy` denies) still win over this.
+schemaVersion: "3"
+kind: mixin
+displayName: Open network
+description: Turn the network allow list off — outbound egress is open
+sourceUrl: https://github.com/lars20070/sbxagent
+licenses: [MIT]
+
+args:
+  # Exported so the toolchain test can tell which mode it is checking. Fixed:
+  # the flag only reports that this mixin is present.
+  networkAllowlist:
+    default: "false"
+    enum: ["false"]
+    description: Reports that the allow list is off
+    env: NETWORK_ALLOWLIST
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      install:
+        allow: ["**"]
+      runtime:
+        allow: ["**"]
+
+# No agent-context here: each kit's own network paragraph already covers both
+# modes (it says egress is allowlisted by default but may have been turned off
+# with NETWORK_ALLOWLIST=false), so a second note stacked on top would only
+# risk drifting out of sync with it.

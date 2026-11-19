@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # Smoke-tests the helper toolchain from inside a live sbxagent sandbox
 # (sbxclaude, sbxcodex, sbxcursor or sbxpi).
-# Keep EXPECTED_* in sync with the pinned installs in kits/*/spec.yaml.
+# Keep EXPECTED_* in sync with the pinned installs in kits/*/<kit>.yaml and
+# kits/*/<kit>.dockerfile.
+#
+# `make test-toolchain` passes the toggles the host asked for as
+# EXPECTED_SBXAGENT_LITE and EXPECTED_NETWORK_ALLOWLIST, and EXPECTED_GITHUB
+# (bound, the default, or unbound) for the GitHub credential, so a lost
+# override can never silently test the other branch. EXPECTED_HOST_CHROME_ACCESS
+# is false, true (setup only) or live (needs Chrome and the policy rule); unset
+# skips it.
 set -euo pipefail
 
 # Which kit built this sandbox. The wrapper names every sandbox
@@ -11,7 +19,8 @@ KIT_NAME="${SANDBOX_ID}"
 KIT_NAME="${KIT_NAME%%-*}"
 [[ -n "${KIT_NAME}" ]] || KIT_NAME="sbxclaude"
 
-EXPECTED_SBX_VERSION="v0.50.0"
+EXPECTED_SBX_VERSION="v0.54.0"
+EXPECTED_KIT_TCK_VERSION="3.0.0-m.12"
 EXPECTED_RUFF_VERSION="0.16.8"
 EXPECTED_YAMLLINT_VERSION="1.38.0"
 EXPECTED_MARKDOWNLINT_VERSION="0.23.3"
@@ -20,7 +29,6 @@ EXPECTED_PLAYWRIGHT_VERSION="1.63.0"
 EXPECTED_MERMAID_VERSION="11.17.0"
 EXPECTED_CONTEXT7_MCP_VERSION="4.1.1"
 EXPECTED_GITHUB_MCP_VERSION="1.12.2"
-EXPECTED_PI_VERSION="1.4.0"
 EXPECTED_CONTEXT7_PI_VERSION="0.1.3"
 
 TESTS=0
@@ -66,7 +74,7 @@ check_tool_version() {
 	pass "${tool} is ${expected}"
 }
 
-# Distro / parent-kit tools: presence only.
+# Workload or distribution tools: presence only.
 check_tool jq jq --version
 check_tool rg rg --version
 check_tool curl curl --version
@@ -75,9 +83,21 @@ check_tool shellcheck shellcheck --version
 check_tool git git --version
 check_tool tree tree --version
 check_tool pandoc pandoc --version
-# Inherited from the base image, not installed by any kit. Presence only:
-# go.mod picks the real version and `go` fetches it on demand.
+# Debian's golang-go, installed by every kit only as a bootstrap. Presence
+# only: its GOTOOLCHAIN=auto default lets go.mod pick the real version, which
+# `go` fetches on demand.
 check_tool go go version
+check_tool node node --version
+check_tool npm npm --version
+check_tool npx npx --version
+
+# Global npm installs land under NPM_CONFIG_PREFIX, which the agent must own,
+# or `npm install -g` needs sudo and the kit's own linters could not have been
+# installed there either.
+NPM_PREFIX="$(npm config get prefix)"
+[[ -n "${NPM_PREFIX}" && -w "${NPM_PREFIX}" ]] ||
+	fail "npm's global prefix '${NPM_PREFIX}' is not writable by the sandbox user"
+pass "npm's global prefix is writable (${NPM_PREFIX})"
 
 # python3-yaml (PyYAML) has no CLI binary of its own, so it can't use
 # check_tool — check the import directly instead.
@@ -91,17 +111,23 @@ check_tool_version yamllint "${EXPECTED_YAMLLINT_VERSION}" yamllint --version
 check_tool_version markdownlint-cli2 "v${EXPECTED_MARKDOWNLINT_VERSION}" markdownlint-cli2 --version
 check_tool_version cspell "${EXPECTED_CSPELL_VERSION}" cspell --version
 check_tool_version sbx "${EXPECTED_SBX_VERSION}" sbx version
+check_tool_version kit-tck "${EXPECTED_KIT_TCK_VERSION}" kit-tck version
 check_tool_version github-mcp-server "${EXPECTED_GITHUB_MCP_VERSION}" \
 	github-mcp-server --version
 
-# Kit-specific files below are written by `setup:`, which only re-runs on a
-# rebuild. A sandbox created before a kit change has none of them, and a bare
+# Kit-specific files below are written by install hooks, which only re-run on
+# a rebuild. A sandbox created before a kit change has none of them, and a bare
 # "file missing" would read as a broken test rather than a stale sandbox.
 REBUILD_HINT="sandbox may predate this kit change — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
 
 # Playwright, Chromium, mermaid-cli and XeTeX are opt-in: the wrapper passes
-# SBXAGENT_LITE to the kit as --kit-arg lite=..., and the kit exports it back
-# as SBXAGENT_LITE so both directions can be asserted here.
+# SBXAGENT_LITE to the kit as --kit-arg <kit>.lite=..., and the kit exports it
+# back as SBXAGENT_LITE so both directions can be asserted here.
+if [[ -n "${EXPECTED_SBXAGENT_LITE:-}" ]]; then
+	[[ "${SBXAGENT_LITE:-}" == "${EXPECTED_SBXAGENT_LITE}" ]] ||
+		fail "SBXAGENT_LITE is '${SBXAGENT_LITE:-unset}' but the host asked for '${EXPECTED_SBXAGENT_LITE}' (${REBUILD_HINT})"
+	pass "SBXAGENT_LITE is ${EXPECTED_SBXAGENT_LITE}, as the host asked"
+fi
 if [[ "${SBXAGENT_LITE:-}" == "false" ]]; then
 	check_tool_version playwright "Version ${EXPECTED_PLAYWRIGHT_VERSION}" playwright --version
 
@@ -156,8 +182,15 @@ CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
 pass "CA certificate bundle is available"
 
 # The network allow list is opt-out: the wrapper stacks mixins/open-network
-# with --kit when NETWORK_ALLOWLIST=false, and that mixin exports the flag
-# back so both directions can be asserted here. example.com is on no kit's
+# with a second --kit when NETWORK_ALLOWLIST=false, and that mixin exports the
+# flag back so both directions can be asserted here. Without the mixin the
+# variable is unset, which means the allow list is on.
+if [[ -n "${EXPECTED_NETWORK_ALLOWLIST:-}" ]]; then
+	[[ "${NETWORK_ALLOWLIST:-true}" == "${EXPECTED_NETWORK_ALLOWLIST}" ]] ||
+		fail "NETWORK_ALLOWLIST is '${NETWORK_ALLOWLIST:-unset}' but the host asked for '${EXPECTED_NETWORK_ALLOWLIST}' (${REBUILD_HINT})"
+	pass "NETWORK_ALLOWLIST is ${EXPECTED_NETWORK_ALLOWLIST}, as the host asked"
+fi
+# example.com is on no kit's
 # allow list, so it is reachable only when the allow list is off. A
 # host-side deny rule for it would fail the false branch — remove it first.
 NETWORK_PROBE_STATUS="$(curl -sI -o /dev/null -w '%{http_code}' --max-time 20 https://example.com 2>/dev/null)" || true
@@ -171,6 +204,111 @@ else
 	pass "the network allow list is on: example.com is blocked (NETWORK_ALLOWLIST=${NETWORK_ALLOWLIST:-unset})"
 fi
 
+# HOST_CHROME_ACCESS: false = nothing of the mixin is present; true = setup
+# only (no Chrome needed); live = also a real MCP round trip to the host Chrome.
+# Unset skips the whole block so ordinary runs never need Chrome.
+host_chrome_entry_count() {
+	local n=0 f
+	for f in "${HOME}/.claude.json" "${HOME}/.cursor/mcp.json" "${HOME}/.pi/agent/mcp.json"; do
+		if [[ -f "${f}" ]] && jq -e '.mcpServers.playwright' "${f}" >/dev/null 2>&1; then
+			n=$((n + 1))
+		fi
+	done
+	if [[ -f "${HOME}/.codex/config.toml" ]]; then
+		n=$((n + $(grep -c '^\[mcp_servers\.playwright\]' "${HOME}/.codex/config.toml" || true)))
+	fi
+	printf '%s\n' "${n}"
+}
+HOST_CHROME_FORWARDER="socat TCP-LISTEN:9222,bind=127.0.0.1,fork,reuseaddr PROXY:gateway.docker.internal:host.docker.internal:9222,proxyport=3128"
+case "${EXPECTED_HOST_CHROME_ACCESS:-}" in
+"") ;;
+false)
+	[[ -z "${HOST_CHROME_ACCESS:-}" ]] ||
+		fail "HOST_CHROME_ACCESS is '${HOST_CHROME_ACCESS}' but the host asked for false (${REBUILD_HINT})"
+	! (exec 3<>/dev/tcp/127.0.0.1/9222) 2>/dev/null || fail "something listens on 9222 with HOST_CHROME_ACCESS off"
+	[[ "$(host_chrome_entry_count)" == "0" ]] || fail "a playwright MCP entry exists with HOST_CHROME_ACCESS off"
+	! command -v playwright-mcp >/dev/null 2>&1 || fail "playwright-mcp is installed with HOST_CHROME_ACCESS off"
+	pass "host Chrome access is off: no forwarder, no playwright entry, no playwright-mcp"
+	;;
+true | live)
+	[[ "${HOST_CHROME_ACCESS:-}" == "true" ]] ||
+		fail "HOST_CHROME_ACCESS is '${HOST_CHROME_ACCESS:-unset}' but the host asked for true (${REBUILD_HINT})"
+	command -v socat >/dev/null 2>&1 || fail "socat is missing"
+	command -v playwright-mcp >/dev/null 2>&1 || fail "playwright-mcp is missing"
+	forwarder_listener_pid() {
+		local inode f
+		inode="$(cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$4 == "0A" && $2 ~ /:2406$/ { print $10; exit }')"
+		[[ -n "${inode}" ]] || return 1
+		for f in /proc/[0-9]*/fd/*; do
+			if [[ "$(readlink "${f}" 2>/dev/null)" == "socket:[${inode}]" ]]; then
+				f="${f#/proc/}"
+				echo "${f%%/*}"
+				return 0
+			fi
+		done
+		return 1
+	}
+	fwd_pid="$(forwarder_listener_pid)" || fail "nothing owns the listening socket on 9222"
+	[[ "$(tr '\0' ' ' <"/proc/${fwd_pid}/cmdline")" == "${HOST_CHROME_FORWARDER} " ]] ||
+		fail "the listener on 9222 is not our socat forwarder"
+	[[ "$(host_chrome_entry_count)" == "1" ]] || fail "expected exactly one playwright MCP entry, found $(host_chrome_entry_count)"
+	case "${KIT_NAME}" in
+	sbxclaude)
+		cfg="${HOME}/.claude.json"
+		jq -e '.mcpServers.playwright.command == "playwright-mcp" and (.mcpServers | has("context7") and has("github"))' "${cfg}" >/dev/null ||
+			fail "playwright entry or the kit's own MCP servers are missing from ${cfg}"
+		;;
+	sbxcodex)
+		cfg="${HOME}/.codex/config.toml"
+		python3 -c 'import sys,tomllib; d=tomllib.load(open(sys.argv[1],"rb"))["mcp_servers"]; assert "playwright" in d and "context7" in d and "github" in d' "${cfg}" ||
+			fail "playwright table or the kit's own MCP servers are missing from ${cfg}"
+		;;
+	sbxcursor)
+		cfg="${HOME}/.cursor/mcp.json"
+		jq -e '.mcpServers | has("playwright") and has("context7") and has("github")' "${cfg}" >/dev/null ||
+			fail "playwright entry or the kit's own MCP servers are missing from ${cfg}"
+		;;
+	sbxpi)
+		cfg="${HOME}/.pi/agent/mcp.json"
+		jq -e '.mcpServers | has("playwright") and has("github")' "${cfg}" >/dev/null ||
+			fail "playwright entry or github server missing from ${cfg}"
+		;;
+	*) fail "unknown kit ${KIT_NAME}" ;;
+	esac
+	[[ "$(stat -c %U "${cfg}" 2>/dev/null || stat -f %Su "${cfg}")" == "$(id -un)" ]] ||
+		fail "${cfg} is not owned by the agent user"
+	pass "host Chrome access is set up: forwarder running, one playwright entry in ${cfg}"
+	if [[ "${EXPECTED_HOST_CHROME_ACCESS}" == "live" ]]; then
+		version_json="$(curl -sf --max-time 10 http://localhost:9222/json/version)" ||
+			fail "http://localhost:9222/json/version failed: is Chrome running and the policy rule added? See docs/host-chrome.md"
+		printf '%s' "${version_json}" | jq -e '.webSocketDebuggerUrl | startswith("ws://localhost:9222/")' >/dev/null ||
+			fail "Chrome's WebSocket URL is not ws://localhost:9222/..."
+		# One real MCP round trip: initialize, then list the open tabs.
+		mcp_out="$({
+			printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"toolchain-test","version":"0"}}}'
+			printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+			printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"browser_tabs","arguments":{"action":"list"}}}'
+			sleep 8
+		} | timeout 30 playwright-mcp --cdp-endpoint http://localhost:9222 2>/dev/null)" || true
+		# The answer to id 2 must be a successful result, not an error, and must
+		# mention a tab Chrome itself reports (a real browser_tabs listing).
+		tab_url="$(curl -sf --max-time 10 http://localhost:9222/json/list | jq -r '[.[] | select(.type == "page")][0].url // empty')" ||
+			fail "could not list Chrome's tabs"
+		[[ -n "${tab_url}" ]] || fail "Chrome has no open tab; open one and retry"
+		printf '%s\n' "${mcp_out}" | jq -e -s --arg url "${tab_url}" '
+			[.[] | select(.id == 2)] | length == 1 and
+			(.[0] | has("error") | not) and
+			(.[0].result.isError // false | not) and
+			([.[0].result.content[]?.text] | join(" ") | contains($url))' >/dev/null ||
+			fail "browser_tabs did not return a successful listing containing ${tab_url}: ${mcp_out}"
+		curl -sf --max-time 10 http://localhost:9222/json/version >/dev/null ||
+			fail "Chrome stopped answering after the MCP session ended"
+		pass "a real MCP round trip to the host Chrome works and leaves Chrome running"
+	fi
+	;;
+*) fail "EXPECTED_HOST_CHROME_ACCESS must be false, true or live, not '${EXPECTED_HOST_CHROME_ACCESS}'" ;;
+esac
+
 # Sandbox policy allows github.com:443 but not SSH port 22; the kit rewrites
 # GitHub SSH remotes to HTTPS so fetches stay on the allowlist.
 INSTEAD_OF="$(git config --global --get-all url.https://github.com/.insteadOf || true)"
@@ -180,36 +318,31 @@ printf '%s\n' "${INSTEAD_OF}" | grep -Fxq 'ssh://git@github.com/' ||
 	fail "missing insteadOf rewrite for ssh://git@github.com/"
 pass "GitHub SSH remotes rewrite to HTTPS"
 
-# The startup step relocates the agent's native session-trace tree, by
-# bind-mounting this sandbox's writable subfolder in the shared project state
-# over the stock path. The stock path itself has to stay a real directory: the
-# parent kit's own volume is mounted there, and the runtime recreates that mount
-# destination on every start, which it cannot do through a symlink. The bind is
-# re-made at every start by that startup step, so it is expected here even
-# though this test arrives through `sbx exec` rather than an attach.
-STATE_KEY="${SANDBOX_ID#*-}"
+# The wrapper mounts this agent's trace folder in the host's project state
+# straight onto the agent's native session-trace directory. Nothing in the
+# sandbox sets it up, so nothing here can fail to: what is checked is that the
+# directory is that mount and takes writes. That the writes land in the right
+# host folder, and survive a restart, is tests/lifecycle_test.sh's job, which
+# looks from the host side.
 case "${KIT_NAME}" in
-sbxclaude) TRACE_LINK="${HOME}/.claude/projects"; TRACE_SUBDIR="projects" ;;
-sbxcodex) TRACE_LINK="${HOME}/.codex/sessions"; TRACE_SUBDIR="sessions" ;;
-sbxcursor) TRACE_LINK="${HOME}/.cursor/projects"; TRACE_SUBDIR="projects" ;;
-sbxpi) TRACE_LINK="${HOME}/.pi/agent/sessions"; TRACE_SUBDIR="sessions" ;;
+sbxclaude) TRACE_DIR="${HOME}/.claude/projects" ;;
+sbxcodex) TRACE_DIR="${HOME}/.codex/sessions" ;;
+sbxcursor) TRACE_DIR="${HOME}/.cursor/projects" ;;
+sbxpi) TRACE_DIR="${HOME}/.pi/agent/sessions" ;;
 *) fail "unknown kit name ${KIT_NAME}" ;;
 esac
-BIND_HINT="${REBUILD_HINT} — the bind is re-made at every start, not stored on disk, so a missing one means the startup step failed to run"
-[[ -n "${SBXAGENT_STATE_DIR:-}" ]] ||
-	fail "SBXAGENT_STATE_DIR is unset; this sandbox was not created by the wrapper"
-[[ "${SBXAGENT_STATE_DIR}" == */sbxagent/traces/"${STATE_KEY}"/"${KIT_NAME}" ]] ||
-	fail "SBXAGENT_STATE_DIR is ${SBXAGENT_STATE_DIR}, not this sandbox's state folder"
-TRACE_TARGET="${SBXAGENT_STATE_DIR}/${TRACE_SUBDIR}"
-[[ ! -L "${TRACE_LINK}" ]] ||
-	fail "${TRACE_LINK} is a symlink; it has to stay a real directory or the sandbox cannot restart"
-[[ -d "${TRACE_LINK}" ]] || fail "${TRACE_LINK} is not a directory (${BIND_HINT})"
-# Same device and inode means the one is bind-mounted onto the other. This runs
-# on Linux inside the sandbox, so GNU `stat -c` needs no BSD fallback here.
-[[ "$(stat -c '%d:%i' "${TRACE_LINK}")" == "$(stat -c '%d:%i' "${TRACE_TARGET}")" ]] ||
-	fail "${TRACE_LINK} is not bind-mounted onto ${TRACE_TARGET} (${BIND_HINT})"
-[[ -w "${TRACE_LINK}/" ]] || fail "${TRACE_LINK} is not writable through the bind mount"
-pass "the native session-trace folder is bind-mounted onto this sandbox's state mount"
+MOUNT_HINT="this sandbox was not created by the wrapper, or predates the trace mount — rebuild: '${KIT_NAME} rm' then '${KIT_NAME}'"
+[[ -d "${TRACE_DIR}" && ! -L "${TRACE_DIR}" ]] ||
+	fail "${TRACE_DIR} is not a directory (${MOUNT_HINT})"
+# A mount point is exactly a directory whose own entry in /proc/self/mountinfo
+# names it as the mount target (field 5).
+awk -v d="${TRACE_DIR}" '$5 == d { found = 1 } END { exit !found }' /proc/self/mountinfo ||
+	fail "${TRACE_DIR} is not a mount point (${MOUNT_HINT})"
+TRACE_MARKER="${TRACE_DIR}/.toolchain-test-$$"
+printf 'toolchain\n' >"${TRACE_MARKER}" ||
+	fail "${TRACE_DIR} is not writable through the mount"
+rm -f "${TRACE_MARKER}"
+pass "the native session-trace folder is the wrapper's host mount, and takes writes"
 
 # ---------------------------------------------------------------------------
 # sbxclaude, sbxcodex and sbxpi. All three kits install the same guard filter
@@ -224,8 +357,8 @@ if [[ "${KIT_NAME}" == "sbxclaude" || "${KIT_NAME}" == "sbxcodex" ||
 
 # Network-block escalation hook. A blocked request must produce a stop verdict
 # with the remedy that fits the block type, rather than leaving the agent free
-# to work around it. Keep these in sync with kits/network-block.jq and the
-# `Network-block escalation hook` setup command in each kit's spec.yaml.
+# to work around it. Keep these in sync with the filter each kit ships under
+# files/system/usr/local/lib/sbxagent/network-block.jq.
 GUARD_FILTER="/usr/local/lib/sbxagent/network-block.jq"
 
 [[ -s "${GUARD_FILTER}" ]] ||
@@ -248,6 +381,24 @@ check_guard_blocks() {
 	jq -r '.systemMessage' <<<"${out}" | grep -Fq "${expected}" ||
 		fail "guard message for ${name} lacks '${expected}': ${out}"
 	pass "guard stops the turn on ${name}"
+}
+
+# A host token that is not a plain host name must stop the turn but yield no
+# policy command and never echo the token back (it came from tool output).
+check_guard_no_command() {
+	local name="$1" payload="$2" token="$3"
+	local out
+
+	out="$(guard "${payload}")" || fail "guard failed on ${name}"
+	[[ "$(jq -r '.continue' <<<"${out}")" == "false" ]] ||
+		fail "guard did not stop the turn for ${name}: ${out}"
+	if jq -r '.stopReason, .systemMessage' <<<"${out}" | grep -Fq -- "${token}"; then
+		fail "guard echoed the untrusted host for ${name}: ${out}"
+	fi
+	if jq -r '.stopReason, .systemMessage' <<<"${out}" | grep -Eq 'sbx policy (allow|rm)'; then
+		fail "guard offered a policy-changing command for ${name}: ${out}"
+	fi
+	pass "guard shows no command for ${name}"
 }
 
 check_guard_ignores() {
@@ -275,6 +426,22 @@ if jq -r '.systemMessage' <<<"${LOCAL_VERDICT}" | grep -Fq 'sbx policy allow'; t
 	fail "local-rule message must not suggest 'sbx policy allow': ${LOCAL_VERDICT}"
 fi
 pass "local-rule message removes the deny instead of allowing round it"
+
+check_guard_blocks "a blocked host with a port" \
+	'{"tool_name":"Bash","tool_input":{"command":"curl https://example.org:8443"},"tool_response":{"stderr":"Blocked by network policy: domain example.org:8443"}}' \
+	'sbx policy allow network "example.org:8443"'
+
+# The host comes from tool output, so anything that is not a plain host name
+# gets a notice with no command, in both the default-deny and local-deny paths.
+# shellcheck disable=SC2016 # the tokens are meant to stay literal
+for bad in '$(touch/tmp/x)' '`id`' 'a";rm${IFS}x;"' '**' 'api[12].example.org' '-x.example.org' 'a.test,**'; do
+	check_guard_no_command "default deny of '${bad}'" \
+		"$(jq -cn --arg e "Blocked by network policy: domain ${bad}" '{tool_name:"Bash",tool_input:{command:"curl https://x.test"},error:$e}')" \
+		"${bad}"
+	check_guard_no_command "local deny of '${bad}'" \
+		"$(jq -cn --arg e "Blocked by local rule for ${bad}" '{tool_name:"Bash",tool_input:{command:"curl https://x.test"},error:$e}')" \
+		"${bad}"
+done
 
 # Org policy is not liftable with `sbx policy allow`, so it must not be offered.
 check_guard_blocks "an org-policy block" \
@@ -369,6 +536,155 @@ check_guard_blocks "a block whose tool_response is a string" \
 
 fi # end guard-filter tests
 
+# Every kit declares an optional `github` credential: GITHUB_TOKEN (Codex:
+# GITHUB_PERSONAL_ACCESS_TOKEN) holds a proxy-managed sentinel that the proxy
+# swaps for the bound token on api.github.com and github.com. Optional, so a
+# host with nothing bound still gets a sandbox; EXPECTED_GITHUB=unbound checks
+# exactly that, and the default, bound, requires a working credential.
+# Returns 0 when the authenticated checks should run.
+github_credential_bound() {
+	local token_var="$1"
+	local token="${!token_var:-}"
+	local bound=yes
+	if [[ -z "${token}" || "${SBX_CRED_GITHUB_MODE:-}" == "none" ]]; then
+		bound=no
+	fi
+	case "${EXPECTED_GITHUB:-bound}" in
+	bound)
+		[[ "${bound}" == yes ]] ||
+			fail "no GitHub token was bound when this sandbox was created. See docs/setup.md, run \`echo \"\$(gh auth token)\" | sbx secret set github\` on the host, then \`./scripts/${KIT_NAME} rm && ./scripts/${KIT_NAME} create\`. Pass EXPECTED_GITHUB=unbound to test the unbound case instead."
+		pass "a GitHub credential was bound when this sandbox was created"
+		;;
+	unbound)
+		[[ "${bound}" == no ]] ||
+			fail "a GitHub credential is bound, but EXPECTED_GITHUB=unbound"
+		pass "the sandbox was created with no GitHub credential bound"
+		return 1
+		;;
+	*) fail "EXPECTED_GITHUB must be bound or unbound, not '${EXPECTED_GITHUB}'" ;;
+	esac
+}
+
+
+# One read-only GitHub MCP call, made by talking to github-mcp-server over
+# stdio directly, as the agent's MCP client would. Listing tools needs no
+# credential; get_me does. The proxy swaps in the bound token on
+# api.github.com whatever the server sends, so this fails only when no real
+# token is behind the sentinel. The server reads GITHUB_PERSONAL_ACCESS_TOKEN,
+# which the caller exports the way that agent's MCP config hands it over.
+check_github_mcp_authenticated() {
+	local login
+	if ! login="$(
+		python3 - <<'PY'
+import json
+import queue
+import subprocess
+import sys
+import threading
+import time
+
+deadline = time.monotonic() + 60
+server = subprocess.Popen(
+    ["github-mcp-server", "stdio"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    bufsize=1,
+)
+lines = queue.Queue()
+stderr = []
+
+
+def pump(stream, sink):
+    for line in stream:
+        sink(line)
+    if stream is server.stdout:
+        lines.put(None)
+
+
+threading.Thread(target=pump, args=(server.stdout, lines.put), daemon=True).start()
+threading.Thread(target=pump, args=(server.stderr, stderr.append), daemon=True).start()
+
+
+def fail(message):
+    server.kill()
+    time.sleep(0.2)
+    print(message, file=sys.stderr)
+    tail = "".join(stderr)[-4000:]
+    if tail:
+        print("github-mcp-server stderr:\n" + tail, file=sys.stderr)
+    sys.exit(1)
+
+
+def send(message):
+    server.stdin.write(json.dumps(message) + "\n")
+    server.stdin.flush()
+
+
+def response(request_id):
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            fail(f"no response to request {request_id} within 60 s")
+        try:
+            line = lines.get(timeout=left)
+        except queue.Empty:
+            continue
+        if line is None:
+            fail(f"github-mcp-server exited before answering request {request_id}")
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(message, dict) and message.get("id") == request_id:
+            if "error" in message:
+                fail(f"request {request_id} failed: {message['error']}")
+            return message.get("result") or {}
+
+
+send(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "sbxagent-toolchain-test", "version": "1"},
+        },
+    }
+)
+response(1)
+send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+send(
+    {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "get_me", "arguments": {}},
+    }
+)
+result = response(2)
+if result.get("isError"):
+    fail(f"get_me returned an error: {json.dumps(result)[:2000]}")
+try:
+    me = json.loads(result["content"][0]["text"])
+except (KeyError, IndexError, TypeError, ValueError):
+    fail(f"get_me returned no JSON text: {json.dumps(result)[:2000]}")
+login = me.get("login") if isinstance(me, dict) else None
+if not isinstance(login, str) or not login:
+    fail(f"get_me returned no login: {json.dumps(me)[:2000]}")
+server.stdin.close()
+server.terminate()
+print(login)
+PY
+	)"; then
+		fail "github-mcp-server could not make an authenticated GitHub request (see above)"
+	fi
+	pass "github-mcp-server reaches GitHub authenticated, as ${login}"
+}
+
 # ---------------------------------------------------------------------------
 # sbxclaude only. The guard is registered as Claude Code hook JSON in
 # /etc/claude-code/managed-settings.json, and ~/.claude.json is Claude Code's
@@ -392,8 +708,8 @@ for event in PostToolUse PostToolUseFailure; do
 	pass "guard is registered on ${event}"
 done
 
-# User-scope MCP servers baked into every sandbox via
-# kits/sbxclaude/files/home/.claude.json, so Context7 and GitHub MCP tools are
+# User-scope MCP servers merged into ~/.claude.json by an install hook, after
+# the workload's own hooks wrote the file, so Context7 and GitHub MCP tools are
 # available regardless of the target project's own MCP configuration.
 CLAUDE_JSON="${HOME}/.claude.json"
 
@@ -402,8 +718,8 @@ jq -e . "${CLAUDE_JSON}" >/dev/null 2>&1 ||
 	fail "${CLAUDE_JSON} is not valid JSON"
 pass "${CLAUDE_JSON} is valid JSON"
 
-# The parent claude kit's setup owns ~/.claude and ~/.claude.json to the agent;
-# this guards against them arriving root-owned, which the agent cannot write.
+# The workload's setup owns ~/.claude and ~/.claude.json to the agent; this
+# guards against them arriving root-owned, which the agent cannot write.
 [[ -O "${CLAUDE_JSON}" ]] || fail "${CLAUDE_JSON} is not owned by the sandbox user"
 pass "${CLAUDE_JSON} is owned by the sandbox user"
 
@@ -416,8 +732,8 @@ pass "context7 MCP server is pinned to ${EXPECTED_CONTEXT7_MCP_VERSION}"
 # Must stay byte-identical to the `github` entry in the repo's .mcp.json: the
 # sandbox mounts the project, so a project-scope entry sits alongside this
 # user-scope one and Claude Code reports conflicting endpoints if they differ.
-# GITHUB_TOKEN is the developer's PAT on the host; the entrypoint points it at
-# the proxy-managed `github` sentinel in here.
+# GITHUB_TOKEN is the developer's PAT on the host; in here the kit's `github`
+# credential sets it to the proxy-managed sentinel.
 jq -e '.mcpServers.github.command == "github-mcp-server"
 	and (.mcpServers.github.args | index("stdio") != null)
 	and .mcpServers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN == "${GITHUB_TOKEN}"' \
@@ -425,13 +741,22 @@ jq -e '.mcpServers.github.command == "github-mcp-server"
 	fail "github MCP server missing or misconfigured in ${CLAUDE_JSON}"
 pass "github MCP server is configured for local stdio"
 
+if github_credential_bound GITHUB_TOKEN; then
+	# One read-only call, so a placeholder with no real token behind it fails.
+	if ! GH_LOGIN="$(gh api user --jq .login 2>&1)"; then
+		fail "gh could not make an authenticated GitHub request: ${GH_LOGIN}"
+	fi
+	pass "gh reaches GitHub authenticated, as ${GH_LOGIN}"
+fi
+
 fi # end sbxclaude-only
 
 # ---------------------------------------------------------------------------
 # sbxcodex only. MCP servers live in ~/.codex/config.toml (TOML, appended by
-# `setup:`) rather than in a JSON file shipped under files/home/, because the
-# codex parent kit rewrites that file on every create. The guard is registered
-# separately, in admin-tier /etc/codex/requirements.toml.
+# an install hook) rather than in a file shipped in the kit's layer, because
+# the codex workload writes that file fresh on every create. The guard is
+# registered separately, in admin-tier /etc/codex/requirements.toml, which the
+# kit ships.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxcodex" ]]; then
 
@@ -470,16 +795,16 @@ CODEX_TOML="${HOME}/.codex/config.toml"
 [[ -s "${CODEX_TOML}" ]] || fail "${CODEX_TOML} is missing (${REBUILD_HINT})"
 pass "${CODEX_TOML} exists"
 
-# The parent codex kit's setup owns ~/.codex to the agent; this guards against
+# The workload's install hook writes ~/.codex as the agent; this guards against
 # it arriving root-owned, which the agent cannot write.
 [[ -O "${CODEX_TOML}" ]] || fail "${CODEX_TOML} is not owned by the sandbox user"
 pass "${CODEX_TOML} is owned by the sandbox user"
 
-# The parent kit's seeding step must have run — without it Codex has no
+# The workload's seeding hook must have run — without it Codex has no
 # yolo-mode config at all.
 grep -Fqx 'approval_policy = "never"' "${CODEX_TOML}" ||
-	fail "${CODEX_TOML} lacks the parent's yolo-mode keys (${REBUILD_HINT})"
-pass "parent seeding step ran"
+	fail "${CODEX_TOML} lacks the workload's yolo-mode keys (${REBUILD_HINT})"
+pass "the workload's seeding hook ran"
 
 grep -Fqx '[mcp_servers.context7]' "${CODEX_TOML}" ||
 	fail "context7 MCP server missing from ${CODEX_TOML}"
@@ -488,7 +813,8 @@ grep -Fq "@upstash/context7-mcp@${EXPECTED_CONTEXT7_MCP_VERSION}" "${CODEX_TOML}
 pass "context7 MCP server is pinned to ${EXPECTED_CONTEXT7_MCP_VERSION}"
 
 # Codex's `env` table is static — it does not expand ${VAR} — so the token is
-# inherited by name via env_vars and exported by the entrypoint instead.
+# inherited by name via env_vars, and the kit's `github` credential sets that
+# very name.
 grep -Fqx '[mcp_servers.github]' "${CODEX_TOML}" ||
 	fail "github MCP server missing from ${CODEX_TOML}"
 grep -Fqx 'command = "github-mcp-server"' "${CODEX_TOML}" ||
@@ -497,15 +823,26 @@ grep -Fqx 'env_vars = ["GITHUB_PERSONAL_ACCESS_TOKEN"]' "${CODEX_TOML}" ||
 	fail "github MCP server does not inherit GITHUB_PERSONAL_ACCESS_TOKEN in ${CODEX_TOML}"
 pass "github MCP server is configured for local stdio"
 
+# Like direct sbxcodex exec, env launches gh without starting a shell to set
+# GH_TOKEN. Check gh and the MCP server separately.
+[[ "$(command -v gh)" == /usr/local/bin/gh ]] ||
+	fail "the Codex gh launcher is missing from PATH (${REBUILD_HINT})"
+if github_credential_bound GITHUB_PERSONAL_ACCESS_TOKEN; then
+	if ! GH_LOGIN="$(env -u GH_TOKEN -u GITHUB_TOKEN gh api user --jq .login 2>&1)"; then
+		fail "direct gh could not make an authenticated GitHub request: ${GH_LOGIN}"
+	fi
+	pass "direct gh reaches GitHub authenticated, as ${GH_LOGIN}"
+	check_github_mcp_authenticated
+fi
+
 fi # end sbxcodex-only
 
 # ---------------------------------------------------------------------------
-# sbxcursor only. MCP servers ship as files/home/.cursor/mcp.json — the cursor
-# parent only writes ~/.cursor/cli-config.json, a different file, so a shipped
-# copy is safe here in a way it is not for Codex. The other assertions cover
-# what the cursor parent kit's own setup supplies: ~/.cursor ownership, the
-# workspace pre-trust file, and the cli-config.json it ships as a
-# `setup.files:` entry.
+# sbxcursor only. MCP servers ship in the kit's layer as ~/.cursor/mcp.json —
+# the cursor workload only writes ~/.cursor/cli-config.json, a different file,
+# so a shipped copy is safe here in a way it is not for Codex. The other
+# assertions cover what the cursor workload supplies: ~/.cursor ownership, the
+# workspace pre-trust file, and cli-config.json.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxcursor" ]]; then
 
@@ -516,8 +853,8 @@ jq -e . "${CURSOR_JSON}" >/dev/null 2>&1 ||
 	fail "${CURSOR_JSON} is not valid JSON"
 pass "${CURSOR_JSON} is valid JSON"
 
-# Guards against root-owned files under ~/.cursor after the kit's files/home/
-# tree is copied in (see kits/sbxcursor/spec.yaml).
+# Guards against root-owned files under ~/.cursor: the kit's layer and the
+# workload's install hook both touch that directory.
 [[ -O "${CURSOR_JSON}" ]] || fail "${CURSOR_JSON} is not owned by the sandbox user"
 pass "${CURSOR_JSON} is owned by the sandbox user"
 
@@ -538,18 +875,22 @@ jq -e '.mcpServers.github.command == "github-mcp-server"
 	fail "github MCP server missing or misconfigured in ${CURSOR_JSON}"
 pass "github MCP server is configured for local stdio"
 
-# Replicated parent step. Without it, agent traffic does not go through the
-# forward proxy.
+# The workload's seeded file. Without it, agent traffic does not go through
+# the forward proxy.
 CURSOR_CLI_CONFIG="${HOME}/.cursor/cli-config.json"
 jq -e '.network.useHttp1ForAgent == true' "${CURSOR_CLI_CONFIG}" >/dev/null 2>&1 ||
 	fail "${CURSOR_CLI_CONFIG} does not force HTTP/1.1 for the agent (${REBUILD_HINT})"
 pass "cli-config.json forces HTTP/1.1 so traffic uses the forward proxy"
 
-# Replicated parent step. `--yolo` does not bypass the workspace trust gate, so
-# without this every interactive session opens with a trust prompt. The slug is
-# the workspace path with the leading slash dropped and the rest turned into "-".
-CURSOR_TRUST_SLUG="${PWD#/}"
-CURSOR_TRUST_FILE="${HOME}/.cursor/projects/${CURSOR_TRUST_SLUG//\//-}/.workspace-trusted"
+# The workload's pre-trust hook. `--yolo` does not bypass the workspace trust
+# gate, so without this every interactive session opens with a trust prompt.
+# The slug is computed the way that hook does it: every run of characters
+# outside A-Za-z0-9 becomes one "-", trimmed at both ends. It lives under
+# ~/.cursor/projects, which is the host trace mount.
+CURSOR_TRUST_SLUG="$(printf '%s' "${PWD}" | LC_ALL=C tr -c 'A-Za-z0-9' '-' | tr -s '-')"
+CURSOR_TRUST_SLUG="${CURSOR_TRUST_SLUG#-}"
+CURSOR_TRUST_SLUG="${CURSOR_TRUST_SLUG%-}"
+CURSOR_TRUST_FILE="${HOME}/.cursor/projects/${CURSOR_TRUST_SLUG}/.workspace-trusted"
 [[ -s "${CURSOR_TRUST_FILE}" ]] ||
 	fail "workspace is not pre-trusted: ${CURSOR_TRUST_FILE} missing (${REBUILD_HINT})"
 pass "workspace is pre-trusted, so the TUI skips its trust prompt"
@@ -570,18 +911,29 @@ for server in context7 github; do
 done
 pass "context7 and github are pre-approved, so the TUI does not prompt for them"
 
+if github_credential_bound GITHUB_TOKEN; then
+	if ! GH_LOGIN="$(gh api user --jq .login 2>&1)"; then
+		fail "gh could not make an authenticated GitHub request: ${GH_LOGIN}"
+	fi
+	pass "gh reaches GitHub authenticated, as ${GH_LOGIN}"
+	# mcp.json hands GITHUB_TOKEN to the server under its own name.
+	export GITHUB_PERSONAL_ACCESS_TOKEN="${GITHUB_TOKEN:-}"
+	check_github_mcp_authenticated
+fi
+
 fi # end sbxcursor-only
 
 # ---------------------------------------------------------------------------
-# sbxpi only. Pi has no parent kit, so its config lives directly under
-# files/home/.pi/agent/ (models.json, settings.json, mcp.json), and the
-# `github` credential the siblings inherit is declared by the kit itself.
+# sbxpi only. The workload writes settings.json and registers its MCP gateway
+# in mcp.json; the kit merges its own staged copies over both, and ships
+# models.json directly under files/home/.pi/agent/.
 # ---------------------------------------------------------------------------
 if [[ "${KIT_NAME}" == "sbxpi" ]]; then
 
-check_tool_version pi "${EXPECTED_PI_VERSION}" pi --version
+# The workload floats, so Pi's version is not pinned here.
+check_tool pi pi --version
 
-# Pi comes from the base image's `npm install -g`, not from a kit step. Checked
+# Pi comes from the workload's `npm install -g`, not from a kit step. Checked
 # through known roots only, never a filesystem search, so nothing in the
 # user's project can satisfy or trip it. `readlink -f` is fine here: this test
 # runs inside the Linux sandbox.
@@ -591,15 +943,11 @@ PI_PACKAGE_DIR="$(readlink -f "$(npm root -g)/@earendil-works/pi-coding-agent")"
 PI_ON_PATH="$(command -v pi)"
 PI_REAL="$(readlink -f "${PI_ON_PATH}")"
 [[ "${PI_REAL}" == "${PI_PACKAGE_DIR}/"* ]] ||
-	fail "pi on PATH (${PI_ON_PATH} -> ${PI_REAL}) is not the base image's install in ${PI_PACKAGE_DIR} (${REBUILD_HINT})"
-pass "pi on PATH is the base image's npm install"
-
-[[ "$(readlink -f /usr/local/bin/pi)" == "${PI_REAL}" ]] ||
-	fail "/usr/local/bin/pi does not resolve to ${PI_REAL} (${REBUILD_HINT})"
-pass "/usr/local/bin/pi resolves to the same install"
+	fail "pi on PATH (${PI_ON_PATH} -> ${PI_REAL}) is not the workload's install in ${PI_PACKAGE_DIR} (${REBUILD_HINT})"
+pass "pi on PATH is the workload's npm install"
 
 [[ ! -e /opt/pi ]] ||
-	fail "/opt/pi exists, so there is a second Pi install besides the base image's (${REBUILD_HINT})"
+	fail "/opt/pi exists, so there is a second Pi install besides the workload's (${REBUILD_HINT})"
 pass "there is no second Pi install under /opt/pi"
 
 # Context7 lists Pi as a peer dependency. Pi suppresses peer installs for its
@@ -617,8 +965,8 @@ check_tool gh gh --version
 
 # Pi's file-search tool downloads `fd` from GitHub releases at first launch
 # unless it finds `fd` or `fdfind` on PATH — unpinned, and network traffic on
-# a cold start. The base image's `fd-find` is what suppresses that. It also
-# links `fd` to Ubuntu's `fdfind`, and the agent instructions name both.
+# a cold start. The workload's `fd-find` is what suppresses that. It also
+# links `fd` to Debian's `fdfind`, and the agent instructions name both.
 for fd_name in fd fdfind; do
 	command -v "${fd_name}" >/dev/null 2>&1 ||
 		fail "${fd_name} is not on PATH, though the agent instructions name it (${REBUILD_HINT})"
@@ -769,149 +1117,25 @@ pass "guard extension is registered in settings.json"
 	fail "APPEND_SYSTEM.md is missing (${REBUILD_HINT})"
 pass "APPEND_SYSTEM.md restates the no-workaround rule"
 
-# The rest needs a real GitHub token behind the proxy. GH_TOKEN is always set
-# to a placeholder in a local sandbox; SBX_CRED_GITHUB_MODE reads `none` when
-# no host secret was bound at create time, and binding one later does not
-# reach an existing sandbox.
-if [[ -z "${GH_TOKEN:-}" || "${SBX_CRED_GITHUB_MODE:-}" == "none" ]]; then
-	fail "no GitHub token was bound when this sandbox was created. See docs/setup.md, run \`echo \"\$(gh auth token)\" | sbx secret set github\` on the host, then \`./scripts/sbxpi rm && ./scripts/sbxpi create\`."
+# Pi expands GITHUB_TOKEN from mcp.json before it can start the GitHub server.
+if github_credential_bound GITHUB_TOKEN; then
+	if ! GH_STATUS="$(gh auth status 2>&1)"; then
+		fail "gh auth status failed, so gh and Pi's /share have no working GitHub credential: ${GH_STATUS}"
+	fi
+	pass "gh is authenticated through the proxy"
+
+	if ! PI_MCP_LIST="$(pi mcp list --json)"; then
+		fail "pi mcp list failed: ${PI_MCP_LIST}"
+	fi
+	printf '%s\n' "${PI_MCP_LIST}" |
+		jq -e 'any(.servers[]; .name == "github" and .state == "connected" and (.tools | length) > 0)' \
+			>/dev/null ||
+		fail "pi mcp list does not show github connected with tools: ${PI_MCP_LIST}"
+	pass "pi mcp list shows the github server connected, with tools"
+
+	# Give the direct server call the same credential Pi supplies via mcp.json.
+	GITHUB_PERSONAL_ACCESS_TOKEN="${GITHUB_TOKEN}" check_github_mcp_authenticated
 fi
-pass "a GitHub credential was bound when this sandbox was created"
-
-if ! GH_STATUS="$(gh auth status 2>&1)"; then
-	fail "gh auth status failed, so gh and Pi's /share have no working GitHub credential: ${GH_STATUS}"
-fi
-pass "gh is authenticated through the proxy"
-
-# `sbx exec` skips the entrypoint, so make the same exports it makes. mcp.json
-# expands "${GITHUB_TOKEN}" from this environment.
-export GITHUB_TOKEN="${GH_TOKEN}"
-export GITHUB_PERSONAL_ACCESS_TOKEN="${GH_TOKEN}"
-
-# Exits 1 when a config entry is invalid or an enabled server is not
-# connected; the JSON on stdout carries each server's state and error.
-if ! PI_MCP_LIST="$(pi mcp list --json)"; then
-	fail "pi mcp list failed: ${PI_MCP_LIST}"
-fi
-printf '%s\n' "${PI_MCP_LIST}" |
-	jq -e 'any(.servers[]; .name == "github" and .state == "connected" and (.tools | length) > 0)' \
-		>/dev/null ||
-	fail "pi mcp list does not show github connected with tools: ${PI_MCP_LIST}"
-pass "pi mcp list shows the github server connected, with tools"
-
-# `pi mcp list` proves the server starts and lists tools, which needs no
-# credential. One read-only call proves the proxy authenticates the server's
-# requests: it swaps in the bound token on api.github.com whatever the server
-# sends, so this fails only when no real token is behind the sentinel.
-if ! GITHUB_LOGIN="$(
-	python3 - <<'PY'
-import json
-import queue
-import subprocess
-import sys
-import threading
-import time
-
-deadline = time.monotonic() + 60
-server = subprocess.Popen(
-    ["github-mcp-server", "stdio"],
-    stdin=subprocess.PIPE,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-    bufsize=1,
-)
-lines = queue.Queue()
-stderr = []
-
-
-def pump(stream, sink):
-    for line in stream:
-        sink(line)
-    if stream is server.stdout:
-        lines.put(None)
-
-
-threading.Thread(target=pump, args=(server.stdout, lines.put), daemon=True).start()
-threading.Thread(target=pump, args=(server.stderr, stderr.append), daemon=True).start()
-
-
-def fail(message):
-    server.kill()
-    time.sleep(0.2)
-    print(message, file=sys.stderr)
-    tail = "".join(stderr)[-4000:]
-    if tail:
-        print("github-mcp-server stderr:\n" + tail, file=sys.stderr)
-    sys.exit(1)
-
-
-def send(message):
-    server.stdin.write(json.dumps(message) + "\n")
-    server.stdin.flush()
-
-
-def response(request_id):
-    while True:
-        left = deadline - time.monotonic()
-        if left <= 0:
-            fail(f"no response to request {request_id} within 60 s")
-        try:
-            line = lines.get(timeout=left)
-        except queue.Empty:
-            continue
-        if line is None:
-            fail(f"github-mcp-server exited before answering request {request_id}")
-        try:
-            message = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(message, dict) and message.get("id") == request_id:
-            if "error" in message:
-                fail(f"request {request_id} failed: {message['error']}")
-            return message.get("result") or {}
-
-
-send(
-    {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-06-18",
-            "capabilities": {},
-            "clientInfo": {"name": "sbxpi-toolchain-test", "version": "1"},
-        },
-    }
-)
-response(1)
-send({"jsonrpc": "2.0", "method": "notifications/initialized"})
-send(
-    {
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/call",
-        "params": {"name": "get_me", "arguments": {}},
-    }
-)
-result = response(2)
-if result.get("isError"):
-    fail(f"get_me returned an error: {json.dumps(result)[:2000]}")
-try:
-    me = json.loads(result["content"][0]["text"])
-except (KeyError, IndexError, TypeError, ValueError):
-    fail(f"get_me returned no JSON text: {json.dumps(result)[:2000]}")
-login = me.get("login") if isinstance(me, dict) else None
-if not isinstance(login, str) or not login:
-    fail(f"get_me returned no login: {json.dumps(me)[:2000]}")
-server.stdin.close()
-server.terminate()
-print(login)
-PY
-)"; then
-	fail "github-mcp-server could not make an authenticated GitHub request (see above)"
-fi
-pass "github-mcp-server reaches GitHub authenticated, as ${GITHUB_LOGIN}"
 
 fi # end sbxpi-only
 

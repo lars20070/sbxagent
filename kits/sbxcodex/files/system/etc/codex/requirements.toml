@@ -1,0 +1,26 @@
+# Admin-tier requirements: user and project config cannot override or disable
+# a managed hook declared here. `allow_managed_hooks_only` MUST stay above
+# every [table] header — TOML would otherwise scope it to the preceding table,
+# where Codex ignores it. The kit's install hook and tests/toolchain_test.sh
+# assert the parsed key really is top level.
+#
+# matcher is Bash-only: Codex has no local WebFetch tool, and hosted tools
+# such as WebSearch never fire hooks. Network work here goes through Bash
+# (curl, npm, pip, git). Known gap, shared with the Claude kit: PostToolUse
+# also fires for MCP tools (tool_name `mcp__*`), which this matcher does not
+# cover.
+allow_managed_hooks_only = true
+
+[features]
+hooks = true
+
+[hooks]
+managed_dir = "/usr/local/lib/sbxagent"
+
+[[hooks.PostToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "jq -f /usr/local/lib/sbxagent/network-block.jq"
+timeout = 5

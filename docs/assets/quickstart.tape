@@ -27,7 +27,7 @@ Type `sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'`
 Type "sbx secret set openai --oauth" Sleep 400ms  Enter  Sleep 2000ms
 Type "N" Sleep 400ms  Enter  Sleep 900ms
 
-Type "sbx run ghcr.io/lars20070/sbxcodex:latest"  Sleep 400ms  Enter
+Type "sbx run codex --kit ghcr.io/lars20070/sbxcodex:latest"  Sleep 400ms  Enter
 Sleep 6s                                   # Show the first lines of progress
 Hide
 Sleep 480s                                 # Cold build measured at ~5 min

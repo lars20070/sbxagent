@@ -12,22 +12,31 @@ the commit and push themselves.
 
 ## Repository Map
 
-- `kits/<command>/spec.yaml` — one Docker Sandbox Kit spec per wrapper command:
-  agent, resources, network policy, and setup commands baked into that sandbox.
-  There are four — `kits/sbxclaude/`, `kits/sbxcodex/`, `kits/sbxcursor/`,
-  `kits/sbxpi/` — and the directory name is the single source of identity: it
-  equals `name:` in the spec, the `sbx` positional operand, the sandbox-name
-  prefix, and the command you type.
-- `kits/<command>/files/` — files copied into that sandbox at kit-build time.
-- `mixins/<name>/spec.yaml` — mixin kits (`kind: mixin`) that the wrapper
-  stacks onto a sandbox kit with `--kit`. They are not published, not
-  commands, and deliberately outside `kits/` so the `kits/*/` loops in
-  `Makefile` and `.github/workflows/release.yml` never see them. There is one:
-  `mixins/open-network`, stacked when `NETWORK_ALLOWLIST=false`.
-- `args:` in each spec is how a host-side toggle reaches setup: the wrapper
-  passes `--kit-arg name=value`, and `sbx` substitutes `${{ kit.args.name }}`
-  anywhere in the spec before decoding it. `SBXAGENT_LITE` → `lite` is the
-  only one today.
+- `kits/<command>/<command>.yaml` — one schema v3 Docker Sandbox Kit
+  descriptor per wrapper command: a `kind: mixin` that stacks on Docker's
+  published agent kit (the *workload*: `claude`, `codex`, `cursor`, or
+  `docker.io/sbx/pi`) and adds network policy, credentials, install and
+  startup hooks, and agent instructions as `capabilities:`. There are four —
+  `kits/sbxclaude/`, `kits/sbxcodex/`, `kits/sbxcursor/`, `kits/sbxpi/` — and
+  the directory name is the single source of identity: it equals the
+  descriptor's file stem, the sandbox-name prefix, the published package, and
+  the command you type. v3 has no `name:` field. The stem must be unique:
+  composed kits stage their descriptors at `/usr/share/sandbox/kit/<stem>/`,
+  so two kits named `spec.yaml` collide.
+- `kits/<command>/<command>.dockerfile` — the descriptor's content recipe,
+  byte-identical in every kit. It fetches the pinned binaries and assembles
+  `files/` into the mixin's one layer: `files/system/` lands at `/`
+  root-owned, `files/home/` at `/home/agent`, `files/workspace/` is staged for
+  an install hook. Package installs are install hooks, never the recipe.
+- `mixins/<name>/<name>.yaml` — mixin kits that the wrapper stacks with a
+  second `--kit`. They are not published, not commands, and deliberately
+  outside `kits/` so the `kits/*/` loops in `.github/workflows/release.yml`
+  never see them. There is one: `mixins/open-network`, stacked when
+  `NETWORK_ALLOWLIST=false`.
+- `args:` in each descriptor is how a host-side toggle reaches the kit: the
+  wrapper passes `--kit-arg <kit>.name=value`, `sbx` substitutes
+  `${{ kit.args.name }}` in the descriptor at create, and `env:` exports the
+  value into the sandbox. `SBXAGENT_LITE` → `lite` is the only toggle today.
 - `.env.example` — template for a gitignored `.env` at the repo root: weaker
   than a real exported env var, stronger than `scripts/sbxagent`'s hardcoded
   defaults. Copy it to `.env` and edit; never commit `.env` itself.
@@ -54,10 +63,12 @@ Unknown-but-correct words go in `.cspell.json`.
 
 ## Critical Requirement
 
-Before finishing any task that touches any `kits/*/spec.yaml` or `kits/*/files/`,
-run `make validate` — it validates every kit, and it's a static schema
-check with no Docker, no `sbx login`, and no network, so there's no reason to
-skip it.
+Before finishing any task that touches anything under `kits/` or `mixins/`,
+run `make validate` — it builds every kit with Docker Buildx and checks each
+result with `kit-tck` (pinned in the kits' recipes, so it is on `PATH` in the
+sandbox). It needs Docker and the network but no `sbx` daemon and no
+`sbx login`. It cannot see how a kit composes with its workload; that needs
+the host check below.
 
 Before finishing any task that touches `scripts/sbxagent` or any other shell
 script, run `make lint` — it runs `shellcheck` and `bash -n` over every tracked
@@ -73,11 +84,26 @@ branch of `tests/toolchain_test.sh`, verify it for real, once, on the host:
 ```bash
 ./scripts/sbxclaude rm      # confirms (y/N)
 NETWORK_ALLOWLIST=false ./scripts/sbxclaude create
-make test-toolchain AGENT=claude
+NETWORK_ALLOWLIST=false make test-toolchain AGENT=claude
 ```
 
 The user has to run this — it needs the host `sbx` CLI. Ask them to, and do
 not report the task done until it has passed at least once.
+
+A change to a kit's descriptor or recipe needs the same host check for that
+kit's agent, because only a live sandbox shows how the mixin composes with
+Docker's workload (hook order, file ownership, credentials, the trace mount).
+Run each toggle explicitly, so a real export or `.env` cannot pick the case:
+
+```bash
+./scripts/sbxcodex rm
+NETWORK_ALLOWLIST=true SBXAGENT_LITE=false ./scripts/sbxcodex create
+NETWORK_ALLOWLIST=true SBXAGENT_LITE=false make test-toolchain AGENT=codex
+make test-lifecycle AGENT=codex   # host-side trace mount checks
+```
+
+Repeat with `NETWORK_ALLOWLIST=false` and with `SBXAGENT_LITE=true`, and once
+with no GitHub secret and `EXPECTED_GITHUB=unbound`.
 
 ## Portability
 
@@ -109,14 +135,14 @@ The wrapper has to run unchanged on macOS and Linux hosts.
 - Skip entries for tests, formatting, internal refactors, and documentation
   changes that do not affect users.
 - For a release, move the relevant entries to `## [X.Y.Z] - YYYY-MM-DD`.
-- Bump `VERSION` and `version:` in **every** `kits/*/spec.yaml` to match
+- Bump `VERSION` and `version:` in **every** `kits/<kit>/<kit>.yaml` to match
   `X.Y.Z` in the same commit that cuts the `## [X.Y.Z] - YYYY-MM-DD` heading
   — `make lint` fails if any of them disagree with each other or with the
   changelog.
 - Restore an empty `## [Unreleased]` heading above the new release heading.
-- Tag that commit `vX.Y.Z` once `VERSION`, all kit specs, and `CHANGELOG.md`
-  agree. **Pushing that tag publishes**, so confirm before pushing a tag
-  anywhere.
+- Tag that commit `vX.Y.Z` once `VERSION`, all kit descriptors, and
+  `CHANGELOG.md` agree. **Pushing that tag publishes**, so confirm before
+  pushing a tag anywhere.
 
 ## Releasing
 
@@ -124,7 +150,7 @@ Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which publishes
 every kit to `ghcr.io/lars20070/<kit>:X.Y.Z`, re-points `latest` at the same
 digest, and creates the GitHub Release. There is no other publish trigger.
 
-- Rehearse with `make publish-dry-run` first. It stages, validates and inspects
+- Rehearse with `make publish-dry-run` first. It stages, builds and checks
   each kit and prints what would be pushed, without a registry or credentials.
 - **The `CHANGELOG.md` section must have a body, not just a heading.** The
   Release notes are that section (`scripts/release-notes.sh`), and `verify`

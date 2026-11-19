@@ -22,7 +22,7 @@ flowchart LR
     PROJ["your project<br/>(host working tree)"]
     STATE["session traces<br/>+ message board<br/>~/.local/state/sbxagent"]
     DRV["scripts/sbxclaude<br/>scripts/sbxcodex<br/>scripts/sbxcursor<br/>scripts/sbxpi"]
-    KIT["kits/*/spec.yaml<br/>kits/*/files/"]
+    KIT["kits/*/*.yaml<br/>kits/*/files/"]
   end
 
   subgraph VM["sbx sandbox"]
@@ -63,7 +63,7 @@ flowchart LR
 
 <!-- cspell:enable -->
 
-<br>*The wrapper (amber) builds the sandbox from the matching kit spec and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board.*
+<br>*The wrapper (amber) builds the sandbox from Docker's own agent kit plus the matching kit from this repo, and attaches to it. Inside, the agent (red) runs pinned tools (teal) and talks out only through the credential and network-allowlist proxy, which lets through the agent's own LLM API and GitHub (grey) and blocks everything else. Your project (blue) is mounted straight into the sandbox and edited in place. A wrapper-managed host state folder (blue) is also mounted there, preserving each agent's native session traces and hosting a message board.*
 
 ## Contents
 
@@ -87,10 +87,10 @@ There are two ways to start a sandbox. Both need `sbx` installed and signed in; 
 
 ```bash
 sbx settings set kit.allowedSources '["docker.io/","ghcr.io/lars20070/"]'
-sbx run ghcr.io/lars20070/sbxcodex:latest
+sbx run codex --kit ghcr.io/lars20070/sbxcodex:latest
 ```
 
-Nothing to clone or install on the host. Run these two commands from the project directory you want the agent to work in. The first line runs once per host and allows `sbx` to load kits from this publisher. The second line builds a sandbox for the current directory and attaches to it. See [further details here](docs/published-kits.md).
+Nothing to clone or install on the host. Run these two commands from the project directory you want the agent to work in. The first line runs once per host and allows `sbx` to load kits from this publisher. The second line builds a sandbox for the current directory from Docker's `codex` agent kit plus this kit, and attaches to it. For the others, swap in `claude` or `cursor` with the matching kit; Pi runs as `sbx run docker.io/sbx/pi --kit ghcr.io/lars20070/sbxpi:latest`. See [further details here](docs/published-kits.md).
 
 ### (2) Clone the repo and use the wrapper
 
@@ -113,7 +113,7 @@ sbxcodex exec bash
 
 You need macOS 14 or later on Apple silicon, or Linux on x86_64 or aarch64 with KVM available. Docker Desktop is not required. Install the `sbx` CLI and sign in.
 
-> **sbx v0.50.0 is required.** sbx is experimental. A later version may break `sbxagent`.
+> **sbx v0.54.0 is required.** sbx is experimental. A later version may break `sbxagent`. On sbx v0.50.0, use the last release built for it, [`0.4.14`](https://github.com/lars20070/sbxagent/releases/tag/v0.4.14).
 
 [macOS:](https://docs.docker.com/ai/sandboxes/install/#install-on-macos)
 
@@ -147,7 +147,7 @@ All four commands take the same signatures. `sbx<agent>` below is any of `sbxcla
 | `sbx<agent> inspect` | Show the sandbox's state |
 | `sbx<agent> policy log` | Show the sandbox policy log |
 | `sbx<agent> policy check HOST` | Check sandbox network access to `HOST` |
-| `sbx<agent> kit validate` | Check the kit against the current schema (offline) |
+| `sbx<agent> kit validate` | Build the kit with Docker and check it with `kit-tck` |
 | `sbx<agent> help` | Show usage |
 
 The wrapper accepts only these signatures. It does not forward prompts or agent flags. Use `sbx` and the name directly for anything outside the table. For example:
@@ -168,7 +168,7 @@ None of this table applies to a sandbox started from a published kit; see [(1) a
 | Cursor | `sbxcursor` | `AGENTS.md` | `~/.cursor/mcp.json` | no |
 | Pi | `sbxpi` | `AGENTS.md` | `~/.pi/agent/mcp.json` | yes |
 
-`sbxpi` is the odd one out twice over. It has **no parent kit** — `sbx` has no built-in Pi agent to extend, so the kit starts from Docker's own Pi image ([`docker/sbx-kits-contrib`](https://github.com/docker/sbx-kits-contrib/tree/main/pi)), pinned by digest, and installs the rest of the toolchain itself. And it **declares its own credentials**: an OpenRouter key for its models, and the `github` credential the other kits inherit from their parent. Its model and provider settings live in `~/.pi/agent/models.json` and `~/.pi/agent/settings.json`.
+Each kit is a *mixin*: it stacks on Docker's published agent kit (`claude`, `codex`, `cursor`, or `docker.io/sbx/pi`), which provides the agent itself, and adds the toolchain, network allow list, credentials and instructions. Docker's agent kits are not pinned; each new sandbox gets the latest. `sbxpi` differs in two ways. Pi is not one of `sbx`'s built-in agent names, so its agent kit is named by its registry reference. And it declares an optional OpenRouter key for its models; Docker's Pi kit adds an optional Anthropic key and allows Anthropic's API. Its model and provider settings live in `~/.pi/agent/models.json` and `~/.pi/agent/settings.json`.
 
 A `yes` means a guard runs, not that it cannot be escaped. [docs/agents.md](docs/agents.md) says how strong each one is, why the four CLIs differ, and what every guard misses.
 

@@ -5,17 +5,18 @@ change them. See [README.md](../README.md) to get a sandbox running first.
 
 ## What each sandbox gets
 
-Every kit installs the same tools (three of them only with `SBXAGENT_LITE=false`;
-here it is `false`):
+Docker's agent kit (the *workload*) brings the agent and a small base: `git`,
+`gh`, `curl`, `jq`, `ripgrep`, `tree` and Docker. Every kit in this repo adds
+the same tools on top (three of them only with `SBXAGENT_LITE=false`):
 
 | Tool | For | Version | `SBXAGENT_LITE` |
 | --- | --- | --- | --- |
-| `curl`, `jq`, `pandoc`, `python3`, `python3-yaml`, `ripgrep`, `shellcheck`, `tree` | shell and script work | tracks the distribution | either |
+| `pandoc`, `python3`, `python3-yaml`, `shellcheck`, `uv`, `node`, `npm` | shell and script work | tracks the distribution | either |
 | `ruff`, `yamllint` | Python lint and format, YAML lint | pinned below | either |
 | `markdownlint-cli2`, `cspell` | Markdown and spelling checks | pinned below | either |
-| `sbx` | daemon-free commands, such as `kit validate --offline` and `kit inspect --offline`, so `make validate` runs in-sandbox | pinned below | either |
-| `fd-find` (`fd`, `fdfind`) | `sbxpi` only, from Docker's Pi image; the file finder Pi expects | frozen with the image digest | either |
-| `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the base image | either |
+| `sbx`, `kit-tck` | daemon-free kit commands; `kit-tck` checks a built kit, so `make validate` runs in-sandbox | pinned below | either |
+| `fd-find` (`fd`, `fdfind`) | `sbxpi` only, from Docker's Pi workload; the file finder Pi expects | tracks the workload | either |
+| `go` | Go builds; the version `go.mod` asks for is fetched on demand | tracks the distribution | either |
 | Playwright, with headless Chromium | loading pages and taking screenshots of UI changes | pinned below | `false` |
 | `mmdc` (mermaid-cli) | rendering Mermaid to PNG or SVG, reusing that same Chromium | pinned below | `false` |
 | XeTeX (`texlive-xetex`, `texlive-fonts-recommended`, `texlive-latex-extra`, `lmodern`) | `pandoc … --pdf-engine=xelatex` PDF output | tracks the distribution | `false` |
@@ -40,7 +41,9 @@ the default), and half the host memory capped at 32 GiB.
 
 Network access is an allowlist, not the open internet, unless the sandbox was
 created with `NETWORK_ALLOWLIST=false` — that stacks the `mixins/open-network`
-mixin kit, which allows every host (deny rules still win). Every kit rewrites
+mixin kit, which allows every host (deny rules still win). `HOST_CHROME_ACCESS=true` stacks
+`mixins/host-chrome`, which adds `socat` and the Playwright MCP server so the
+agent can drive a Chrome on the host (see [host-chrome.md](host-chrome.md)). Every kit rewrites
 GitHub SSH remotes to HTTPS for the sandbox user, so `git fetch` works on the
 allowlisted port 443 without changing the host checkout. On `sbxclaude`,
 `sbxcodex` and `sbxpi`, a root-owned guard catches a blocked request and prints
@@ -56,88 +59,71 @@ native Pi package rather than an MCP server, and the GitHub MCP server, next
 to `gh`, is registered in `~/.pi/agent/mcp.json`, which a trusted project's
 `.pi/mcp.json` can override.
 
-Each kit spec lives in `kits/<command>/spec.yaml`. `scripts/sbxagent` wraps the
-`sbx` CLI and builds, or re-attaches to, one sandbox per project, named
+Each kit is a schema v3 mixin: a descriptor, `kits/<command>/<command>.yaml`,
+and a content recipe, `kits/<command>/<command>.dockerfile`, which `sbx`
+builds with Docker Buildx. `scripts/sbxagent` wraps the `sbx` CLI and stacks
+the kit on its agent's workload (`claude`, `codex`, `cursor`, or
+`docker.io/sbx/pi`), building, or re-attaching to, one sandbox per project, named
 `<command>-<project_directory>-<hash>`. The hash comes from the
 canonical absolute path, so same-named directories do not share a sandbox, and
 the command name is the prefix, so the four agents never collide.
-
-To give a sandbox a fixed CPU and memory size instead of the host-derived
-default above, uncomment the `resources:` block in that kit's `spec.yaml` and
-rebuild.
 
 ## Pinned versions
 
 Directly installed tools are pinned so sandbox rebuilds and CI lint use the
 same known versions. All four kits pin the same shared versions; `sbxpi`
-adds two of its own: the digest of the image Pi comes in, and Pi's Context7
-package.
+adds Pi's Context7 package.
 
 | Tool | Where pinned | Version |
 | --- | --- | --- |
-| `sbx` (in-sandbox) | `kits/*/spec.yaml` | `v0.50.0` (SHA-256 verified) |
-| `ruff` | `kits/*/spec.yaml` | `0.16.8` |
-| `yamllint` | `kits/*/spec.yaml` | `1.38.0` |
-| `markdownlint-cli2` | `kits/*/spec.yaml`, CI | `0.23.3` |
-| `cspell` | `kits/*/spec.yaml`, CI | `10.3.3` |
-| `playwright` (+ Chromium) | `kits/*/spec.yaml` | `1.63.0` |
-| `mermaid-cli` (`mmdc`) | `kits/*/spec.yaml` | `11.17.0` |
+| `sbx` (in-sandbox) | `kits/*/*.dockerfile` | `v0.54.0` (SHA-256 verified) |
+| `kit-tck` | `kits/*/*.dockerfile`, CI | `3.0.0-m.12` (SHA-256 verified) |
+| `docker/sandbox-kit` frontend | `# syntax=` line of `kits/*/*.yaml`, `mixins/*/*.yaml` | `3` at `sha256:8561468d…` (kit-spec `v3.0.0-m.12`) |
+| `ruff` | `kits/*/*.yaml` | `0.16.8` |
+| `yamllint` | `kits/*/*.yaml` | `1.38.0` |
+| `markdownlint-cli2` | `kits/*/*.yaml`, CI | `0.23.3` |
+| `cspell` | `kits/*/*.yaml`, CI | `10.3.3` |
+| `playwright` (+ Chromium) | `kits/*/*.yaml` | `1.63.0` |
+| `mermaid-cli` (`mmdc`) | `kits/*/*.yaml` | `11.17.0` |
 | Context7 MCP | `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `kits/*/` MCP configs | `4.1.1` |
-| `github-mcp-server` | `kits/*/spec.yaml` | `1.12.2` (SHA-256 verified) |
-| `@earendil-works/pi-coding-agent` | `kits/sbxpi/spec.yaml`, as the `docker.io/sbx/pi-image` digest in `sandbox.image` | `1.4.0` |
-| `@upstash/context7-pi` | `kits/sbxpi/spec.yaml` | `0.1.3` |
+| `github-mcp-server` | `kits/*/*.dockerfile` | `1.12.2` (SHA-256 verified) |
+| `@upstash/context7-pi` | `kits/sbxpi/sbxpi.yaml` | `0.1.3` |
 | `esbuild` (TypeScript lint) | `Makefile` | `0.28.2`, fetched via `npx` |
 
 Intentional exceptions that stay on latest:
 
-- CI `validate` installs the latest host `sbx` CLI so schema drift fails CI
-  as soon as a new schema ships
-- `extends: claude`, `extends: codex` and `extends: cursor`, the CI runner
-  images, the packages those runners provide, and the host `sbx` install remain
-  floating integration surfaces
+- Docker's workloads, `claude`, `codex`, `cursor` and `docker.io/sbx/pi`,
+  float: each new sandbox gets the latest, and the wrapper passes
+  `--pull always` so a cached copy is refreshed. That includes the agents
+  themselves, Pi among them. The CI runner images, the packages those runners
+  provide, and the host `sbx` install float too
 - the host's own `github-mcp-server` comes from Homebrew and floats; only the
   in-sandbox copy is pinned, so the two can drift a version apart
-- `sbxpi`'s own apt packages track the distribution. Its base image does not
-  float, though: `docker.io/sbx/pi-image` is pinned by digest, which freezes
-  Pi, the npm dependency tree Pi resolved without a lockfile, `fd-find` and
-  the `docker/sandbox-templates:shell-docker` template beneath them, all
-  together. Template fixes reach `sbxpi` only when that digest is bumped
-- `go` comes from the base image and is deliberately not pinned by any kit.
+- apt packages, installed by each kit's install hooks, track the
+  distribution
+- `go` comes from Debian's `golang-go` and is deliberately not pinned.
   A project's `go.mod` is the pin: since Go 1.21, `GOTOOLCHAIN=auto` fetches
   the version it names from `proxy.golang.org`, which every kit allowlists.
   A kit pin would be a second pin that never wins
 
 To bump a pin:
 
-1. Update the version, and the `sbx` checksums, in **all four**
-   `kits/*/spec.yaml`. The `sbx` digest is also pinned as `SBX_SHA256` in
-   `.github/workflows/release.yml`, next to `SBX_VERSION`; bump both there
-   too, or the release workflow refuses the download.
+1. Update the version in **all four** kits. Binaries fetched at build time
+   (`sbx`, `github-mcp-server`, `kit-tck`) and their SHA-256 checksums live
+   in the recipe, `kits/<kit>/<kit>.dockerfile`, which is byte-identical in
+   every kit (`make lint` checks it). Tools installed at create time live in
+   the descriptor, `kits/<kit>/<kit>.yaml`. The `sbx` digest is also pinned
+   as `SBX_SHA256` in `.github/workflows/release.yml`, next to
+   `SBX_VERSION`; bump both there too, or the release workflow refuses the
+   download.
 2. Keep the `tests/toolchain_test.sh` expectations in sync.
 3. Rebuild the sandboxes.
 4. Run `make lint`, `make test-unit` and `make validate`, then
    `make test-toolchain AGENT=<agent>` once per agent.
 
-Pi is bumped by image digest, not by version number. The image tag is rebuilt
-nightly against Pi's newest release, so read the version out of both platform
-images before pinning. This reads Pi's `package.json` without running either
-image, so it needs no CPU emulation, but it does need a running Docker engine
-on the host:
-
-```bash
-docker buildx imagetools inspect docker.io/sbx/pi-image:latest   # note the top "Digest:"
-D=sha256:<index digest>
-for p in linux/amd64 linux/arm64; do
-  c=$(docker create --platform "$p" "docker.io/sbx/pi-image@$D")
-  docker cp "$c:/usr/local/share/npm-global/lib/node_modules/@earendil-works/pi-coding-agent/package.json" - \
-    | tar -xO | jq -r '"\(.name) \(.version)"'
-  docker rm "$c" >/dev/null
-done
-```
-
-Pin the index digest only if both platforms print the version you want. Put
-it in `sandbox.image` in `kits/sbxpi/spec.yaml`, and set
-`EXPECTED_PI_VERSION` in `tests/toolchain_test.sh` to match.
+The frontend on each descriptor's `# syntax=` line is pinned by digest
+because it produces the published bytes. Bump it deliberately, to the
+kit-spec version the pinned `sbx` bundles, and move `kit-tck` with it.
 
 ## Rebuild after kit changes
 
@@ -148,13 +134,12 @@ sbxclaude rm   # confirms (y/N)
 sbxclaude      # recreates from the kit and attaches
 ```
 
-Pin bumps in `kits/*/spec.yaml` only take effect after this rebuild, and so
-do the create-time settings `SBXAGENT_LITE`, `CROSS_SANDBOX_VISIBILITY` and
-`NETWORK_ALLOWLIST`.
+Pin bumps in `kits/` only take effect after this rebuild, and so
+do the create-time settings `SBXAGENT_LITE`, `CROSS_SANDBOX_VISIBILITY`,
+`NETWORK_ALLOWLIST` and `HOST_CHROME_ACCESS`.
 
-Codex signs itself in on first run and stores that login inside its sandbox, so
-a `sbxcodex rm` costs you one sign-in on the next start. Claude and Cursor are
-re-seeded automatically.
+A rebuild also picks up the newest workload. `sbx` reads each agent's login
+from the credentials stored on the host, so a rebuild needs no new sign-in.
 
 ## Repo version
 

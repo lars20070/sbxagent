@@ -1,0 +1,306 @@
+# syntax=docker/sandbox-kit:3@sha256:8561468d43a0466e24dd048e3c6c2115d878ee36d71c4571195f1de2a63c2b5b
+# Schema v3 mixin for Docker's published `claude` workload:
+#   sbx run claude --kit ./kits/sbxclaude
+# The frontend above (kit-spec v3.0.0-m.12, the version sbx v0.54.0 bundles)
+# builds sbxclaude.dockerfile beside this file into the mixin's one layer.
+# Pinned by digest because it produces the published bytes; bump it
+# deliberately (docs/toolchain.md).
+schemaVersion: "3"
+kind: mixin
+version: "0.5.0"
+displayName: Claude Code with custom toolchain
+description: Claude Code with custom toolchain
+sourceUrl: https://github.com/lars20070/sbxagent
+licenses: [MIT]
+
+# Refuses any other workload, and orders this kit's install hooks after the
+# workload's own, which seed ~/.claude.json and ~/.claude/settings.json.
+requires: ["claude"]
+
+# Host-side SBXAGENT_LITE, passed by scripts/sbxagent as --kit-arg. The value
+# is exported to the container and substituted into the install hooks and
+# instructions below at create.
+args:
+  lite:
+    default: "true"
+    enum: ["true", "false"]
+    description: Skip Playwright, Chromium, mermaid-cli and XeTeX
+    env: SBXAGENT_LITE
+
+capabilities:
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      # Only while the install hooks below run. The workload's own runtime
+      # grants (deb.debian.org, dhi.io) do not cover this phase.
+      install:
+        allow:
+          # apt: Debian trixie and the Docker Hardened Images repository.
+          - "deb.debian.org:80"
+          - "dhi.io:80"
+          # npm -g installs.
+          - "registry.npmjs.org:443"
+          # uv tool installs (index + wheels).
+          - "pypi.org:443"
+          - "files.pythonhosted.org:443"
+          # Playwright downloads Chromium from these CDN mirrors.
+          - "cdn.playwright.dev:443"
+          - "playwright.download.prss.microsoft.com:443"
+      runtime:
+        allow:
+          - "registry.npmjs.org:443"
+          - "cdn.playwright.dev:443"
+          - "playwright.download.prss.microsoft.com:443"
+          # The Context7 MCP server calls its documentation API here.
+          - "context7.com:443"
+          # The GitHub MCP server, `gh` and git over HTTPS. The `github`
+          # credential below injects into both.
+          - "api.github.com:443"
+          - "github.com:443"
+          # GitHub serves page CSS/JS from this host; without it github.com
+          # pages load unstyled in the sandbox's Playwright browser.
+          - "github.githubassets.com:443"
+          - "gist.github.com:443"
+          - "gist.githubusercontent.com:443"
+          # GitHub release assets redirect here.
+          - "release-assets.githubusercontent.com:443"
+          - "pypi.org:443"
+          - "files.pythonhosted.org:443"
+          # Go modules and, since 1.21, the toolchain go.mod asks for.
+          - "proxy.golang.org:443"
+          - "sum.golang.org:443"
+          # Pi agent development
+          - "pi.dev"
+          # OpenRouter model API, for agents configured against it.
+          - "openrouter.ai:443"
+
+  # GITHUB_TOKEN holds a proxy-managed sentinel; the proxy swaps in the real
+  # token on api.github.com (bearer: gh, the GitHub MCP server) and
+  # github.com (basic: git over HTTPS). One definition of the `github` MCP
+  # server then works on the host and in here: ~/.claude.json and the
+  # project's .mcp.json both reference ${GITHUB_TOKEN}. Optional, so a host
+  # with no `sbx secret set github` still gets a sandbox.
+  - type: com.docker.sandbox/credential@1
+    optional: true
+    description: GitHub access for gh, git over HTTPS and the GitHub MCP server
+    config:
+      service: github
+      phase: runtime
+      apiKey:
+        name: GITHUB_TOKEN
+        proxyManaged: true
+        inject:
+          - domain: api.github.com
+            header: Authorization
+            format: "Bearer %s"
+          - domain: github.com
+            scheme: basic
+            username: x-access-token
+
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: |
+            set -eu
+            # Bounded so a flaky mirror is retried a few times and a hung one
+            # fails the create instead of stalling it forever.
+            apt_get() {
+              timeout 600 apt-get \
+                -o Acquire::Retries=3 \
+                -o Acquire::http::Timeout=30 \
+                -o Acquire::https::Timeout=30 \
+                "$@"
+            }
+            apt_get update
+            # nodejs-24 and npm come from the Docker Hardened Images repository;
+            # the workload ships no Node. python3-yaml gives scripts `import
+            # yaml`; it pulls Debian's python3, which becomes /usr/bin/python3.
+            # build-essential + python3-dev let uv/pip build C extensions from
+            # source when no matching wheel exists. golang-go is only a
+            # bootstrap: its GOTOOLCHAIN=auto default lets a project's go.mod
+            # fetch the Go it names from proxy.golang.org.
+            apt_get install -y --no-install-recommends \
+              build-essential \
+              golang-go \
+              nodejs-24 \
+              npm \
+              pandoc \
+              python3-dev \
+              python3-yaml \
+              shellcheck
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy]
+          description: CLI tools and Node
+        - command: |
+            set -eu
+            # Flip to "false" and rebuild the sandbox to deny WebSearch and
+            # WebFetch. Merged into the same admin-tier managed-settings.json
+            # as the network-block hook, so it survives whatever the agent or
+            # Claude Code itself writes to ~/.claude/settings.json at runtime.
+            ALLOW_WEB=true
+            [ "$ALLOW_WEB" = "false" ] || exit 0
+            f=/etc/claude-code/managed-settings.json
+            jq '.permissions.deny = ((.permissions.deny // []) + ["WebSearch", "WebFetch"] | unique)' \
+              "$f" > "$f.tmp"
+            mv "$f.tmp" "$f"
+            chmod 0644 "$f"
+            # Fail the create rather than ship a switch that silently does nothing.
+            jq -e '.permissions.deny | index("WebSearch")' "$f" >/dev/null
+            jq -e '.permissions.deny | index("WebFetch")' "$f" >/dev/null
+          user: "0"
+          description: Web access toggle (WebSearch + WebFetch)
+        - command: |
+            set -eu
+            # Fail the create rather than ship a guard that silently does nothing.
+            f=/etc/claude-code/managed-settings.json
+            jq -e '.hooks.PostToolUse[0].hooks[0].command' "$f" >/dev/null
+            jq -e '.hooks.PostToolUseFailure[0].hooks[0].command' "$f" >/dev/null
+            jq -n '{tool_name:"Bash",tool_input:{command:"curl https://probe.test"},error:"Blocked by local rule for probe.test"}' \
+              | jq -e -f /usr/local/lib/sbxagent/network-block.jq >/dev/null
+          user: "0"
+          description: Check the network-block escalation hook
+        - command: "uv tool install ruff@0.16.8 && uv tool install yamllint@1.38.0"
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy]
+          description: Ruff and yamllint
+        - command: "npm install --global markdownlint-cli2@0.23.3 cspell@10.3.3"
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, NPM_CONFIG_PREFIX]
+          description: Markdown and spelling linters
+        - command: |
+            set -eu
+            [ "${{ kit.args.lite }}" = "false" ] || exit 0
+            # --no-install-recommends skips the documentation packages, which
+            # would roughly double TeX Live's few hundred MB.
+            timeout 1200 apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 \
+              install -y --no-install-recommends \
+              texlive-xetex \
+              texlive-fonts-recommended \
+              texlive-latex-extra \
+              lmodern
+          user: "0"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy]
+          description: XeTeX for pandoc PDF output (SBXAGENT_LITE=false only)
+        - command: |
+            set -eu
+            [ "${{ kit.args.lite }}" = "false" ] || exit 0
+            npm install --global playwright@1.63.0
+            playwright install --with-deps chromium
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, NPM_CONFIG_PREFIX]
+          description: Playwright with headless Chromium (SBXAGENT_LITE=false only)
+        - command: |
+            set -eu
+            [ "${{ kit.args.lite }}" = "false" ] || exit 0
+            # PUPPETEER_SKIP_DOWNLOAD avoids fetching a second Chromium: mmdc
+            # reuses the one Playwright just installed.
+            PUPPETEER_SKIP_DOWNLOAD=1 npm install --global @mermaid-js/mermaid-cli@11.17.0
+            chromium_path="$(NODE_PATH="$(npm root -g)" node -e \
+              'console.log(require("playwright").chromium.executablePath())')"
+            mmdc_bin="$(command -v mmdc)"
+            config="$(dirname "$mmdc_bin")/mermaid-puppeteer-config.json"
+            printf '{"executablePath": "%s"}\n' "$chromium_path" > "$config"
+            # mmdc only takes its Puppeteer config via an explicit flag, so
+            # wrap the real binary to always pass it.
+            mv "$mmdc_bin" "${mmdc_bin}.real"
+            cat > "$mmdc_bin" <<WRAPPER
+            #!/bin/sh
+            exec "${mmdc_bin}.real" --puppeteerConfigFile "${config}" "\$@"
+            WRAPPER
+            chmod +x "$mmdc_bin"
+          user: "1000"
+          env: [HTTP_PROXY, HTTPS_PROXY, NO_PROXY, http_proxy, https_proxy, no_proxy, NPM_CONFIG_PREFIX]
+          description: mermaid-cli, reusing the Playwright Chromium (SBXAGENT_LITE=false only)
+        # The workload writes a fresh ~/.claude.json during its own install
+        # hooks, which run before these (see `requires`), and registers its
+        # MCP gateway there. `+` keeps that entry and every key Claude Code
+        # writes for itself, while these two definitions win. GITHUB_TOKEN
+        # stays an unexpanded literal: Claude Code expands it at read time.
+        - command: |
+            set -eu
+            cfg="$HOME/.claude.json"
+            [ -f "$cfg" ] || printf '%s\n' '{}' > "$cfg"
+            tmp="$(mktemp)"
+            jq '.mcpServers = ((.mcpServers // {}) + {
+                  "context7": {
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "@upstash/context7-mcp@4.1.1"],
+                    "env": {}
+                  },
+                  "github": {
+                    "type": "stdio",
+                    "command": "github-mcp-server",
+                    "args": ["stdio"],
+                    "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
+                  }
+                })' "$cfg" > "$tmp"
+            # cat, not mv, so the file keeps its original ownership and mode.
+            cat "$tmp" > "$cfg"
+            rm -f "$tmp"
+          user: "1000"
+          description: Register the context7 and github MCP servers
+        - command: |
+            set -eu
+            [ -n "${WORKSPACE_DIR:-}" ] || exit 0
+            [ -e "$WORKSPACE_DIR/.editorconfig" ] ||
+              cp /usr/local/share/sbxagent/workspace/.editorconfig "$WORKSPACE_DIR/.editorconfig"
+          user: "1000"
+          env: [WORKSPACE_DIR]
+          description: Add an .editorconfig when the project has none
+
+  # @2 bodies are always placed inline in the agent's profile. The workload
+  # offers both @1 and @2 guidance as optional entries, and the two versions
+  # cannot compose, so declaring @2 here selects its @2 profile.
+  - type: com.docker.sandbox/agent-context@2
+    config:
+      content: |
+        ## Sandbox environment
+        You are in a Docker Sandbox microVM. The user's project is mounted as your
+        workspace, so file edits modify the host working tree. `sudo` is
+        passwordless, and a sandbox-local Docker daemon is available.
+
+        Network egress is allowlisted by default; this sandbox may instead have
+        been created with `NETWORK_ALLOWLIST=false`, which turns that allow list
+        off. Either way, if a network request fails because its host is blocked,
+        stop and report it — do not run `sbx policy` inside the
+        sandbox, and do not work around a block by mirroring, vendoring, retrying
+        against a different host, or dropping the step. A managed hook enforces
+        this: on a block it ends the turn and prints the remedy that fits —
+        `sbx policy allow` for a default-deny, `sbx policy rm` for a local deny
+        (deny beats allow), or contact IT for organisation policy.
+
+        The in-sandbox `sbx` runs only daemon-free commands. A schema v3 kit is
+        built with `docker buildx build -f <kit>/<kit>.yaml <kit>` and checked
+        with `kit-tck validate`. All sandbox management commands, including
+        `run`, `create`, `rm`, `exec`, `inspect`, and `policy`, require the host
+        CLI and `sandboxd`; ask the user to run them on the host.
+
+        ## Preinstalled tools
+        Follow the project's own instructions and use its declared dependencies
+        first. For general development tasks, these tools are already on `PATH`:
+
+        - Search and data: `rg` (ripgrep), `jq`
+        - Shell: `shellcheck`; use `bash -n` for syntax checks
+        - Python: `python3`, `ruff` for lint and format, `uv` for packages,
+          PyYAML for YAML parsing (`import yaml`)
+        - YAML: `yamllint`
+        - Markdown and prose: `markdownlint-cli2`, `cspell`
+        - Browser, diagrams and PDF, only when the sandbox was created with
+          `SBXAGENT_LITE=false` (here it is `${{ kit.args.lite }}`): `playwright`
+          with headless Chromium — load pages, screenshot them, read console
+          output to verify UI changes — `mmdc` (mermaid-cli):
+          `mmdc -i diagram.mmd -o diagram.png` — and `xelatex`, so
+          `pandoc doc.md -o doc.pdf --pdf-engine=xelatex` works
+        - Documents: `pandoc` — convert between document formats (e.g. Markdown,
+          HTML, docx)
+        - General: `git`, `gh`, `docker`, `curl`, `node`, `npm`, `tree`
+        - Sandbox kits: `sbx` and `kit-tck`, with the restrictions above
+        - MCP servers: `context7` (up-to-date library/framework docs) and `github`
+          (GitHub API) are configured and ready to use
+
+        Prefer `rg` over recursive `grep`, `ruff` over installing another Python
+        linter or formatter, and `uv` over `pip`. Install project dependencies when
+        needed, but do not install global replacements for tools already provided.
