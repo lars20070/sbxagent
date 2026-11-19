@@ -7,7 +7,7 @@
 # deliberately (docs/toolchain.md).
 schemaVersion: "3"
 kind: mixin
-version: "0.4.14"
+version: "0.5.0"
 displayName: Cursor with custom toolchain
 description: Cursor with custom toolchain
 sourceUrl: https://github.com/lars20070/sbxagent

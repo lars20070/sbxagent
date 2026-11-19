@@ -8,6 +8,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
 **Why this release exists.** From `sbx` v0.51.0, Docker runs its agents from
 its own published kits and no longer lets a kit build on one with `extends:`.
 Every kit in this repository was built on `extends:`, so none of them load on
